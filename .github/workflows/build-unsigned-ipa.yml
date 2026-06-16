@@ -1,92 +1,45 @@
-name: Build unsigned IPA
+name: Build iOS Unsigned IPA
 
 on:
   workflow_dispatch:
-    inputs:
-      scheme:
-        description: "Xcode scheme to build"
-        required: true
-      configuration:
-        description: "Build configuration"
-        required: true
-        default: "Release"
-      project_path:
-        description: "Optional .xcodeproj or .xcworkspace path"
-        required: false
+  push:
+    branches:
+      - main
 
 jobs:
-  build:
-    runs-on: macos-15
+  build-ios:
+    runs-on: macos-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode.app
-
-      - name: Resolve project
-        id: project
-        shell: bash
+      - name: Check files
         run: |
-          set -euo pipefail
+          pwd
+          ls -lah
+          find . -maxdepth 3 -name pubspec.yaml
 
-          PROJECT_PATH="${{ inputs.project_path }}"
-          if [ -z "$PROJECT_PATH" ]; then
-            PROJECT_PATH="$(find . -maxdepth 3 \( -name '*.xcworkspace' -o -name '*.xcodeproj' \) | head -n 1)"
-          fi
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
 
-          if [ -z "$PROJECT_PATH" ]; then
-            echo "No .xcworkspace or .xcodeproj found."
-            exit 1
-          fi
+      - name: Flutter Pub Get
+        run: flutter pub get
 
-          case "$PROJECT_PATH" in
-            *.xcworkspace)
-              echo "xcode_container=-workspace" >> "$GITHUB_OUTPUT"
-              ;;
-            *.xcodeproj)
-              echo "xcode_container=-project" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "project_path must end with .xcworkspace or .xcodeproj"
-              exit 1
-              ;;
-          esac
+      - name: Build iOS no codesign
+        run: flutter build ios --release --no-codesign
 
-          echo "project_path=$PROJECT_PATH" >> "$GITHUB_OUTPUT"
-
-      - name: Build app without signing
-        shell: bash
+      - name: Create unsigned IPA
         run: |
-          set -euo pipefail
-
-          DERIVED_DATA="$RUNNER_TEMP/DerivedData"
-
-          xcodebuild \
-            "${{ steps.project.outputs.xcode_container }}" "${{ steps.project.outputs.project_path }}" \
-            -scheme "${{ inputs.scheme }}" \
-            -configuration "${{ inputs.configuration }}" \
-            -sdk iphoneos \
-            -derivedDataPath "$DERIVED_DATA" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            clean build
-
-          APP_PATH="$(find "$DERIVED_DATA/Build/Products/${{ inputs.configuration }}-iphoneos" -maxdepth 1 -name '*.app' | head -n 1)"
-          if [ -z "$APP_PATH" ]; then
-            echo "No .app was produced."
-            exit 1
-          fi
-
-          mkdir -p Payload
-          cp -R "$APP_PATH" Payload/
+          mkdir -p build/ios/ipa/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ios/ipa/Payload/
+          cd build/ios/ipa
           zip -qry unsigned.ipa Payload
 
-      - name: Upload IPA artifact
+      - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: unsigned-ipa
-          path: unsigned.ipa
-          if-no-files-found: error
+          path: build/ios/ipa/unsigned.ipa
