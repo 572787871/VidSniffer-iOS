@@ -14,25 +14,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check files
-        run: |
-          pwd
-          ls -lah
-          find . -maxdepth 3 -name pubspec.yaml
-
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
 
-      - name: Flutter Pub Get
-        run: flutter pub get
-
-      - name: Build iOS no codesign
-        run: flutter build ios --release --no-codesign
-
-      - name: Create unsigned IPA
+      - name: Build unsigned IPA
         run: |
+          set -e
+
+          echo "Current dir:"
+          pwd
+          echo "Files:"
+          ls -lah
+
+          PROJECT_DIR=$(dirname "$(find "$GITHUB_WORKSPACE" -name pubspec.yaml | head -n 1)")
+          echo "PROJECT_DIR=$PROJECT_DIR"
+
+          cd "$PROJECT_DIR"
+
+          flutter pub get
+          flutter build ios --release --no-codesign
+
           mkdir -p build/ios/ipa/Payload
           cp -R build/ios/iphoneos/Runner.app build/ios/ipa/Payload/
           cd build/ios/ipa
@@ -42,4 +45,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: unsigned-ipa
-          path: build/ios/ipa/unsigned.ipa
+          path: "**/build/ios/ipa/unsigned.ipa"
