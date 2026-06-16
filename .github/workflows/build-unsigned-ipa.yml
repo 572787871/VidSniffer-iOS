@@ -33,6 +33,7 @@ jobs:
 
           cd "$PROJECT_DIR"
 
+          flutter create --platforms=ios .
           flutter pub get
           flutter build ios --release --no-codesign
 
