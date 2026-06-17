@@ -38,18 +38,35 @@ jobs:
           flutter config --no-enable-swift-package-manager
           flutter config
 
-      - name: Build iOS app without codesigning
-        run: flutter build ios --release --no-codesign
+      - name: Prepare iOS build files
+        run: flutter build ios --release --no-codesign --config-only
+
+      - name: Build unsigned iOS app with Xcode
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/ios_xcode \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build
 
       - name: Package unsigned IPA
         run: |
           set -euo pipefail
-          APP_PATH="build/ios/iphoneos/Runner.app"
           IPA_DIR="build/ios/ipa"
           IPA_PATH="$IPA_DIR/VidSniffer-Pro-unsigned.ipa"
+          APP_PATH="$(find build -path '*/Release-iphoneos/Runner.app' -type d | head -n 1)"
 
-          if [ ! -d "$APP_PATH" ]; then
-            echo "Runner.app not found at $APP_PATH"
+          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
+            echo "Runner.app not found under build/"
+            find build -maxdepth 6 -name Runner.app -print || true
             exit 1
           fi
 
