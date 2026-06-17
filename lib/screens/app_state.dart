@@ -3,7 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:ffmpeg_kit_flutter_full_gpl/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_full_gpl/return_code.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -25,6 +28,7 @@ class VideoResource {
 
   bool get isHls => url.toLowerCase().contains('.m3u8') || quality.toLowerCase().contains('m3u8') || quality.toLowerCase().contains('hls');
   bool get isMp4 => url.toLowerCase().contains('.mp4') || quality.toLowerCase().contains('mp4');
+  bool get isTs => url.toLowerCase().contains('.ts') || quality.toLowerCase().contains('ts');
 }
 
 class DownloadTask {
@@ -134,6 +138,8 @@ class AppState extends ChangeNotifier {
   final List<LocalVideo> files = [];
   final Map<String, CancelToken> _cancelTokens = {};
 
+  static const _backgroundChannel = MethodChannel('vidsniffer_pro/background_task');
+
   bool _restored = false;
   String downloadDirectory = '文件 App / VidSniffer Pro / videos';
   String cacheSize = '128 MB';
@@ -196,8 +202,8 @@ class AppState extends ChangeNotifier {
     final type = _mediaTypeForUrl(normalized);
     final resource = VideoResource(
       title: title.trim().isEmpty ? _titleFromUrl(normalized) : title.trim(),
-      quality: quality == '自动' ? (type == 'mp4' ? 'MP4 视频' : 'HLS m3u8') : quality,
-      size: type == 'mp4' ? '可下载' : '在线播放',
+      quality: quality == '自动' ? (type == 'mp4' ? 'MP4 视频' : (type == 'ts' ? 'TS 分片流' : 'HLS m3u8')) : quality,
+      size: type == 'mp4' ? '可分片下载' : 'FFmpeg 转 mp4',
       url: normalized,
       source: source,
     );
@@ -243,6 +249,7 @@ class AppState extends ChangeNotifier {
   }
 
   void deleteDownload(DownloadTask task) {
+    _cancelTokens[task.id]?.cancel('deleted');
     downloads.remove(task);
     _saveDownloads();
     notifyListeners();
@@ -281,8 +288,8 @@ class AppState extends ChangeNotifier {
       return;
     }
 
-    if (_isHls(task)) {
-      await _saveStreamingResource(task);
+    if (_isFfmpegResource(task)) {
+      await _downloadWithFfmpeg(task, uri);
       return;
     }
 
@@ -293,37 +300,12 @@ class AppState extends ChangeNotifier {
       final file = File('${dir.path}/${_safeFileName(task, _extensionFromUrl(task.url))}');
       final cancelToken = CancelToken();
       _cancelTokens[task.id] = cancelToken;
-      final dio = Dio(
-        BaseOptions(
-          connectTimeout: const Duration(seconds: 18),
-          receiveTimeout: const Duration(minutes: 30),
-          headers: {
-            HttpHeaders.userAgentHeader: _mobileUserAgent,
-            HttpHeaders.acceptHeader: 'video/*,application/octet-stream,*/*',
-            HttpHeaders.refererHeader: _originForUri(uri),
-          },
-          followRedirects: true,
-        ),
-      );
-      final started = DateTime.now();
-      await dio.download(
-        task.url,
-        file.path,
-        deleteOnError: true,
-        onReceiveProgress: (received, total) {
-          if (total > 0) {
-            task.progress = (received / total).clamp(0.0, 1.0).toDouble();
-          } else {
-            task.progress = (task.progress + 0.01).clamp(0.0, 0.94).toDouble();
-          }
-          final seconds = DateTime.now().difference(started).inMilliseconds / 1000;
-          final mbps = seconds <= 0 ? 0 : received / seconds / 1024 / 1024;
-          task.speed = '${mbps.toStringAsFixed(1)} MB/s';
-          notifyListeners();
-        },
-        options: Options(responseType: ResponseType.bytes),
-        cancelToken: cancelToken,
-      );
+      final backgroundTaskId = await _beginBackgroundTask();
+      try {
+        await _downloadRangeFile(task, uri, file, cancelToken);
+      } finally {
+        await _endBackgroundTask(backgroundTaskId);
+      }
       final fileExists = await file.exists();
       final fileSize = fileExists ? await file.length() : 0;
       if (!fileExists || fileSize == 0) {
@@ -357,16 +339,159 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> _saveStreamingResource(DownloadTask task) async {
-    task.completed = true;
-    task.progress = 1;
-    task.speed = '在线播放资源';
-    task.size = 'stream';
-    task.localPath = '';
-    _addFileForTask(task, localPath: '');
-    await _saveDownloads();
-    await _saveFiles();
+  Future<void> _downloadRangeFile(DownloadTask task, Uri uri, File output, CancelToken cancelToken) async {
+    final dio = _downloadDio(uri);
+    final response = await dio.headUri(uri, cancelToken: cancelToken);
+    final total = _contentLength(response);
+    final acceptRanges = (response.headers.value(HttpHeaders.acceptRangesHeader) ?? '').toLowerCase().contains('bytes');
+
+    if (total <= 0 || !acceptRanges) {
+      await _downloadSingleFile(task, uri, output, cancelToken);
+      return;
+    }
+
+    final partDir = await _downloadsDirectory();
+    final workers = _workerCountForSize(total);
+    final chunkSize = (total / workers).ceil();
+    final started = DateTime.now();
+    final receivedByPart = List<int>.filled(workers, 0);
+
+    task.speed = '分片下载 ${workers} 线程';
     notifyListeners();
+
+    await Future.wait(
+      List<Future<void>>.generate(workers, (index) async {
+        final start = index * chunkSize;
+        final rawEnd = start + chunkSize - 1;
+        final end = rawEnd > total - 1 ? total - 1 : rawEnd;
+        final part = File('${partDir.path}/${task.id}.part$index');
+        final existing = await part.exists() ? await part.length() : 0;
+        if (existing >= end - start + 1) {
+          receivedByPart[index] = existing;
+          return;
+        }
+
+        final rangeStart = start + existing;
+        receivedByPart[index] = existing;
+        await dio.downloadUri(
+          uri,
+          part.path,
+          cancelToken: cancelToken,
+          options: Options(
+            responseType: ResponseType.bytes,
+            headers: {HttpHeaders.rangeHeader: 'bytes=$rangeStart-$end'},
+          ),
+          deleteOnError: false,
+          fileAccessMode: FileAccessMode.append,
+          onReceiveProgress: (received, _) {
+            receivedByPart[index] = existing + received;
+            final done = receivedByPart.fold<int>(0, (sum, value) => sum + value);
+            task.progress = (done / total).clamp(0.0, 1.0).toDouble();
+            final seconds = DateTime.now().difference(started).inMilliseconds / 1000;
+            final mbps = seconds <= 0 ? 0 : done / seconds / 1024 / 1024;
+            task.speed = '${mbps.toStringAsFixed(1)} MB/s · ${workers}线程';
+            notifyListeners();
+          },
+        );
+      }),
+    );
+
+    final sink = output.openWrite();
+    for (var index = 0; index < workers; index++) {
+      final part = File('${partDir.path}/${task.id}.part$index');
+      await sink.addStream(part.openRead());
+      await part.delete().catchError((_) => part);
+    }
+    await sink.close();
+  }
+
+  Future<void> _downloadSingleFile(DownloadTask task, Uri uri, File output, CancelToken cancelToken) async {
+    final dio = _downloadDio(uri);
+    final started = DateTime.now();
+    await dio.downloadUri(
+      uri,
+      output.path,
+      deleteOnError: true,
+      cancelToken: cancelToken,
+      options: Options(responseType: ResponseType.bytes),
+      onReceiveProgress: (received, total) {
+        if (total > 0) {
+          task.progress = (received / total).clamp(0.0, 1.0).toDouble();
+        } else {
+          task.progress = (task.progress + 0.01).clamp(0.0, 0.94).toDouble();
+        }
+        final seconds = DateTime.now().difference(started).inMilliseconds / 1000;
+        final mbps = seconds <= 0 ? 0 : received / seconds / 1024 / 1024;
+        task.speed = '${mbps.toStringAsFixed(1)} MB/s';
+        notifyListeners();
+      },
+    );
+  }
+
+  Future<void> _downloadWithFfmpeg(DownloadTask task, Uri uri) async {
+    final backgroundTaskId = await _beginBackgroundTask();
+    try {
+      task.speed = task.url.toLowerCase().contains('.ts') ? 'FFmpeg 合并 TS' : 'FFmpeg 合并 m3u8';
+      task.progress = 0.05;
+      notifyListeners();
+
+      final dir = await _videosDirectory();
+      final output = File('${dir.path}/${_safeFileName(task, 'mp4')}');
+      if (await output.exists()) {
+        await output.delete();
+      }
+
+      final command = [
+        '-y',
+        '-user_agent',
+        _ffmpegQuote(_mobileUserAgent),
+        '-headers',
+        _ffmpegQuote('Referer: ${_originForUri(uri)}'),
+        '-i',
+        _ffmpegQuote(task.url),
+        '-c',
+        'copy',
+        '-bsf:a',
+        'aac_adtstoasc',
+        '-movflags',
+        '+faststart',
+        _ffmpegQuote(output.path),
+      ].join(' ');
+
+      final completer = Completer<bool>();
+      await FFmpegKit.executeAsync(
+        command,
+        (session) async {
+          final returnCode = await session.getReturnCode();
+          completer.complete(ReturnCode.isSuccess(returnCode));
+        },
+      );
+
+      final success = await completer.future;
+      final outputExists = await output.exists();
+      final outputSize = outputExists ? await output.length() : 0;
+      if (!success || !outputExists || outputSize == 0) {
+        if (outputExists) {
+          await output.delete();
+        }
+        await _failTask(task, 'FFmpeg 转换失败，未生成 mp4');
+        return;
+      }
+
+      task.completed = true;
+      task.progress = 1;
+      task.speed = '已完成';
+      task.localPath = output.path;
+      task.size = _formatBytes(outputSize);
+      _addFileForTask(task, localPath: output.path);
+      await _saveDownloads();
+      await _saveFiles();
+      notifyListeners();
+    } catch (error) {
+      await _failTask(task, 'FFmpeg 下载失败：$error');
+    } finally {
+      await _endBackgroundTask(backgroundTaskId);
+    }
   }
 
   Future<void> _failTask(DownloadTask task, String message) async {
@@ -394,9 +519,18 @@ class AppState extends ChangeNotifier {
 
   Future<Directory> _videosDirectory() async {
     final docs = await getApplicationDocumentsDirectory();
-    await Directory('${docs.path}/downloads').create(recursive: true);
+    await _downloadsDirectory();
     await Directory('${docs.path}/cache').create(recursive: true);
     final dir = Directory('${docs.path}/videos');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
+  Future<Directory> _downloadsDirectory() async {
+    final docs = await getApplicationDocumentsDirectory();
+    final dir = Directory('${docs.path}/downloads');
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
@@ -518,6 +652,11 @@ class AppState extends ChangeNotifier {
     return lower.contains('hls') || lower.contains('m3u8');
   }
 
+  bool _isFfmpegResource(DownloadTask task) {
+    final lower = '${task.quality} ${task.url}'.toLowerCase();
+    return lower.contains('hls') || lower.contains('m3u8') || lower.contains('.ts');
+  }
+
   String _safeFileName(DownloadTask task, [String? extension]) {
     final ext = extension ?? 'mp4';
     final base = task.title.replaceAll(RegExp(r'[^a-zA-Z0-9._\-\u4e00-\u9fa5]+'), '_').replaceAll(RegExp('_+'), '_');
@@ -556,7 +695,8 @@ class AppState extends ChangeNotifier {
         lower.endsWith('.m4v') ||
         lower.endsWith('.mov') ||
         lower.endsWith('.webm') ||
-        lower.endsWith('.mkv');
+        lower.endsWith('.mkv') ||
+        lower.endsWith('.ts');
   }
 
   String _extensionFromUrl(String url) {
@@ -573,6 +713,9 @@ class AppState extends ChangeNotifier {
     if (path.endsWith('.m4v')) {
       return 'm4v';
     }
+    if (path.endsWith('.ts')) {
+      return 'ts';
+    }
     return 'mp4';
   }
 
@@ -583,6 +726,57 @@ class AppState extends ChangeNotifier {
   }
 
   String _originForUri(Uri uri) => uri.replace(path: '/', query: '', fragment: '').toString();
+
+  Dio _downloadDio(Uri uri) {
+    return Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 18),
+        receiveTimeout: const Duration(minutes: 60),
+        headers: {
+          HttpHeaders.userAgentHeader: _mobileUserAgent,
+          HttpHeaders.acceptHeader: 'video/*,application/vnd.apple.mpegurl,application/x-mpegURL,application/octet-stream,*/*',
+          HttpHeaders.refererHeader: _originForUri(uri),
+        },
+        followRedirects: true,
+      ),
+    );
+  }
+
+  int _contentLength(Response<dynamic> response) {
+    final value = response.headers.value(HttpHeaders.contentLengthHeader);
+    return int.tryParse(value ?? '') ?? 0;
+  }
+
+  int _workerCountForSize(int totalBytes) {
+    if (totalBytes >= 1024 * 1024 * 1024) {
+      return 8;
+    }
+    if (totalBytes >= 256 * 1024 * 1024) {
+      return 6;
+    }
+    return 3;
+  }
+
+  String _ffmpegQuote(String value) => '"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"';
+
+  Future<int> _beginBackgroundTask() async {
+    try {
+      return await _backgroundChannel.invokeMethod<int>('begin') ?? -1;
+    } catch (_) {
+      return -1;
+    }
+  }
+
+  Future<void> _endBackgroundTask(int identifier) async {
+    if (identifier < 0) {
+      return;
+    }
+    try {
+      await _backgroundChannel.invokeMethod<void>('end', identifier);
+    } catch (_) {
+      return;
+    }
+  }
 
   static const _mobileUserAgent =
       'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1';
@@ -627,10 +821,19 @@ class AppState extends ChangeNotifier {
         lower.endsWith('.css')) {
       return false;
     }
-    return lower.contains('.mp4') || lower.contains('.m3u8');
+    return lower.contains('.mp4') || lower.contains('.m3u8') || lower.contains('.ts');
   }
 
-  String _mediaTypeForUrl(String url) => url.toLowerCase().contains('.m3u8') ? 'm3u8' : 'mp4';
+  String _mediaTypeForUrl(String url) {
+    final lower = url.toLowerCase();
+    if (lower.contains('.m3u8')) {
+      return 'm3u8';
+    }
+    if (lower.contains('.ts')) {
+      return 'ts';
+    }
+    return 'mp4';
+  }
 
   String _titleFromUrl(String url) {
     final uri = Uri.tryParse(url);

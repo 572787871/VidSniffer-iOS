@@ -195,7 +195,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                             child: const Icon(LucideIcons.play, color: Colors.white, size: 20),
                           ),
                           PillButton(
-                            label: state.sniffedResources.first.isHls ? '保存' : '下载',
+                            label: (state.sniffedResources.first.isHls || state.sniffedResources.first.isTs) ? '转码' : '下载',
                             icon: LucideIcons.download,
                             compact: true,
                             onPressed: () => _queueDownload(context, state, state.sniffedResources.first),
@@ -309,14 +309,14 @@ class _BrowserScreenState extends State<BrowserScreen> {
         var lower = absolute.toLowerCase();
         if (lower.indexOf('blob:') === 0 || lower.indexOf('data:') === 0 || lower.indexOf('base64') !== -1) return;
         if (lower.indexOf('analytics') !== -1 || lower.indexOf('/ads/') !== -1 || lower.indexOf('doubleclick') !== -1) return;
-        if (!(lower.indexOf('.mp4') !== -1 || lower.indexOf('.m3u8') !== -1)) return;
+        if (!(lower.indexOf('.mp4') !== -1 || lower.indexOf('.m3u8') !== -1 || lower.indexOf('.ts') !== -1)) return;
         if (window.__vidsnifferSeen.has(absolute)) return;
         window.__vidsnifferSeen.add(absolute);
-        var type = lower.indexOf('.m3u8') !== -1 ? 'm3u8' : 'mp4';
+        var type = lower.indexOf('.m3u8') !== -1 ? 'm3u8' : (lower.indexOf('.ts') !== -1 ? 'ts' : 'mp4');
         VidSniffer.postMessage(JSON.stringify({
           type: type,
           url: absolute,
-          quality: type === 'm3u8' ? 'HLS m3u8' : 'MP4 视频',
+          quality: type === 'm3u8' ? 'HLS m3u8' : (type === 'ts' ? 'TS 分片流' : 'MP4 视频'),
           title: window.__vidsnifferTitle(),
           source: source
         }));
