@@ -3,8 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
-import 'package:ffmpeg_kit_flutter_full_gpl/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_full_gpl/return_code.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -139,6 +137,7 @@ class AppState extends ChangeNotifier {
   final Map<String, CancelToken> _cancelTokens = {};
 
   static const _backgroundChannel = MethodChannel('vidsniffer_pro/background_task');
+  static const _ffmpegChannel = MethodChannel('vidsniffer_pro/ffmpeg');
 
   bool _restored = false;
   String downloadDirectory = '文件 App / VidSniffer Pro / videos';
@@ -458,16 +457,7 @@ class AppState extends ChangeNotifier {
         _ffmpegQuote(output.path),
       ].join(' ');
 
-      final completer = Completer<bool>();
-      await FFmpegKit.executeAsync(
-        command,
-        (session) async {
-          final returnCode = await session.getReturnCode();
-          completer.complete(ReturnCode.isSuccess(returnCode));
-        },
-      );
-
-      final success = await completer.future;
+      final success = await _ffmpegChannel.invokeMethod<bool>('execute', {'command': command}) ?? false;
       final outputExists = await output.exists();
       final outputSize = outputExists ? await output.length() : 0;
       if (!success || !outputExists || outputSize == 0) {

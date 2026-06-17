@@ -1,4 +1,5 @@
 import Flutter
+import FFmpeg
 import UIKit
 
 @main
@@ -40,6 +41,31 @@ import UIKit
             UIApplication.shared.endBackgroundTask(task)
           }
           result(nil)
+        default:
+          result(FlutterMethodNotImplemented)
+        }
+      }
+
+      let ffmpegChannel = FlutterMethodChannel(
+        name: "vidsniffer_pro/ffmpeg",
+        binaryMessenger: controller.binaryMessenger
+      )
+      ffmpegChannel.setMethodCallHandler { call, result in
+        switch call.method {
+        case "execute":
+          guard
+            let arguments = call.arguments as? [String: Any],
+            let command = arguments["command"] as? String,
+            !command.isEmpty
+          else {
+            result(FlutterError(code: "bad_args", message: "Missing FFmpeg command", details: nil))
+            return
+          }
+
+          FFmpegKit.executeAsync(command) { session in
+            let returnCode = session?.getReturnCode()
+            result(ReturnCode.isSuccess(returnCode))
+          }
         default:
           result(FlutterMethodNotImplemented)
         }
