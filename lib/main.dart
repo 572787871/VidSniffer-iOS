@@ -40,13 +40,15 @@ class _VidSnifferProAppState extends State<VidSnifferProApp> {
         return MaterialApp(
           title: 'VidSniffer Pro',
           debugShowCheckedModeBanner: false,
-          theme: _state.darkMode ? AppTheme.darkTheme : AppTheme.lightTheme,
+          theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
+          themeMode: ThemeMode.system,
           builder: (context, child) {
             return CupertinoTheme(
               data: CupertinoThemeData(
-                brightness: _state.darkMode ? Brightness.dark : Brightness.light,
+                brightness: MediaQuery.platformBrightnessOf(context),
                 primaryColor: AppTheme.electricBlue,
-                scaffoldBackgroundColor: _state.darkMode ? AppTheme.midnight : const Color(0xfff5f7fb),
+                scaffoldBackgroundColor: MediaQuery.platformBrightnessOf(context) == Brightness.dark ? AppTheme.midnight : const Color(0xfff5f7fb),
               ),
               child: child ?? const SizedBox.shrink(),
             );

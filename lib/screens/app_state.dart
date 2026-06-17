@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class VideoResource {
@@ -30,6 +32,8 @@ class DownloadTask {
     required this.url,
     required this.speed,
     required this.progress,
+    this.localPath = '',
+    this.error = '',
     this.paused = false,
     this.completed = false,
   });
@@ -37,10 +41,12 @@ class DownloadTask {
   final String id;
   final String title;
   final String quality;
-  final String size;
+  String size;
   final String url;
   String speed;
   double progress;
+  String localPath;
+  String error;
   bool paused;
   bool completed;
 
@@ -52,6 +58,8 @@ class DownloadTask {
         'url': url,
         'speed': speed,
         'progress': progress,
+        'localPath': localPath,
+        'error': error,
         'paused': paused,
         'completed': completed,
       };
@@ -64,6 +72,8 @@ class DownloadTask {
         url: json['url'] as String? ?? '',
         speed: json['speed'] as String? ?? '等待中',
         progress: ((json['progress'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0).toDouble(),
+        localPath: json['localPath'] as String? ?? '',
+        error: json['error'] as String? ?? '',
         paused: json['paused'] as bool? ?? false,
         completed: json['completed'] as bool? ?? false,
       );
@@ -76,6 +86,7 @@ class LocalVideo {
     required this.size,
     required this.thumbnail,
     this.sourceUrl = '',
+    this.localPath = '',
   });
 
   final String title;
@@ -83,6 +94,7 @@ class LocalVideo {
   final String size;
   final String thumbnail;
   final String sourceUrl;
+  final String localPath;
 
   Map<String, Object?> toJson() => {
         'title': title,
@@ -90,6 +102,7 @@ class LocalVideo {
         'size': size,
         'thumbnail': thumbnail,
         'sourceUrl': sourceUrl,
+        'localPath': localPath,
       };
 
   static LocalVideo fromJson(Map<String, Object?> json) => LocalVideo(
@@ -98,13 +111,13 @@ class LocalVideo {
         size: json['size'] as String? ?? '未知大小',
         thumbnail: json['thumbnail'] as String? ?? '',
         sourceUrl: json['sourceUrl'] as String? ?? '',
+        localPath: json['localPath'] as String? ?? '',
       );
 }
 
 class AppState extends ChangeNotifier {
   AppState() {
     _restore();
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tickDownloads());
   }
 
   static const _downloadsKey = 'vidsniffer.downloads.v1';
@@ -116,22 +129,14 @@ class AppState extends ChangeNotifier {
   final List<DownloadTask> downloads = [];
   final List<LocalVideo> files = [];
 
-  Timer? _ticker;
   bool _restored = false;
-  bool darkMode = true;
-  String downloadDirectory = 'VidSniffer Pro / Downloads';
+  String downloadDirectory = '文件 App / VidSniffer Pro / Downloads';
   String cacheSize = '128 MB';
   bool parsing = false;
   bool browserLoading = false;
   String browserUrl = 'https://example.com/video';
 
   bool get restored => _restored;
-
-  @override
-  void dispose() {
-    _ticker?.cancel();
-    super.dispose();
-  }
 
   Future<void> parse(String url) async {
     if (url.trim().isEmpty) {
@@ -146,13 +151,13 @@ class AppState extends ChangeNotifier {
         VideoResource(
           title: _titleFromUrl(url),
           quality: '1080P MP4',
-          size: '748 MB',
+          size: '原始文件',
           url: url,
         ),
         VideoResource(
           title: '${_titleFromUrl(url)} · 备用线路',
           quality: '720P HLS',
-          size: '412 MB',
+          size: '在线播放',
           url: '$url?format=m3u8',
         ),
       ]);
@@ -170,7 +175,7 @@ class AppState extends ChangeNotifier {
       VideoResource(
         title: 'video_${sniffedResources.length + 1}_auto.m3u8',
         quality: 'HLS 自适应',
-        size: '预计 540 MB',
+        size: '在线播放',
         url: '$browserUrl/stream.m3u8',
         source: '自动嗅探',
       ),
@@ -186,20 +191,21 @@ class AppState extends ChangeNotifier {
       quality: resource.quality,
       size: resource.size,
       url: resource.url,
-      speed: '连接中',
-      progress: 0.01,
+      speed: '准备下载',
+      progress: 0,
     );
     downloads.insert(0, task);
     _saveDownloads();
     notifyListeners();
+    unawaited(_downloadToLocal(task));
   }
 
   void toggleDownload(DownloadTask task) {
-    if (task.completed) {
+    if (task.completed || task.error.isNotEmpty) {
       return;
     }
     task.paused = !task.paused;
-    task.speed = task.paused ? '已暂停' : '3.6 MB/s';
+    task.speed = task.paused ? '已暂停' : '下载中';
     _saveDownloads();
     notifyListeners();
   }
@@ -212,13 +218,10 @@ class AppState extends ChangeNotifier {
 
   void deleteFile(LocalVideo file) {
     files.remove(file);
+    if (file.localPath.isNotEmpty) {
+      unawaited(File(file.localPath).delete().catchError((_) => File(file.localPath)));
+    }
     _saveFiles();
-    notifyListeners();
-  }
-
-  void setDarkMode(bool value) {
-    darkMode = value;
-    _saveSettings();
     notifyListeners();
   }
 
@@ -232,6 +235,107 @@ class AppState extends ChangeNotifier {
     cacheSize = '0 MB';
     _saveSettings();
     notifyListeners();
+  }
+
+  Future<void> _downloadToLocal(DownloadTask task) async {
+    final uri = Uri.tryParse(task.url);
+    if (uri == null || !uri.hasScheme) {
+      _failTask(task, '不是可下载的视频直链');
+      return;
+    }
+
+    if (_isHls(task)) {
+      task.completed = true;
+      task.progress = 1;
+      task.speed = 'HLS 在线播放';
+      _addFileForTask(task, localPath: '');
+      await _saveDownloads();
+      await _saveFiles();
+      notifyListeners();
+      return;
+    }
+
+    try {
+      task.speed = '连接中';
+      notifyListeners();
+      final dir = await _downloadsDirectory();
+      final file = File('${dir.path}/${_safeFileName(task)}');
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 18);
+      final request = await client.getUrl(uri);
+      final response = await request.close();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        client.close(force: true);
+        _failTask(task, '下载失败：HTTP ${response.statusCode}');
+        return;
+      }
+
+      final total = response.contentLength;
+      var received = 0;
+      final sink = file.openWrite();
+      final started = DateTime.now();
+      await for (final chunk in response) {
+        while (task.paused) {
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+        }
+        received += chunk.length;
+        sink.add(chunk);
+        if (total > 0) {
+          task.progress = (received / total).clamp(0.0, 1.0).toDouble();
+        } else {
+          task.progress = (task.progress + 0.01).clamp(0.0, 0.94).toDouble();
+        }
+        final seconds = DateTime.now().difference(started).inMilliseconds / 1000;
+        final mbps = seconds <= 0 ? 0 : received / seconds / 1024 / 1024;
+        task.speed = '${mbps.toStringAsFixed(1)} MB/s';
+        notifyListeners();
+      }
+      await sink.close();
+      client.close(force: true);
+
+      task.completed = true;
+      task.progress = 1;
+      task.speed = '已完成';
+      task.localPath = file.path;
+      task.size = _formatBytes(await file.length());
+      _addFileForTask(task, localPath: file.path);
+      await _saveDownloads();
+      await _saveFiles();
+      notifyListeners();
+    } catch (error) {
+      _failTask(task, '下载失败：$error');
+    }
+  }
+
+  Future<void> _failTask(DownloadTask task, String message) async {
+    task.error = message;
+    task.speed = message;
+    task.paused = true;
+    await _saveDownloads();
+    notifyListeners();
+  }
+
+  void _addFileForTask(DownloadTask task, {required String localPath}) {
+    files.removeWhere((file) => file.sourceUrl == task.url || (localPath.isNotEmpty && file.localPath == localPath));
+    files.insert(
+      0,
+      LocalVideo(
+        title: _fileNameFor(task),
+        duration: '00:00',
+        size: task.size,
+        thumbnail: 'https://images.unsplash.com/photo-1519608487953-e999c86e7455?w=600',
+        sourceUrl: task.url,
+        localPath: localPath,
+      ),
+    );
+  }
+
+  Future<Directory> _downloadsDirectory() async {
+    final docs = await getApplicationDocumentsDirectory();
+    final dir = Directory('${docs.path}/Downloads');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
   }
 
   Future<void> _restore() async {
@@ -254,47 +358,11 @@ class AppState extends ChangeNotifier {
     }
     if (savedSettings != null) {
       final settings = Map<String, Object?>.from(jsonDecode(savedSettings) as Map);
-      darkMode = settings['darkMode'] as bool? ?? true;
       downloadDirectory = settings['downloadDirectory'] as String? ?? downloadDirectory;
       cacheSize = settings['cacheSize'] as String? ?? cacheSize;
     }
 
     _restored = true;
-    notifyListeners();
-  }
-
-  void _tickDownloads() {
-    var changed = false;
-    for (final task in downloads) {
-      if (task.paused || task.completed) {
-        continue;
-      }
-      final next = (task.progress + 0.018).clamp(0.0, 1.0).toDouble();
-      task.progress = next;
-      if (next >= 1) {
-        task.completed = true;
-        task.speed = '已完成';
-        files.insert(
-          0,
-          LocalVideo(
-            title: _fileNameFor(task),
-            duration: '00:00',
-            size: task.size,
-            thumbnail: 'https://images.unsplash.com/photo-1519608487953-e999c86e7455?w=600',
-            sourceUrl: task.url,
-          ),
-        );
-      } else {
-        final speed = 2.4 + (next * 3.2);
-        task.speed = '${speed.toStringAsFixed(1)} MB/s';
-      }
-      changed = true;
-    }
-    if (!changed) {
-      return;
-    }
-    _saveDownloads();
-    _saveFiles();
     notifyListeners();
   }
 
@@ -313,16 +381,36 @@ class AppState extends ChangeNotifier {
     await prefs.setString(
       _settingsKey,
       jsonEncode({
-        'darkMode': darkMode,
         'downloadDirectory': downloadDirectory,
         'cacheSize': cacheSize,
       }),
     );
   }
 
-  String _fileNameFor(DownloadTask task) {
-    final ext = task.quality.toLowerCase().contains('m3u8') ? 'm3u8' : 'mp4';
-    return '${task.title}.$ext';
+  bool _isHls(DownloadTask task) {
+    final lower = '${task.quality} ${task.url}'.toLowerCase();
+    return lower.contains('hls') || lower.contains('m3u8');
+  }
+
+  String _safeFileName(DownloadTask task) {
+    final ext = task.quality.toLowerCase().contains('m3u8') || task.url.toLowerCase().contains('m3u8') ? 'm3u8' : 'mp4';
+    final base = task.title.replaceAll(RegExp(r'[^a-zA-Z0-9._\-\u4e00-\u9fa5]+'), '_').replaceAll(RegExp('_+'), '_');
+    return '${base.isEmpty ? task.id : base}.$ext';
+  }
+
+  String _fileNameFor(DownloadTask task) => _safeFileName(task);
+
+  String _formatBytes(int bytes) {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
+    }
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+    }
+    if (bytes >= 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+    return '$bytes B';
   }
 
   String _titleFromUrl(String url) {

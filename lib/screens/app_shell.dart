@@ -37,7 +37,7 @@ class _AppShellState extends State<AppShell> {
     return AppStateScope(
       notifier: widget.state,
       child: AppBackground(
-        darkMode: widget.state.darkMode,
+        darkMode: MediaQuery.platformBrightnessOf(context) == Brightness.dark,
         child: Scaffold(
           backgroundColor: Colors.transparent,
           body: SafeArea(

@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:chewie/chewie.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import 'package:vidsniffer_pro/theme/app_icons.dart';
 
@@ -24,12 +27,15 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   @override
   void initState() {
     super.initState();
+    final localPath = widget.file.localPath.trim();
     final source = widget.file.sourceUrl.trim();
-    if (source.isEmpty) {
+    final localFile = localPath.isEmpty ? null : File(localPath);
+    final hasLocalFile = localFile != null && localFile.existsSync();
+    if (!hasLocalFile && source.isEmpty) {
       return;
     }
 
-    final controller = VideoPlayerController.networkUrl(Uri.parse(source));
+    final controller = hasLocalFile ? VideoPlayerController.file(localFile!) : VideoPlayerController.networkUrl(Uri.parse(source));
     _videoController = controller;
     _initializeFuture = controller.initialize().then((_) {
       if (!mounted) {
@@ -41,6 +47,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
         allowFullScreen: true,
         allowMuting: true,
         allowPlaybackSpeedChanging: true,
+        deviceOrientationsOnEnterFullScreen: const [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight],
+        deviceOrientationsAfterFullScreen: const [DeviceOrientation.portraitUp],
         showControlsOnInitialize: true,
         playbackSpeeds: const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0],
         materialProgressColors: ChewieProgressColors(
@@ -70,7 +78,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final hasSource = widget.file.sourceUrl.trim().isNotEmpty;
+    final localPath = widget.file.localPath.trim();
+    final hasLocalFile = localPath.isNotEmpty && File(localPath).existsSync();
+    final hasSource = hasLocalFile || widget.file.sourceUrl.trim().isNotEmpty;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -81,7 +91,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
             Expanded(
               child: Center(
                 child: !hasSource
-                    ? const _PlayerError(message: '这个文件没有可播放的源地址')
+                    ? const _PlayerError(message: '这个文件没有本地路径或可播放源地址')
                     : FutureBuilder<void>(
                         future: _initializeFuture,
                         builder: (context, snapshot) {

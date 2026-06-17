@@ -24,20 +24,17 @@ class SettingsScreen extends StatelessWidget {
             const SizedBox(height: 20),
             _SettingTile(
               icon: LucideIcons.moon,
-              title: '深色模式',
-              subtitle: state.darkMode ? '默认开启' : '已切换为浅色外观',
-              trailing: CupertinoSwitch(
-                value: state.darkMode,
-                onChanged: state.setDarkMode,
-                activeColor: AppTheme.electricBlue,
-              ),
+              title: '外观',
+              subtitle: '跟随系统设置',
+              trailingIcon: LucideIcons.checkCircle,
+              onTap: () => _showAppearance(context),
             ),
             _SettingTile(
               icon: LucideIcons.folderInput,
               title: '下载路径',
               subtitle: state.downloadDirectory,
-              trailingIcon: LucideIcons.chevronRight,
-              onTap: () => _chooseDirectory(context, state),
+              trailingIcon: LucideIcons.folderOpen,
+              onTap: () => _showDownloadPath(context, state),
             ),
             _SettingTile(
               icon: LucideIcons.sparkles,
@@ -59,33 +56,24 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  void _chooseDirectory(BuildContext context, AppState state) {
-    showCupertinoModalPopup<void>(
+  void _showAppearance(BuildContext context) {
+    showCupertinoDialog<void>(
       context: context,
-      builder: (context) => CupertinoActionSheet(
-        title: const Text('选择下载路径'),
-        message: const Text('iOS 沙盒内可保存到应用目录，导出时再发送到文件 App。'),
-        actions: [
-          for (final path in const [
-            'VidSniffer Pro / Downloads',
-            'VidSniffer Pro / Videos',
-            'iCloud Drive / VidSniffer Pro',
-          ])
-            CupertinoActionSheetAction(
-              onPressed: () {
-                state.setDownloadDirectory(path);
-                Navigator.of(context).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('下载路径已设置为：$path'), behavior: SnackBarBehavior.floating),
-                );
-              },
-              child: Text(path),
-            ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('外观'),
+        content: const Text('应用现在跟随 iOS 系统深色/浅色外观。请在系统设置里切换。'),
+        actions: [CupertinoDialogAction(onPressed: () => Navigator.of(context).pop(), child: const Text('完成'))],
+      ),
+    );
+  }
+
+  void _showDownloadPath(BuildContext context, AppState state) {
+    showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('下载路径'),
+        content: Text('${state.downloadDirectory}\n\n已启用 iOS 文件共享，安装后可在“文件”App 的“我的 iPhone / VidSniffer Pro / Downloads”查看视频。'),
+        actions: [CupertinoDialogAction(onPressed: () => Navigator.of(context).pop(), child: const Text('完成'))],
       ),
     );
   }
@@ -116,7 +104,6 @@ class _SettingTile extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.subtitle,
-    this.trailing,
     this.trailingIcon,
     this.onTap,
   });
@@ -124,7 +111,6 @@ class _SettingTile extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
-  final Widget? trailing;
   final IconData? trailingIcon;
   final VoidCallback? onTap;
 
@@ -152,7 +138,7 @@ class _SettingTile extends StatelessWidget {
               ],
             ),
           ),
-          trailing ?? Icon(trailingIcon, color: AppTheme.muted, size: 20),
+          Icon(trailingIcon, color: AppTheme.muted, size: 20),
         ],
       ),
     );

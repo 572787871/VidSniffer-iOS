@@ -1,8 +1,10 @@
+import 'dart:io';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:vidsniffer_pro/theme/app_icons.dart';
 
 import '../theme/app_theme.dart';
@@ -101,8 +103,8 @@ class _FileCard extends StatelessWidget {
                   children: [
                     _MiniAction(icon: LucideIcons.play, label: '播放', onTap: () => _openPlayer(context, file)),
                     _MiniAction(icon: LucideIcons.folderOpen, label: '打开', onTap: () => _openPlayer(context, file)),
-                    _MiniAction(icon: LucideIcons.share2, label: '分享', onTap: () => _shareFile(context, file)),
-                    _MiniAction(icon: LucideIcons.upload, label: '导出', onTap: () => _showExportNotice(context, file)),
+                    _MiniAction(icon: LucideIcons.share2, label: '分享', onTap: () => _shareFile(file)),
+                    _MiniAction(icon: LucideIcons.upload, label: '导出', onTap: () => _shareFile(file)),
                   ],
                 ),
               ],
@@ -125,33 +127,12 @@ class _FileCard extends StatelessWidget {
     );
   }
 
-  void _showOpenDetails(BuildContext context, LocalVideo file) {
-    showCupertinoDialog<void>(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('文件已打开'),
-        content: Text('${file.title}\n${file.size}\n存储位置：$directory${file.sourceUrl.isEmpty ? '' : '\n源地址：${file.sourceUrl}'}'),
-        actions: [
-          CupertinoDialogAction(onPressed: () => Navigator.of(context).pop(), child: const Text('完成')),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _shareFile(BuildContext context, LocalVideo file) async {
-    await Clipboard.setData(ClipboardData(text: '${file.title} · ${file.size}${file.sourceUrl.isEmpty ? '' : ' · ${file.sourceUrl}'}'));
-    if (!context.mounted) {
+  Future<void> _shareFile(LocalVideo file) async {
+    if (file.localPath.isNotEmpty && await File(file.localPath).exists()) {
+      await Share.shareXFiles([XFile(file.localPath)], text: file.title);
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('视频信息已复制，可粘贴到聊天或分享应用'), behavior: SnackBarBehavior.floating),
-    );
-  }
-
-  void _showExportNotice(BuildContext context, LocalVideo file) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已准备导出：${file.title}'), behavior: SnackBarBehavior.floating),
-    );
+    await Share.share('${file.title} · ${file.size}${file.sourceUrl.isEmpty ? '' : ' · ${file.sourceUrl}'}');
   }
 }
 

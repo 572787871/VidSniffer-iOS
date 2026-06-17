@@ -31,9 +31,9 @@ class _HomeScreenState extends State<HomeScreen> {
     state.addDownload(resource);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('已加入下载：${resource.quality}'),
+        content: Text('已开始下载：${resource.quality}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
         behavior: SnackBarBehavior.floating,
-        backgroundColor: AppTheme.panelStrong,
+        backgroundColor: AppTheme.electricBlue,
       ),
     );
   }
