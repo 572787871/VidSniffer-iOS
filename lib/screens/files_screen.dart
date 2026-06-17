@@ -102,9 +102,9 @@ class _FileCard extends StatelessWidget {
                   runSpacing: 8,
                   children: [
                     _MiniAction(icon: LucideIcons.play, label: '播放', onTap: () => _openPlayer(context, file)),
-                    _MiniAction(icon: LucideIcons.folderOpen, label: '打开', onTap: () => _openPlayer(context, file)),
+                    _MiniAction(icon: LucideIcons.folderOpen, label: '位置', onTap: () => _showLocation(context, file)),
                     _MiniAction(icon: LucideIcons.share2, label: '分享', onTap: () => _shareFile(file)),
-                    _MiniAction(icon: LucideIcons.upload, label: '导出', onTap: () => _shareFile(file)),
+                    _MiniAction(icon: LucideIcons.upload, label: '导出', onTap: () => _exportFile(context, file)),
                   ],
                 ),
               ],
@@ -127,12 +127,42 @@ class _FileCard extends StatelessWidget {
     );
   }
 
+  void _showLocation(BuildContext context, LocalVideo file) {
+    showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('文件位置'),
+        content: Text(
+          file.localPath.isEmpty
+              ? '这个视频还没有本地文件。'
+              : 'iOS 文件 App：我的 iPhone / VidSniffer Pro / videos\n\n${file.localPath}',
+        ),
+        actions: [
+          CupertinoDialogAction(onPressed: () => Navigator.of(context).pop(), child: const Text('完成')),
+        ],
+      ),
+    );
+  }
+
   Future<void> _shareFile(LocalVideo file) async {
     if (file.localPath.isNotEmpty && await File(file.localPath).exists()) {
       await Share.shareXFiles([XFile(file.localPath)], text: file.title);
       return;
     }
     await Share.share('${file.title} · ${file.size}${file.sourceUrl.isEmpty ? '' : ' · ${file.sourceUrl}'}');
+  }
+
+  Future<void> _exportFile(BuildContext context, LocalVideo file) async {
+    if (file.localPath.isEmpty || !await File(file.localPath).exists()) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('本地文件不存在，无法导出'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
+    await Share.shareXFiles([XFile(file.localPath)], text: file.title);
   }
 }
 

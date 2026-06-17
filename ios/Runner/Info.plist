@@ -26,6 +26,8 @@
   <string>$(FLUTTER_BUILD_NUMBER)</string>
   <key>LSRequiresIPhoneOS</key>
   <true/>
+  <key>ITSAppUsesNonExemptEncryption</key>
+  <false/>
   <key>LSSupportsOpeningDocumentsInPlace</key>
   <true/>
   <key>NSDocumentsFolderUsageDescription</key>
@@ -49,8 +51,9 @@
     <string>UIInterfaceOrientationLandscapeLeft</string>
     <string>UIInterfaceOrientationLandscapeRight</string>
   </array>
-	<key>UIFileSharingEnabled</key>
-	<true/>
+  <key>UIFileSharingEnabled</key>
+  <true/>
+  <key>UISupportsDocumentBrowser</key>
+  <true/>
 </dict>
 </plist>
-

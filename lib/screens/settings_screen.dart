@@ -72,7 +72,7 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       builder: (context) => CupertinoAlertDialog(
         title: const Text('下载路径'),
-        content: Text('${state.downloadDirectory}\n\n已启用 iOS 文件共享，安装后可在“文件”App 的“我的 iPhone / VidSniffer Pro / Downloads”查看视频。'),
+        content: Text('${state.downloadDirectory}\n\n已启用 iOS 文件共享，安装后可在“文件”App 的“我的 iPhone / VidSniffer Pro / videos”查看视频。'),
         actions: [CupertinoDialogAction(onPressed: () => Navigator.of(context).pop(), child: const Text('完成'))],
       ),
     );
