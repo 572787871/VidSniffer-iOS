@@ -13,7 +13,6 @@ dependencies:
   cupertino_icons: ^1.0.8
   flutter_animate: ^4.5.2
   glassmorphism: ^3.0.0
-  lucide_icons: ^0.257.0
   percent_indicator: ^4.2.4
   webview_flutter: ^4.10.0
 

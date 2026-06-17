@@ -1,7 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:vidsniffer_pro/theme/app_icons.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../theme/app_theme.dart';
