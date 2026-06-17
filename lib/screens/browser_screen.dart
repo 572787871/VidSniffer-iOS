@@ -7,7 +7,6 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../theme/app_theme.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/pill_button.dart';
-import '../widgets/quality_picker.dart';
 import 'app_state.dart';
 
 class BrowserScreen extends StatefulWidget {
@@ -122,7 +121,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                             const Text('嗅探到视频资源', style: TextStyle(fontWeight: FontWeight.w900)),
                             const SizedBox(height: 5),
                             Text(
-                              '${state.sniffedResources.first.title} · ${state.sniffedResources.first.size}',
+                              '${state.sniffedResources.first.title} · ${state.sniffedResources.first.quality} · ${state.sniffedResources.first.size}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(color: AppTheme.muted, fontSize: 13),
@@ -147,15 +146,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
     );
   }
 
-  Future<void> _queueDownload(BuildContext context, AppState state, VideoResource resource) async {
-    final option = await showQualityPicker(context, state: state, resource: resource);
-    if (option == null || !context.mounted) {
-      return;
-    }
-    state.addDownload(resource, option);
+  void _queueDownload(BuildContext context, AppState state, VideoResource resource) {
+    state.addDownload(resource);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('已加入下载：${option.label}'),
+        content: Text('已加入下载：${resource.quality}'),
         behavior: SnackBarBehavior.floating,
         backgroundColor: AppTheme.panelStrong,
       ),

@@ -21,14 +21,6 @@ class VideoResource {
   final String source;
 }
 
-class VideoQualityOption {
-  const VideoQualityOption({required this.label, required this.size, required this.format});
-
-  final String label;
-  final String size;
-  final String format;
-}
-
 class DownloadTask {
   DownloadTask({
     required this.id,
@@ -187,22 +179,12 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  List<VideoQualityOption> qualityOptionsFor(VideoResource resource) {
-    final isHls = resource.quality.toLowerCase().contains('hls') || resource.url.toLowerCase().contains('m3u8');
-    return [
-      VideoQualityOption(label: resource.quality, size: resource.size, format: isHls ? 'm3u8' : 'mp4'),
-      const VideoQualityOption(label: '1080P', size: '约 780 MB', format: 'mp4'),
-      const VideoQualityOption(label: '720P', size: '约 420 MB', format: 'mp4'),
-      const VideoQualityOption(label: '480P', size: '约 220 MB', format: 'mp4'),
-    ];
-  }
-
-  void addDownload(VideoResource resource, VideoQualityOption option) {
+  void addDownload(VideoResource resource) {
     final task = DownloadTask(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       title: resource.title,
-      quality: '${option.label} ${option.format.toUpperCase()}',
-      size: option.size,
+      quality: resource.quality,
+      size: resource.size,
       url: resource.url,
       speed: '连接中',
       progress: 0.01,

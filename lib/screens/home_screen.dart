@@ -7,7 +7,6 @@ import '../theme/app_theme.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/pill_button.dart';
-import '../widgets/quality_picker.dart';
 import 'app_state.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -28,15 +27,11 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  Future<void> _queueDownload(BuildContext context, AppState state, VideoResource resource) async {
-    final option = await showQualityPicker(context, state: state, resource: resource);
-    if (option == null || !context.mounted) {
-      return;
-    }
-    state.addDownload(resource, option);
+  void _queueDownload(BuildContext context, AppState state, VideoResource resource) {
+    state.addDownload(resource);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('已加入下载：${option.label}'),
+        content: Text('已加入下载：${resource.quality}'),
         behavior: SnackBarBehavior.floating,
         backgroundColor: AppTheme.panelStrong,
       ),

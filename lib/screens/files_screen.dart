@@ -4,12 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:vidsniffer_pro/theme/app_icons.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 
 import '../theme/app_theme.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/glass_card.dart';
 import 'app_state.dart';
+import 'video_player_screen.dart';
 
 class FilesScreen extends StatelessWidget {
   const FilesScreen({super.key});
@@ -59,7 +59,7 @@ class _FileCard extends StatelessWidget {
       child: Row(
         children: [
           GestureDetector(
-            onTap: () => _showPreview(context, file),
+            onTap: () => _openPlayer(context, file),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(20),
               child: SizedBox(
@@ -99,8 +99,8 @@ class _FileCard extends StatelessWidget {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    _MiniAction(icon: LucideIcons.play, label: '播放', onTap: () => _showPreview(context, file)),
-                    _MiniAction(icon: LucideIcons.folderOpen, label: '打开', onTap: () => _showOpenDetails(context, file)),
+                    _MiniAction(icon: LucideIcons.play, label: '播放', onTap: () => _openPlayer(context, file)),
+                    _MiniAction(icon: LucideIcons.folderOpen, label: '打开', onTap: () => _openPlayer(context, file)),
                     _MiniAction(icon: LucideIcons.share2, label: '分享', onTap: () => _shareFile(context, file)),
                     _MiniAction(icon: LucideIcons.upload, label: '导出', onTap: () => _showExportNotice(context, file)),
                   ],
@@ -119,67 +119,9 @@ class _FileCard extends StatelessWidget {
     );
   }
 
-  void _showPreview(BuildContext context, LocalVideo file) {
-    final hasSource = file.sourceUrl.trim().isNotEmpty;
-    final controller = hasSource
-        ? (WebViewController()
-          ..setJavaScriptMode(JavaScriptMode.unrestricted)
-          ..setBackgroundColor(Colors.black)
-          ..loadRequest(
-            Uri.dataFromString(
-              '''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;height:100%;background:#000}video{width:100%;height:100%;object-fit:contain}</style></head><body><video controls autoplay playsinline src="${file.sourceUrl}"></video></body></html>''',
-              mimeType: 'text/html',
-            ),
-          ))
-        : null;
-
-    showCupertinoModalPopup<void>(
-      context: context,
-      builder: (context) => SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-          child: GlassCard(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: AspectRatio(
-                    aspectRatio: 16 / 9,
-                    child: hasSource && controller != null
-                        ? WebViewWidget(controller: controller)
-                        : Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              CachedNetworkImage(imageUrl: file.thumbnail, fit: BoxFit.cover),
-                              Container(color: Colors.black.withOpacity(0.28)),
-                              const Center(child: Icon(LucideIcons.playCircle, color: Colors.white, size: 62)),
-                            ],
-                          ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Text(file.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-                const SizedBox(height: 5),
-                Text('${file.duration} · ${file.size}', style: const TextStyle(color: AppTheme.muted)),
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  child: CupertinoButton(
-                    borderRadius: BorderRadius.circular(999),
-                    color: AppTheme.electricBlue,
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('关闭预览', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+  void _openPlayer(BuildContext context, LocalVideo file) {
+    Navigator.of(context).push(
+      CupertinoPageRoute<void>(builder: (_) => VideoPlayerScreen(file: file)),
     );
   }
 

@@ -10,11 +10,13 @@ dependencies:
   flutter:
     sdk: flutter
   cached_network_image: ^3.4.1
+  chewie: ^1.8.5
   cupertino_icons: ^1.0.8
   flutter_animate: ^4.5.2
   glassmorphism: ^3.0.0
   percent_indicator: ^4.2.4
   shared_preferences: ^2.3.3
+  video_player: ^2.9.2
   webview_flutter: ^4.10.0
 
 dev_dependencies:
