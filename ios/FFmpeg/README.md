@@ -1,16 +1,17 @@
-# Local FFmpeg Framework
+# Local FFmpeg Binary
 
-Place the offline enterprise/self-signed FFmpegKit-compatible binary here:
+Place the offline enterprise/self-signed FFmpeg executable here:
 
 ```text
-ios/FFmpeg/FFmpeg.xcframework
+ios/FFmpeg/bin/ffmpeg
 ```
 
-The framework must expose the Swift/Objective-C FFmpegKit API used by `Runner/AppDelegate.swift`:
+The executable is copied into `Runner.app` as a bundled resource and invoked by `Runner/AppDelegate.swift` through:
 
-```swift
-FFmpegKit.executeAsync(...)
-ReturnCode.isSuccess(...)
+```text
+/bin/sh -c "<bundled ffmpeg path> <arguments from Flutter>"
 ```
 
-This directory is referenced by `ios/Podfile` through the local `FFmpeg.podspec`, so `pod install` does not fetch FFmpeg from GitHub, CocoaPods trunk, or any CDN.
+No CocoaPods video-processing pod, Flutter video-processing plugin API, xcframework API, GitHub download, or CDN dependency is used.
+
+The checked-in `bin/ffmpeg` is a placeholder so CI can validate project wiring. Replace it with a real signed iOS FFmpeg executable before producing an enterprise IPA that performs m3u8/ts conversion.

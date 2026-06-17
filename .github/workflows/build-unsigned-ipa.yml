@@ -30,6 +30,11 @@ jobs:
       - name: Show Flutter version
         run: flutter --version
 
+      - name: Prepare local FFmpeg binary
+        run: |
+          chmod +x ios/FFmpeg/bin/ffmpeg
+          test -x ios/FFmpeg/bin/ffmpeg
+
       - name: Install Flutter packages
         run: flutter pub get
 

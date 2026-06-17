@@ -1,0 +1,3 @@
+#!/bin/sh
+echo "FFmpeg binary placeholder. Replace ios/FFmpeg/bin/ffmpeg with a real signed iOS FFmpeg executable." >&2
+exit 127

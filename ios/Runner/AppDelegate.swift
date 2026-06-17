@@ -1,6 +1,8 @@
 import Flutter
-import FFmpeg
+import Darwin
 import UIKit
+
+@_silgen_name("environ") var environ: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>!
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -62,9 +64,11 @@ import UIKit
             return
           }
 
-          FFmpegKit.executeAsync(command) { session in
-            let returnCode = session?.getReturnCode()
-            result(ReturnCode.isSuccess(returnCode))
+          DispatchQueue.global(qos: .utility).async {
+            let status = self.executeFFmpeg(arguments: command)
+            DispatchQueue.main.async {
+              result(status == 0)
+            }
           }
         default:
           result(FlutterMethodNotImplemented)
@@ -73,5 +77,42 @@ import UIKit
     }
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  private func executeFFmpeg(arguments: String) -> Int32 {
+    guard let binaryPath = Bundle.main.path(forResource: "ffmpeg", ofType: nil) else {
+      return 127
+    }
+    return runShell("\(shellQuote(binaryPath)) \(arguments)")
+  }
+
+  private func runShell(_ command: String) -> Int32 {
+    var pid: pid_t = 0
+    let argv: [String] = ["/bin/sh", "-c", command]
+    var cargs = argv.map { strdup($0) }
+    cargs.append(nil)
+    defer {
+      for arg in cargs where arg != nil {
+        free(arg)
+      }
+    }
+
+    let spawnStatus = cargs.withUnsafeMutableBufferPointer { args in
+      posix_spawn(&pid, "/bin/sh", nil, nil, args.baseAddress, environ)
+    }
+    if spawnStatus != 0 {
+      return Int32(spawnStatus)
+    }
+
+    var status: Int32 = 0
+    waitpid(pid, &status, 0)
+    if WIFEXITED(status) {
+      return WEXITSTATUS(status)
+    }
+    return status
+  }
+
+  private func shellQuote(_ value: String) -> String {
+    "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
   }
 }
