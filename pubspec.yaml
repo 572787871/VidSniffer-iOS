@@ -1,5 +1,5 @@
-name: ai_audiobook
-description: AI Chinese audiobook reader with TXT import, chapter parsing, TTS playback, and iOS unsigned IPA build support.
+name: vidsniffer_pro
+description: VidSniffer Pro, a Flutter iOS app for web video sniffing, m3u8 parsing, and local downloads.
 publish_to: "none"
 version: 1.0.0+1
 
@@ -9,12 +9,13 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  audio_service: ^0.18.15
-  dio: ^5.7.0
-  file_picker: ^8.1.4
-  just_audio: ^0.9.42
-  path_provider: ^2.1.5
-  shared_preferences: ^2.3.3
+  cached_network_image: ^3.4.1
+  cupertino_icons: ^1.0.8
+  flutter_animate: ^4.5.2
+  glassmorphism: ^3.0.0
+  lucide_icons: ^0.257.0
+  percent_indicator: ^4.2.4
+  webview_flutter: ^4.10.0
 
 dev_dependencies:
   flutter_test:
@@ -23,4 +24,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-

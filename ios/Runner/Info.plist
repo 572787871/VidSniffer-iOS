@@ -7,7 +7,7 @@
   <key>CFBundleDevelopmentRegion</key>
   <string>$(DEVELOPMENT_LANGUAGE)</string>
   <key>CFBundleDisplayName</key>
-  <string>AI 听书</string>
+  <string>VidSniffer Pro</string>
   <key>CFBundleExecutable</key>
   <string>$(EXECUTABLE_NAME)</string>
   <key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>ai_audiobook</string>
+  <string>VidSnifferPro</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -29,18 +29,9 @@
   <key>LSSupportsOpeningDocumentsInPlace</key>
   <true/>
   <key>NSDocumentsFolderUsageDescription</key>
-  <string>用于导入 TXT 书籍文件。</string>
+  <string>用于导入、导出和管理本地视频文件。</string>
   <key>UIApplicationSupportsIndirectInputEvents</key>
   <true/>
-  <key>UIBackgroundModes</key>
-  <array>
-    <string>audio</string>
-  </array>
-  <key>UIDocumentPickerSupportedFileTypes</key>
-  <array>
-    <string>public.plain-text</string>
-    <string>public.text</string>
-  </array>
   <key>UILaunchStoryboardName</key>
   <string>LaunchScreen</string>
   <key>UIMainStoryboardFile</key>

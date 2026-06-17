@@ -1,27 +1,27 @@
-# AI 听书
+# VidSniffer Pro
 
-Flutter iOS AI 听书 App，支持导入 TXT、自动章节识别、AI TTS、后台播放、锁屏控制、播放进度保存，以及 Codemagic 生成未签名 IPA。
+Flutter iOS video utility app for web video parsing, browser sniffing, m3u8 download tasks, and local video file management.
 
-## 本地运行
+## Features
+
+- Dark iOS-style interface with glass cards and blue-purple accent lighting.
+- Home parser with video result cards and one-tap download actions.
+- Built-in browser shell with address bar, navigation controls, and sniffed media download card.
+- Download task screen with speed, pause/resume/delete controls, progress bar, and progress ring.
+- Local file screen with play, share, delete, and export actions.
+- Settings screen for cache, download path, app info, and dark mode.
+
+## Local Run
 
 ```bash
 flutter pub get
 flutter run
 ```
 
-## Codemagic 构建
-
-`codemagic.yaml` 会执行：
+## iOS Build
 
 ```bash
 flutter build ios --release --no-codesign
 ```
 
-随后把 `Runner.app` 打包到：
-
-```text
-build/ios/ipa/unsigned.ipa
-```
-
-下载该 artifact 后需要你自行签名再安装。
-
+The existing Codemagic workflow can package `Runner.app` into an unsigned IPA artifact for later signing.
