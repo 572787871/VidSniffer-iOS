@@ -2,8 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:ffmpeg_kit_flutter_full_gpl/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_full_gpl/return_code.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
@@ -23,6 +22,9 @@ class VideoResource {
   final String size;
   final String url;
   final String source;
+
+  bool get isHls => url.toLowerCase().contains('.m3u8') || quality.toLowerCase().contains('m3u8') || quality.toLowerCase().contains('hls');
+  bool get isMp4 => url.toLowerCase().contains('.mp4') || quality.toLowerCase().contains('mp4');
 }
 
 class DownloadTask {
@@ -130,6 +132,7 @@ class AppState extends ChangeNotifier {
   final List<VideoResource> sniffedResources = [];
   final List<DownloadTask> downloads = [];
   final List<LocalVideo> files = [];
+  final Map<String, CancelToken> _cancelTokens = {};
 
   bool _restored = false;
   String downloadDirectory = '文件 App / VidSniffer Pro / videos';
@@ -171,18 +174,35 @@ class AppState extends ChangeNotifier {
     browserUrl = url.trim().isEmpty ? browserUrl : url.trim();
     browserLoading = true;
     notifyListeners();
-    await Future<void>.delayed(const Duration(milliseconds: 700));
-    sniffedResources.insert(
-      0,
-      VideoResource(
-        title: 'video_${sniffedResources.length + 1}_auto.m3u8',
-        quality: 'HLS 自适应',
-        size: '在线播放',
-        url: '$browserUrl/stream.m3u8',
-        source: '自动嗅探',
-      ),
-    );
+    await Future<void>.delayed(const Duration(milliseconds: 250));
     browserLoading = false;
+    notifyListeners();
+  }
+
+  void addSniffedResource({
+    required String url,
+    required String title,
+    String quality = '自动',
+    String source = '自动嗅探',
+  }) {
+    final normalized = _normalizeMediaUrl(url, browserUrl);
+    if (normalized == null || !_isAllowedMediaUrl(normalized)) {
+      return;
+    }
+    if (sniffedResources.any((item) => item.url == normalized)) {
+      return;
+    }
+
+    final type = _mediaTypeForUrl(normalized);
+    final resource = VideoResource(
+      title: title.trim().isEmpty ? _titleFromUrl(normalized) : title.trim(),
+      quality: quality == '自动' ? (type == 'mp4' ? 'MP4 视频' : 'HLS m3u8') : quality,
+      size: type == 'mp4' ? '可下载' : '在线播放',
+      url: normalized,
+      source: source,
+    );
+    sniffedResources.add(resource);
+    sniffedResources.sort((a, b) => _resourcePriority(a).compareTo(_resourcePriority(b)));
     notifyListeners();
   }
 
@@ -206,8 +226,18 @@ class AppState extends ChangeNotifier {
     if (task.completed || task.error.isNotEmpty) {
       return;
     }
-    task.paused = !task.paused;
-    task.speed = task.paused ? '已暂停' : '下载中';
+    if (task.paused) {
+      task.paused = false;
+      task.progress = 0;
+      task.speed = '继续下载';
+      _saveDownloads();
+      notifyListeners();
+      unawaited(_downloadToLocal(task));
+      return;
+    }
+    _cancelTokens[task.id]?.cancel('paused');
+    task.paused = true;
+    task.speed = '已暂停';
     _saveDownloads();
     notifyListeners();
   }
@@ -215,6 +245,11 @@ class AppState extends ChangeNotifier {
   void deleteDownload(DownloadTask task) {
     downloads.remove(task);
     _saveDownloads();
+    notifyListeners();
+  }
+
+  void dismissSniffedResource(VideoResource resource) {
+    sniffedResources.remove(resource);
     notifyListeners();
   }
 
@@ -247,7 +282,7 @@ class AppState extends ChangeNotifier {
     }
 
     if (_isHls(task)) {
-      await _downloadHlsToMp4(task, uri);
+      await _saveStreamingResource(task);
       return;
     }
 
@@ -256,59 +291,48 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       final dir = await _videosDirectory();
       final file = File('${dir.path}/${_safeFileName(task, _extensionFromUrl(task.url))}');
-      final client = HttpClient()..connectionTimeout = const Duration(seconds: 18);
-      final request = await client.getUrl(uri);
-      request.headers.set(HttpHeaders.userAgentHeader, _mobileUserAgent);
-      request.headers.set(HttpHeaders.acceptHeader, 'video/*,application/octet-stream,*/*');
-      request.headers.set(HttpHeaders.refererHeader, _originForUri(uri));
-      final response = await request.close();
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        client.close(force: true);
-        await _failTask(task, '下载失败：HTTP ${response.statusCode}');
-        return;
-      }
-      if (_isHtmlResponse(response)) {
-        client.close(force: true);
-        await _failTask(task, '下载地址返回的是网页，不是视频文件直链');
-        return;
-      }
-
-      final total = response.contentLength;
-      var received = 0;
-      IOSink? sink;
-      var checkedFirstChunk = false;
+      final cancelToken = CancelToken();
+      _cancelTokens[task.id] = cancelToken;
+      final dio = Dio(
+        BaseOptions(
+          connectTimeout: const Duration(seconds: 18),
+          receiveTimeout: const Duration(minutes: 30),
+          headers: {
+            HttpHeaders.userAgentHeader: _mobileUserAgent,
+            HttpHeaders.acceptHeader: 'video/*,application/octet-stream,*/*',
+            HttpHeaders.refererHeader: _originForUri(uri),
+          },
+          followRedirects: true,
+        ),
+      );
       final started = DateTime.now();
-      await for (final chunk in response) {
-        if (!checkedFirstChunk) {
-          checkedFirstChunk = true;
-          if (_looksLikeHtml(chunk)) {
-            client.close(force: true);
-            await _failTask(task, '下载地址返回的是网页，不是视频文件直链');
-            return;
+      await dio.download(
+        task.url,
+        file.path,
+        deleteOnError: true,
+        onReceiveProgress: (received, total) {
+          if (total > 0) {
+            task.progress = (received / total).clamp(0.0, 1.0).toDouble();
+          } else {
+            task.progress = (task.progress + 0.01).clamp(0.0, 0.94).toDouble();
           }
-          sink = file.openWrite();
-        }
-        while (task.paused) {
-          await Future<void>.delayed(const Duration(milliseconds: 250));
-        }
-        received += chunk.length;
-        sink!.add(chunk);
-        if (total > 0) {
-          task.progress = (received / total).clamp(0.0, 1.0).toDouble();
-        } else {
-          task.progress = (task.progress + 0.01).clamp(0.0, 0.94).toDouble();
-        }
-        final seconds = DateTime.now().difference(started).inMilliseconds / 1000;
-        final mbps = seconds <= 0 ? 0 : received / seconds / 1024 / 1024;
-        task.speed = '${mbps.toStringAsFixed(1)} MB/s';
-        notifyListeners();
-      }
-      await sink?.close();
-      client.close(force: true);
+          final seconds = DateTime.now().difference(started).inMilliseconds / 1000;
+          final mbps = seconds <= 0 ? 0 : received / seconds / 1024 / 1024;
+          task.speed = '${mbps.toStringAsFixed(1)} MB/s';
+          notifyListeners();
+        },
+        options: Options(responseType: ResponseType.bytes),
+        cancelToken: cancelToken,
+      );
       final fileExists = await file.exists();
       final fileSize = fileExists ? await file.length() : 0;
       if (!fileExists || fileSize == 0) {
         await _failTask(task, '没有收到可保存的视频数据');
+        return;
+      }
+      if (await _looksLikeHtmlFile(file)) {
+        await file.delete();
+        await _failTask(task, '下载地址返回的是网页，不是视频文件直链');
         return;
       }
 
@@ -321,70 +345,28 @@ class AppState extends ChangeNotifier {
       await _saveDownloads();
       await _saveFiles();
       notifyListeners();
+    } on DioException catch (error) {
+      if (CancelToken.isCancel(error)) {
+        return;
+      }
+      await _failTask(task, '下载失败：${error.message ?? error.type.name}');
     } catch (error) {
       await _failTask(task, '下载失败：$error');
+    } finally {
+      _cancelTokens.remove(task.id);
     }
   }
 
-  Future<void> _downloadHlsToMp4(DownloadTask task, Uri uri) async {
-    try {
-      task.speed = '合并 m3u8';
-      task.progress = 0.08;
-      notifyListeners();
-
-      final dir = await _videosDirectory();
-      final output = File('${dir.path}/${_safeFileName(task, 'mp4')}');
-      if (await output.exists()) {
-        await output.delete();
-      }
-
-      final command = [
-        '-y',
-        '-user_agent',
-        _ffmpegQuote(_mobileUserAgent),
-        '-headers',
-        _ffmpegQuote('Referer: ${_originForUri(uri)}'),
-        '-i',
-        _ffmpegQuote(task.url),
-        '-c',
-        'copy',
-        '-movflags',
-        '+faststart',
-        _ffmpegQuote(output.path),
-      ].join(' ');
-
-      final completer = Completer<bool>();
-      await FFmpegKit.executeAsync(
-        command,
-        (session) async {
-          final returnCode = await session.getReturnCode();
-          completer.complete(ReturnCode.isSuccess(returnCode));
-        },
-      );
-
-      final success = await completer.future;
-      final outputExists = await output.exists();
-      final outputSize = outputExists ? await output.length() : 0;
-      if (!success || !outputExists || outputSize == 0) {
-        if (outputExists) {
-          await output.delete();
-        }
-        await _failTask(task, 'm3u8 合并失败，未生成 mp4 文件');
-        return;
-      }
-
-      task.completed = true;
-      task.progress = 1;
-      task.speed = '已完成';
-      task.localPath = output.path;
-      task.size = _formatBytes(outputSize);
-      _addFileForTask(task, localPath: output.path);
-      await _saveDownloads();
-      await _saveFiles();
-      notifyListeners();
-    } catch (error) {
-      await _failTask(task, 'm3u8 合并失败：$error');
-    }
+  Future<void> _saveStreamingResource(DownloadTask task) async {
+    task.completed = true;
+    task.progress = 1;
+    task.speed = '在线播放资源';
+    task.size = 'stream';
+    task.localPath = '';
+    _addFileForTask(task, localPath: '');
+    await _saveDownloads();
+    await _saveFiles();
+    notifyListeners();
   }
 
   Future<void> _failTask(DownloadTask task, String message) async {
@@ -400,7 +382,7 @@ class AppState extends ChangeNotifier {
     files.insert(
       0,
       LocalVideo(
-        title: localPath.isNotEmpty ? _baseName(localPath) : _fileNameFor(task),
+        title: localPath.isNotEmpty ? _baseName(localPath) : task.title,
         duration: '00:00',
         size: task.size,
         thumbnail: 'https://images.unsplash.com/photo-1519608487953-e999c86e7455?w=600',
@@ -412,6 +394,8 @@ class AppState extends ChangeNotifier {
 
   Future<Directory> _videosDirectory() async {
     final docs = await getApplicationDocumentsDirectory();
+    await Directory('${docs.path}/downloads').create(recursive: true);
+    await Directory('${docs.path}/cache').create(recursive: true);
     final dir = Directory('${docs.path}/videos');
     if (!await dir.exists()) {
       await dir.create(recursive: true);
@@ -534,16 +518,6 @@ class AppState extends ChangeNotifier {
     return lower.contains('hls') || lower.contains('m3u8');
   }
 
-  bool _isHtmlResponse(HttpClientResponse response) {
-    final mimeType = response.headers.contentType?.mimeType.toLowerCase() ?? '';
-    return mimeType == 'text/html' || mimeType == 'application/xhtml+xml';
-  }
-
-  bool _looksLikeHtml(List<int> bytes) {
-    final sample = utf8.decode(bytes.take(512).toList(), allowMalformed: true).trimLeft().toLowerCase();
-    return sample.startsWith('<!doctype html') || sample.startsWith('<html') || sample.contains('<head') || sample.contains('<body');
-  }
-
   String _safeFileName(DownloadTask task, [String? extension]) {
     final ext = extension ?? 'mp4';
     final base = task.title.replaceAll(RegExp(r'[^a-zA-Z0-9._\-\u4e00-\u9fa5]+'), '_').replaceAll(RegExp('_+'), '_');
@@ -566,14 +540,23 @@ class AppState extends ChangeNotifier {
     return '$bytes B';
   }
 
+  Future<bool> _looksLikeHtmlFile(File file) async {
+    final stream = file.openRead(0, 512);
+    final bytes = <int>[];
+    await for (final chunk in stream) {
+      bytes.addAll(chunk);
+    }
+    final sample = utf8.decode(bytes, allowMalformed: true).trimLeft().toLowerCase();
+    return sample.startsWith('<!doctype html') || sample.startsWith('<html') || sample.contains('<head') || sample.contains('<body');
+  }
+
   bool _isVideoFile(String path) {
     final lower = path.toLowerCase();
     return lower.endsWith('.mp4') ||
         lower.endsWith('.m4v') ||
         lower.endsWith('.mov') ||
         lower.endsWith('.webm') ||
-        lower.endsWith('.mkv') ||
-        lower.endsWith('.ts');
+        lower.endsWith('.mkv');
   }
 
   String _extensionFromUrl(String url) {
@@ -590,9 +573,6 @@ class AppState extends ChangeNotifier {
     if (path.endsWith('.m4v')) {
       return 'm4v';
     }
-    if (path.endsWith('.ts')) {
-      return 'ts';
-    }
     return 'mp4';
   }
 
@@ -604,10 +584,53 @@ class AppState extends ChangeNotifier {
 
   String _originForUri(Uri uri) => uri.replace(path: '/', query: '', fragment: '').toString();
 
-  String _ffmpegQuote(String value) => '"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"';
-
   static const _mobileUserAgent =
       'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1';
+
+  int _resourcePriority(VideoResource resource) {
+    if (resource.isMp4) {
+      return 0;
+    }
+    if (resource.isHls) {
+      return 1;
+    }
+    return 2;
+  }
+
+  String? _normalizeMediaUrl(String value, String pageUrl) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty || trimmed.startsWith('blob:') || trimmed.startsWith('data:') || trimmed.contains('base64')) {
+      return null;
+    }
+    final base = Uri.tryParse(pageUrl);
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null) {
+      return null;
+    }
+    final resolved = uri.hasScheme ? uri : base?.resolveUri(uri);
+    if (resolved == null || (resolved.scheme != 'http' && resolved.scheme != 'https')) {
+      return null;
+    }
+    return resolved.toString();
+  }
+
+  bool _isAllowedMediaUrl(String url) {
+    final lower = url.toLowerCase();
+    if (lower.contains('analytics') ||
+        lower.contains('/ads/') ||
+        lower.contains('doubleclick') ||
+        lower.contains('widevine') ||
+        lower.contains('fairplay') ||
+        lower.contains('/license') ||
+        lower.contains('/drm') ||
+        lower.endsWith('.js') ||
+        lower.endsWith('.css')) {
+      return false;
+    }
+    return lower.contains('.mp4') || lower.contains('.m3u8');
+  }
+
+  String _mediaTypeForUrl(String url) => url.toLowerCase().contains('.m3u8') ? 'm3u8' : 'mp4';
 
   String _titleFromUrl(String url) {
     final uri = Uri.tryParse(url);

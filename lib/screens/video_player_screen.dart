@@ -28,13 +28,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   void initState() {
     super.initState();
     final localPath = widget.file.localPath.trim();
+    final source = widget.file.sourceUrl.trim();
     final localFile = localPath.isEmpty ? null : File(localPath);
     final hasLocalFile = localFile != null && localFile.existsSync();
-    if (!hasLocalFile) {
+    if (!hasLocalFile && source.isEmpty) {
       return;
     }
 
-    final controller = VideoPlayerController.file(localFile!);
+    final controller = hasLocalFile ? VideoPlayerController.file(localFile!) : VideoPlayerController.networkUrl(Uri.parse(source));
     _videoController = controller;
     _initializeFuture = controller.initialize().then((_) {
       if (!mounted) {
@@ -79,6 +80,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   Widget build(BuildContext context) {
     final localPath = widget.file.localPath.trim();
     final hasLocalFile = localPath.isNotEmpty && File(localPath).existsSync();
+    final hasSource = hasLocalFile || widget.file.sourceUrl.trim().isNotEmpty;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -88,8 +90,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
             _PlayerHeader(title: widget.file.title),
             Expanded(
               child: Center(
-                child: !hasLocalFile
-                    ? const _PlayerError(message: '这个视频没有可播放的本地文件，请重新下载到 Documents/videos。')
+                child: !hasSource
+                    ? const _PlayerError(message: '这个视频没有本地文件或可播放的 m3u8 地址。')
                     : FutureBuilder<void>(
                         future: _initializeFuture,
                         builder: (context, snapshot) {
@@ -104,7 +106,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
                       ),
               ),
             ),
-            if (hasLocalFile && _videoController != null) _TransportBar(controller: _videoController!),
+            if (hasSource && _videoController != null) _TransportBar(controller: _videoController!),
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
               child: Row(
