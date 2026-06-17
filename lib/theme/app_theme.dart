@@ -34,26 +34,47 @@ class AppTheme {
       ),
     );
 
+    return _decorate(base, ink, muted, Colors.white.withOpacity(0.08));
+  }
+
+  static ThemeData get lightTheme {
+    final base = ThemeData(
+      brightness: Brightness.light,
+      useMaterial3: true,
+      fontFamily: 'SF Pro Display',
+      scaffoldBackgroundColor: const Color(0xfff5f7fb),
+      colorScheme: const ColorScheme.light(
+        primary: electricBlue,
+        secondary: violet,
+        surface: Colors.white,
+        error: Color(0xffdc2626),
+      ),
+    );
+
+    return _decorate(base, const Color(0xff111827), const Color(0xff667085), Colors.black.withOpacity(0.05));
+  }
+
+  static ThemeData _decorate(ThemeData base, Color textColor, Color hintColor, Color inputFill) {
     return base.copyWith(
       splashFactory: InkRipple.splashFactory,
-      highlightColor: Colors.white.withOpacity(0.06),
+      highlightColor: base.brightness == Brightness.dark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.05),
       textTheme: base.textTheme.apply(
-        bodyColor: ink,
-        displayColor: ink,
+        bodyColor: textColor,
+        displayColor: textColor,
         fontFamilyFallback: const ['SF Pro Text', 'Helvetica Neue', 'Arial'],
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: Colors.white.withOpacity(0.08),
-        hintStyle: const TextStyle(color: muted),
+        fillColor: inputFill,
+        hintStyle: TextStyle(color: hintColor),
         contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(28),
-          borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
+          borderSide: BorderSide(color: inputFill),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(28),
-          borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
+          borderSide: BorderSide(color: inputFill),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(28),

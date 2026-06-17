@@ -83,18 +83,21 @@ class LocalVideo {
     required this.duration,
     required this.size,
     required this.thumbnail,
+    this.sourceUrl = '',
   });
 
   final String title;
   final String duration;
   final String size;
   final String thumbnail;
+  final String sourceUrl;
 
   Map<String, Object?> toJson() => {
         'title': title,
         'duration': duration,
         'size': size,
         'thumbnail': thumbnail,
+        'sourceUrl': sourceUrl,
       };
 
   static LocalVideo fromJson(Map<String, Object?> json) => LocalVideo(
@@ -102,6 +105,7 @@ class LocalVideo {
         duration: json['duration'] as String? ?? '--:--',
         size: json['size'] as String? ?? '未知大小',
         thumbnail: json['thumbnail'] as String? ?? '',
+        sourceUrl: json['sourceUrl'] as String? ?? '',
       );
 }
 
@@ -113,6 +117,7 @@ class AppState extends ChangeNotifier {
 
   static const _downloadsKey = 'vidsniffer.downloads.v1';
   static const _filesKey = 'vidsniffer.files.v1';
+  static const _settingsKey = 'vidsniffer.settings.v1';
 
   final List<VideoResource> parseResults = [];
   final List<VideoResource> sniffedResources = [];
@@ -121,6 +126,9 @@ class AppState extends ChangeNotifier {
 
   Timer? _ticker;
   bool _restored = false;
+  bool darkMode = true;
+  String downloadDirectory = 'VidSniffer Pro / Downloads';
+  String cacheSize = '128 MB';
   bool parsing = false;
   bool browserLoading = false;
   String browserUrl = 'https://example.com/video';
@@ -226,10 +234,29 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setDarkMode(bool value) {
+    darkMode = value;
+    _saveSettings();
+    notifyListeners();
+  }
+
+  void setDownloadDirectory(String value) {
+    downloadDirectory = value;
+    _saveSettings();
+    notifyListeners();
+  }
+
+  void clearCache() {
+    cacheSize = '0 MB';
+    _saveSettings();
+    notifyListeners();
+  }
+
   Future<void> _restore() async {
     final prefs = await SharedPreferences.getInstance();
     final savedDownloads = prefs.getString(_downloadsKey);
     final savedFiles = prefs.getString(_filesKey);
+    final savedSettings = prefs.getString(_settingsKey);
 
     if (savedDownloads != null) {
       final list = jsonDecode(savedDownloads) as List<dynamic>;
@@ -242,6 +269,12 @@ class AppState extends ChangeNotifier {
       files
         ..clear()
         ..addAll(list.map((item) => LocalVideo.fromJson(Map<String, Object?>.from(item as Map))));
+    }
+    if (savedSettings != null) {
+      final settings = Map<String, Object?>.from(jsonDecode(savedSettings) as Map);
+      darkMode = settings['darkMode'] as bool? ?? true;
+      downloadDirectory = settings['downloadDirectory'] as String? ?? downloadDirectory;
+      cacheSize = settings['cacheSize'] as String? ?? cacheSize;
     }
 
     _restored = true;
@@ -266,6 +299,7 @@ class AppState extends ChangeNotifier {
             duration: '00:00',
             size: task.size,
             thumbnail: 'https://images.unsplash.com/photo-1519608487953-e999c86e7455?w=600',
+            sourceUrl: task.url,
           ),
         );
       } else {
@@ -290,6 +324,18 @@ class AppState extends ChangeNotifier {
   Future<void> _saveFiles() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_filesKey, jsonEncode(files.map((file) => file.toJson()).toList()));
+  }
+
+  Future<void> _saveSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _settingsKey,
+      jsonEncode({
+        'darkMode': darkMode,
+        'downloadDirectory': downloadDirectory,
+        'cacheSize': cacheSize,
+      }),
+    );
   }
 
   String _fileNameFor(DownloadTask task) {

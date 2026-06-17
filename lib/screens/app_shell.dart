@@ -13,21 +13,16 @@ import 'home_screen.dart';
 import 'settings_screen.dart';
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+  const AppShell({required this.state, super.key});
+
+  final AppState state;
 
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
 class _AppShellState extends State<AppShell> {
-  final AppState _state = AppState();
   int _index = 0;
-
-  @override
-  void dispose() {
-    _state.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,8 +35,9 @@ class _AppShellState extends State<AppShell> {
     ];
 
     return AppStateScope(
-      notifier: _state,
+      notifier: widget.state,
       child: AppBackground(
+        darkMode: widget.state.darkMode,
         child: Scaffold(
           backgroundColor: Colors.transparent,
           body: SafeArea(
@@ -87,57 +83,84 @@ class _GlassTabBar extends StatelessWidget {
       _TabItem('设置', LucideIcons.settings),
     ];
 
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: AppTheme.panel.withOpacity(0.78),
-          border: Border(top: BorderSide(color: Colors.white.withOpacity(0.12))),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-            child: Row(
-              children: [
-                for (var i = 0; i < items.length; i++)
-                  Expanded(
-                    child: CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      onPressed: () => onChanged(i),
-                      child: AnimatedContainer(
-                        duration: 220.ms,
-                        curve: Curves.easeOutCubic,
-                        height: 54,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(999),
-                          color: i == currentIndex ? Colors.white.withOpacity(0.12) : Colors.transparent,
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              items[i].icon,
-                              size: 21,
-                              color: i == currentIndex ? AppTheme.electricBlue : AppTheme.muted,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.32),
+            blurRadius: 34,
+            spreadRadius: 2,
+            offset: const Offset(0, -12),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: AppTheme.panel.withOpacity(0.82),
+            border: Border(top: BorderSide(color: Colors.white.withOpacity(0.12))),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+              child: Row(
+                children: [
+                  for (var i = 0; i < items.length; i++)
+                    Expanded(
+                      child: CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        onPressed: () => onChanged(i),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: AnimatedContainer(
+                            duration: 220.ms,
+                            curve: Curves.easeOutCubic,
+                            height: 54,
+                            margin: const EdgeInsets.symmetric(horizontal: 2),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(999),
+                              color: i == currentIndex ? Colors.white.withOpacity(0.14) : Colors.transparent,
+                              border: i == currentIndex ? Border.all(color: Colors.white.withOpacity(0.12)) : null,
+                              boxShadow: i == currentIndex
+                                  ? [
+                                      BoxShadow(
+                                        color: AppTheme.electricBlue.withOpacity(0.22),
+                                        blurRadius: 22,
+                                        spreadRadius: 1,
+                                        offset: const Offset(0, 8),
+                                      ),
+                                    ]
+                                  : null,
                             ),
-                            const SizedBox(height: 3),
-                            Text(
-                              items[i].label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: i == currentIndex ? Colors.white : AppTheme.muted,
-                                fontSize: 11,
-                                fontWeight: i == currentIndex ? FontWeight.w700 : FontWeight.w500,
-                              ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  items[i].icon,
+                                  size: 21,
+                                  color: i == currentIndex ? AppTheme.electricBlue : AppTheme.muted,
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  items[i].label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: i == currentIndex ? Colors.white : AppTheme.muted,
+                                    fontSize: 11,
+                                    fontWeight: i == currentIndex ? FontWeight.w700 : FontWeight.w500,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
