@@ -1,5 +1,9 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class VideoResource {
   const VideoResource({
@@ -17,22 +21,60 @@ class VideoResource {
   final String source;
 }
 
+class VideoQualityOption {
+  const VideoQualityOption({required this.label, required this.size, required this.format});
+
+  final String label;
+  final String size;
+  final String format;
+}
+
 class DownloadTask {
   DownloadTask({
+    required this.id,
     required this.title,
     required this.quality,
     required this.size,
+    required this.url,
     required this.speed,
     required this.progress,
     this.paused = false,
+    this.completed = false,
   });
 
+  final String id;
   final String title;
   final String quality;
   final String size;
+  final String url;
   String speed;
   double progress;
   bool paused;
+  bool completed;
+
+  Map<String, Object?> toJson() => {
+        'id': id,
+        'title': title,
+        'quality': quality,
+        'size': size,
+        'url': url,
+        'speed': speed,
+        'progress': progress,
+        'paused': paused,
+        'completed': completed,
+      };
+
+  static DownloadTask fromJson(Map<String, Object?> json) => DownloadTask(
+        id: json['id'] as String? ?? DateTime.now().microsecondsSinceEpoch.toString(),
+        title: json['title'] as String? ?? '未命名视频',
+        quality: json['quality'] as String? ?? '自动',
+        size: json['size'] as String? ?? '未知大小',
+        url: json['url'] as String? ?? '',
+        speed: json['speed'] as String? ?? '等待中',
+        progress: ((json['progress'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0).toDouble(),
+        paused: json['paused'] as bool? ?? false,
+        completed: json['completed'] as bool? ?? false,
+      );
 }
 
 class LocalVideo {
@@ -47,54 +89,49 @@ class LocalVideo {
   final String duration;
   final String size;
   final String thumbnail;
+
+  Map<String, Object?> toJson() => {
+        'title': title,
+        'duration': duration,
+        'size': size,
+        'thumbnail': thumbnail,
+      };
+
+  static LocalVideo fromJson(Map<String, Object?> json) => LocalVideo(
+        title: json['title'] as String? ?? '未命名视频',
+        duration: json['duration'] as String? ?? '--:--',
+        size: json['size'] as String? ?? '未知大小',
+        thumbnail: json['thumbnail'] as String? ?? '',
+      );
 }
 
 class AppState extends ChangeNotifier {
-  final List<VideoResource> parseResults = [];
-  final List<VideoResource> sniffedResources = [
-    const VideoResource(
-      title: 'index_1080p.m3u8',
-      quality: '1080P HLS',
-      size: '预计 812 MB',
-      url: 'https://media.example.com/index_1080p.m3u8',
-      source: '自动嗅探',
-    ),
-  ];
-  final List<DownloadTask> downloads = [
-    DownloadTask(
-      title: '城市夜景纪录片',
-      quality: '1080P MP4',
-      size: '1.24 GB',
-      speed: '4.8 MB/s',
-      progress: 0.72,
-    ),
-    DownloadTask(
-      title: '演示视频片段',
-      quality: '720P HLS',
-      size: '386 MB',
-      speed: '已暂停',
-      progress: 0.34,
-      paused: true,
-    ),
-  ];
-  final List<LocalVideo> files = [
-    const LocalVideo(
-      title: '城市夜景纪录片.mp4',
-      duration: '24:18',
-      size: '1.24 GB',
-      thumbnail: 'https://images.unsplash.com/photo-1519608487953-e999c86e7455?w=600',
-    ),
-    const LocalVideo(
-      title: '产品发布会回放.m3u8',
-      duration: '58:42',
-      size: '2.8 GB',
-      thumbnail: 'https://images.unsplash.com/photo-1492724441997-5dc865305da7?w=600',
-    ),
-  ];
+  AppState() {
+    _restore();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tickDownloads());
+  }
 
+  static const _downloadsKey = 'vidsniffer.downloads.v1';
+  static const _filesKey = 'vidsniffer.files.v1';
+
+  final List<VideoResource> parseResults = [];
+  final List<VideoResource> sniffedResources = [];
+  final List<DownloadTask> downloads = [];
+  final List<LocalVideo> files = [];
+
+  Timer? _ticker;
+  bool _restored = false;
   bool parsing = false;
   bool browserLoading = false;
   String browserUrl = 'https://example.com/video';
+
+  bool get restored => _restored;
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
 
   Future<void> parse(String url) async {
     if (url.trim().isEmpty) {
@@ -142,34 +179,122 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addDownload(VideoResource resource) {
-    downloads.insert(
-      0,
-      DownloadTask(
-        title: resource.title,
-        quality: resource.quality,
-        size: resource.size,
-        speed: '等待中',
-        progress: 0.02,
-      ),
+  List<VideoQualityOption> qualityOptionsFor(VideoResource resource) {
+    final isHls = resource.quality.toLowerCase().contains('hls') || resource.url.toLowerCase().contains('m3u8');
+    return [
+      VideoQualityOption(label: resource.quality, size: resource.size, format: isHls ? 'm3u8' : 'mp4'),
+      const VideoQualityOption(label: '1080P', size: '约 780 MB', format: 'mp4'),
+      const VideoQualityOption(label: '720P', size: '约 420 MB', format: 'mp4'),
+      const VideoQualityOption(label: '480P', size: '约 220 MB', format: 'mp4'),
+    ];
+  }
+
+  void addDownload(VideoResource resource, VideoQualityOption option) {
+    final task = DownloadTask(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      title: resource.title,
+      quality: '${option.label} ${option.format.toUpperCase()}',
+      size: option.size,
+      url: resource.url,
+      speed: '连接中',
+      progress: 0.01,
     );
+    downloads.insert(0, task);
+    _saveDownloads();
     notifyListeners();
   }
 
   void toggleDownload(DownloadTask task) {
+    if (task.completed) {
+      return;
+    }
     task.paused = !task.paused;
     task.speed = task.paused ? '已暂停' : '3.6 MB/s';
+    _saveDownloads();
     notifyListeners();
   }
 
   void deleteDownload(DownloadTask task) {
     downloads.remove(task);
+    _saveDownloads();
     notifyListeners();
   }
 
   void deleteFile(LocalVideo file) {
     files.remove(file);
+    _saveFiles();
     notifyListeners();
+  }
+
+  Future<void> _restore() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedDownloads = prefs.getString(_downloadsKey);
+    final savedFiles = prefs.getString(_filesKey);
+
+    if (savedDownloads != null) {
+      final list = jsonDecode(savedDownloads) as List<dynamic>;
+      downloads
+        ..clear()
+        ..addAll(list.map((item) => DownloadTask.fromJson(Map<String, Object?>.from(item as Map))));
+    }
+    if (savedFiles != null) {
+      final list = jsonDecode(savedFiles) as List<dynamic>;
+      files
+        ..clear()
+        ..addAll(list.map((item) => LocalVideo.fromJson(Map<String, Object?>.from(item as Map))));
+    }
+
+    _restored = true;
+    notifyListeners();
+  }
+
+  void _tickDownloads() {
+    var changed = false;
+    for (final task in downloads) {
+      if (task.paused || task.completed) {
+        continue;
+      }
+      final next = (task.progress + 0.018).clamp(0.0, 1.0).toDouble();
+      task.progress = next;
+      if (next >= 1) {
+        task.completed = true;
+        task.speed = '已完成';
+        files.insert(
+          0,
+          LocalVideo(
+            title: _fileNameFor(task),
+            duration: '00:00',
+            size: task.size,
+            thumbnail: 'https://images.unsplash.com/photo-1519608487953-e999c86e7455?w=600',
+          ),
+        );
+      } else {
+        final speed = 2.4 + (next * 3.2);
+        task.speed = '${speed.toStringAsFixed(1)} MB/s';
+      }
+      changed = true;
+    }
+    if (!changed) {
+      return;
+    }
+    _saveDownloads();
+    _saveFiles();
+    notifyListeners();
+  }
+
+  Future<void> _saveDownloads() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_downloadsKey, jsonEncode(downloads.map((task) => task.toJson()).toList()));
+  }
+
+  Future<void> _saveFiles() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_filesKey, jsonEncode(files.map((file) => file.toJson()).toList()));
+  }
+
+  String _fileNameFor(DownloadTask task) {
+    final ext = task.quality.toLowerCase().contains('m3u8') ? 'm3u8' : 'mp4';
+    return '${task.title}.$ext';
   }
 
   String _titleFromUrl(String url) {

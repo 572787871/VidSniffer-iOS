@@ -35,8 +35,8 @@ class AppTheme {
     );
 
     return base.copyWith(
-      splashFactory: NoSplash.splashFactory,
-      highlightColor: Colors.transparent,
+      splashFactory: InkRipple.splashFactory,
+      highlightColor: Colors.white.withOpacity(0.06),
       textTheme: base.textTheme.apply(
         bodyColor: ink,
         displayColor: ink,

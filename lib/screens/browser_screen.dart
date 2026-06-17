@@ -7,6 +7,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../theme/app_theme.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/pill_button.dart';
+import '../widgets/quality_picker.dart';
 import 'app_state.dart';
 
 class BrowserScreen extends StatefulWidget {
@@ -134,7 +135,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                         label: '下载',
                         icon: LucideIcons.download,
                         compact: true,
-                        onPressed: () => state.addDownload(state.sniffedResources.first),
+                        onPressed: () => _queueDownload(context, state, state.sniffedResources.first),
                       ),
                     ],
                   ),
@@ -143,6 +144,21 @@ class _BrowserScreenState extends State<BrowserScreen> {
           ],
         );
       },
+    );
+  }
+
+  Future<void> _queueDownload(BuildContext context, AppState state, VideoResource resource) async {
+    final option = await showQualityPicker(context, state: state, resource: resource);
+    if (option == null || !context.mounted) {
+      return;
+    }
+    state.addDownload(resource, option);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('已加入下载：${option.label}'),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: AppTheme.panelStrong,
+      ),
     );
   }
 

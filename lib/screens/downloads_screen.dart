@@ -1,8 +1,8 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:vidsniffer_pro/theme/app_icons.dart';
 import 'package:percent_indicator/linear_percent_indicator.dart';
+import 'package:vidsniffer_pro/theme/app_icons.dart';
 
 import '../theme/app_theme.dart';
 import '../widgets/empty_state.dart';
@@ -26,7 +26,11 @@ class DownloadsScreen extends StatelessWidget {
             const SizedBox(height: 8),
             const Text('查看进度、速度并管理正在下载的视频', style: TextStyle(color: AppTheme.muted)),
             const SizedBox(height: 20),
-            if (state.downloads.isEmpty)
+            if (!state.restored)
+              const GlassCard(
+                child: EmptyState(title: '正在恢复任务', message: '正在读取本地下载记录。', icon: LucideIcons.downloadCloud),
+              )
+            else if (state.downloads.isEmpty)
               const GlassCard(
                 child: EmptyState(title: '暂无下载任务', message: '解析或嗅探到视频后，可以从卡片一键加入下载。', icon: LucideIcons.downloadCloud),
               )
@@ -53,6 +57,9 @@ class _DownloadCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final statusIcon = task.completed ? LucideIcons.checkCircle : (task.paused ? LucideIcons.play : LucideIcons.pause);
+    final statusColor = task.completed ? const Color(0xff35d07f) : AppTheme.electricBlue;
+
     return GlassCard(
       margin: const EdgeInsets.only(bottom: 14),
       child: Row(
@@ -84,8 +91,8 @@ class _DownloadCard extends StatelessWidget {
               CupertinoButton(
                 padding: EdgeInsets.zero,
                 minSize: 38,
-                onPressed: onToggle,
-                child: Icon(task.paused ? LucideIcons.play : LucideIcons.pause, color: AppTheme.electricBlue, size: 20),
+                onPressed: task.completed ? null : onToggle,
+                child: Icon(statusIcon, color: statusColor, size: 20),
               ),
               CupertinoButton(
                 padding: EdgeInsets.zero,

@@ -6,6 +6,7 @@ class LucideIcons {
   static const IconData arrowLeft = Icons.arrow_back_rounded;
   static const IconData arrowRight = Icons.arrow_forward_rounded;
   static const IconData chevronRight = Icons.chevron_right_rounded;
+  static const IconData checkCircle = Icons.check_circle_outline_rounded;
   static const IconData download = Icons.download_rounded;
   static const IconData downloadCloud = Icons.cloud_download_outlined;
   static const IconData fileDown = Icons.file_download_outlined;

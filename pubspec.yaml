@@ -14,6 +14,7 @@ dependencies:
   flutter_animate: ^4.5.2
   glassmorphism: ^3.0.0
   percent_indicator: ^4.2.4
+  shared_preferences: ^2.3.3
   webview_flutter: ^4.10.0
 
 dev_dependencies:
