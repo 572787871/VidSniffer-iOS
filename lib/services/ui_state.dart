@@ -1,38 +1,47 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import '../models/mock_models.dart';
+import '../models/video_resource.dart';
+import 'download_manager.dart';
 
 class UiState extends ChangeNotifier {
+  UiState() {
+    downloadManager.addListener(notifyListeners);
+  }
+
+  final DownloadManager downloadManager = DownloadManager();
+  int selectedTab = 0;
+
   final List<String> recentUrls = [
     'https://example.com/course/video-page',
     'https://example.com/live/replay',
   ];
 
-  final List<MockVideoResource> resources = [
-    const MockVideoResource(
+  final List<VideoResource> resources = [
+    const VideoResource(
       title: '网页视频主线路',
       url: 'https://media.example.com/video-1080.mp4',
-      type: MockVideoType.mp4,
-      meta: '1080p · 128 MB',
+      type: VideoResourceType.mp4,
+      source: 'mock · 1080p · 128 MB',
+      pageUrl: 'https://example.com/course/video-page',
     ),
-    const MockVideoResource(
+    const VideoResource(
       title: 'HLS 清晰线路',
       url: 'https://media.example.com/master.m3u8',
-      type: MockVideoType.m3u8,
-      meta: '自适应码率 · 将合并为 mp4',
+      type: VideoResourceType.hls,
+      source: 'mock · 自适应码率 · 将合并为 mp4',
+      pageUrl: 'https://example.com/course/video-page',
     ),
-    const MockVideoResource(
+    const VideoResource(
       title: '未知媒体请求',
       url: 'https://media.example.com/stream?id=demo',
-      type: MockVideoType.unknown,
-      meta: '需要进一步识别',
+      type: VideoResourceType.mp4,
+      source: 'mock · unknown · 需要进一步识别',
+      pageUrl: 'https://example.com/course/video-page',
     ),
-  ];
-
-  final List<MockDownloadTask> downloads = [
-    MockDownloadTask(title: '网页视频主线路.mp4', type: 'mp4', progress: 0.68, speed: '3.2 MB/s', remaining: '00:42', completed: false),
-    MockDownloadTask(title: '课程回放-已完成.mp4', type: 'mp4', progress: 1, speed: '完成', remaining: '00:00', completed: true),
   ];
 
   final List<MockLocalVideo> videos = [
@@ -50,24 +59,30 @@ class UiState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void enqueue(MockVideoResource resource) {
-    downloads.insert(
-      0,
-      MockDownloadTask(
-        title: '${resource.title}.${resource.type == MockVideoType.m3u8 ? 'mp4' : resource.typeLabel}',
-        type: resource.typeLabel,
-        progress: 0.04,
-        speed: '准备中',
-        remaining: '--:--',
-        completed: false,
-      ),
-    );
+  void downloadResource(VideoResource resource) {
+    debugPrint('[download] click url=${resource.url} type=${resource.label}');
+    final task = downloadManager.createTask(resource);
+    downloadManager.addTask(task);
+    unawaited(downloadManager.start(task.id));
+    selectedTab = 1;
+    notifyListeners();
+  }
+
+  void selectTab(int index) {
+    selectedTab = index;
     notifyListeners();
   }
 
   void toggleWifi(bool value) {
     onlyWifi = value;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    downloadManager.removeListener(notifyListeners);
+    downloadManager.dispose();
+    super.dispose();
   }
 }
 

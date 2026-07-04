@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
@@ -18,10 +20,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    final filePath = widget.filePath;
+    if (filePath != null && filePath.isNotEmpty) {
+      controller = VideoPlayerController.file(File(filePath))
+        ..initialize().then((_) {
+          if (!mounted) return;
+          setState(() {});
+          controller?.play();
+        })
+        ..addListener(_onPlayerChanged);
+    }
   }
 
   @override
   void dispose() {
+    controller?.removeListener(_onPlayerChanged);
     controller?.dispose();
     super.dispose();
   }
@@ -38,25 +51,30 @@ class _PlayerScreenState extends State<PlayerScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            Expanded(
-              child: Center(
-                child: AspectRatio(
-                  aspectRatio: 16 / 9,
-                  child: Container(
-                    color: const Color(0xff111111),
-                    child: const Center(child: Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 76)),
-                  ),
-                ),
-              ),
-            ),
+            Expanded(child: Center(child: _videoView())),
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
               child: Column(
                 children: [
-                  Slider(value: 0.38, onChanged: (_) {}),
+                  Slider(
+                    value: _positionFraction(),
+                    onChanged: (value) {
+                      final duration = controller?.value.duration;
+                      if (duration == null) return;
+                      controller?.seekTo(Duration(milliseconds: (duration.inMilliseconds * value).round()));
+                    },
+                  ),
                   Row(
                     children: [
-                      IconButton.filled(onPressed: () {}, icon: const Icon(Icons.play_arrow_rounded)),
+                      IconButton.filled(
+                        onPressed: () {
+                          final player = controller;
+                          if (player == null) return;
+                          player.value.isPlaying ? player.pause() : player.play();
+                          setState(() {});
+                        },
+                        icon: Icon(controller?.value.isPlaying ?? false ? Icons.pause_rounded : Icons.play_arrow_rounded),
+                      ),
                       IconButton(onPressed: () {}, icon: const Icon(Icons.replay_10_rounded, color: Colors.white)),
                       IconButton(onPressed: () {}, icon: const Icon(Icons.forward_10_rounded, color: Colors.white)),
                       const Spacer(),
@@ -71,7 +89,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           DropdownMenuItem(value: 1.5, child: Text('1.5x')),
                           DropdownMenuItem(value: 2, child: Text('2.0x')),
                         ],
-                        onChanged: (value) => setState(() => speed = value ?? 1),
+                        onChanged: (value) {
+                          setState(() => speed = value ?? 1);
+                          controller?.setPlaybackSpeed(speed);
+                        },
                       ),
                     ],
                   ),
@@ -82,5 +103,42 @@ class _PlayerScreenState extends State<PlayerScreen> {
         ),
       ),
     );
+  }
+
+  Widget _videoView() {
+    final player = controller;
+    if (player == null) {
+      return _placeholder('没有可播放的本地文件');
+    }
+    if (!player.value.isInitialized) {
+      return const CircularProgressIndicator(color: Colors.white);
+    }
+    return AspectRatio(aspectRatio: player.value.aspectRatio, child: VideoPlayer(player));
+  }
+
+  Widget _placeholder(String text) {
+    return AspectRatio(
+      aspectRatio: 16 / 9,
+      child: Container(
+        color: const Color(0xff111111),
+        child: Center(
+          child: Text(text, style: const TextStyle(color: Colors.white70)),
+        ),
+      ),
+    );
+  }
+
+  double _positionFraction() {
+    final value = controller?.value;
+    if (value == null || !value.isInitialized || value.duration.inMilliseconds <= 0) {
+      return 0;
+    }
+    return (value.position.inMilliseconds / value.duration.inMilliseconds).clamp(0, 1).toDouble();
+  }
+
+  void _onPlayerChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 }

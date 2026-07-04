@@ -25,25 +25,6 @@ class MockVideoResource {
   }
 }
 
-class MockDownloadTask {
-  MockDownloadTask({
-    required this.title,
-    required this.type,
-    required this.progress,
-    required this.speed,
-    required this.remaining,
-    required this.completed,
-  });
-
-  final String title;
-  final String type;
-  double progress;
-  String speed;
-  String remaining;
-  bool completed;
-  bool paused = false;
-}
-
 class MockLocalVideo {
   const MockLocalVideo({
     required this.title,

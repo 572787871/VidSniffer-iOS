@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../models/mock_models.dart';
+import '../models/download_task.dart';
 import '../services/ui_state.dart';
 import '../widgets/app_card.dart';
+import '../widgets/empty_state.dart';
 import 'player_screen.dart';
 
 class DownloadsScreen extends StatelessWidget {
@@ -15,12 +16,22 @@ class DownloadsScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('下载任务')),
       body: AnimatedBuilder(
         animation: state,
-        builder: (context, _) => ListView.separated(
-          padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
-          itemBuilder: (context, index) => _DownloadCard(task: state.downloads[index]),
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemCount: state.downloads.length,
-        ),
+        builder: (context, _) {
+          final tasks = state.downloadManager.tasks;
+          if (tasks.isEmpty) {
+            return const EmptyState(
+              icon: Icons.downloading_rounded,
+              title: '暂无下载任务',
+              message: '从资源弹窗点击下载后，会在这里显示真实下载进度。',
+            );
+          }
+          return ListView.separated(
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
+            itemBuilder: (context, index) => _DownloadCard(task: tasks[index]),
+            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            itemCount: tasks.length,
+          );
+        },
       ),
     );
   }
@@ -29,11 +40,14 @@ class DownloadsScreen extends StatelessWidget {
 class _DownloadCard extends StatelessWidget {
   const _DownloadCard({required this.task});
 
-  final MockDownloadTask task;
+  final DownloadTask task;
 
   @override
   Widget build(BuildContext context) {
+    final state = UiStateScope.of(context);
     final scheme = Theme.of(context).colorScheme;
+    final isCompleted = task.status == DownloadStatus.completed;
+    final isFailed = task.status == DownloadStatus.failed;
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -44,36 +58,57 @@ class _DownloadCard extends StatelessWidget {
                 width: 46,
                 height: 46,
                 decoration: BoxDecoration(
-                  color: task.completed ? scheme.primaryContainer : scheme.secondaryContainer,
+                  color: isCompleted ? scheme.primaryContainer : (isFailed ? scheme.errorContainer : scheme.secondaryContainer),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(task.completed ? Icons.check_rounded : Icons.downloading_rounded, color: task.completed ? scheme.primary : scheme.secondary),
+                child: Icon(
+                  isCompleted ? Icons.check_rounded : (isFailed ? Icons.error_outline_rounded : Icons.downloading_rounded),
+                  color: isCompleted ? scheme.primary : (isFailed ? scheme.error : scheme.secondary),
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(task.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w900)),
+                    Text(task.resource.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w900)),
                     const SizedBox(height: 4),
-                    Text('${task.type} · ${task.speed} · 剩余 ${task.remaining}', style: TextStyle(color: scheme.onSurfaceVariant)),
+                    Text('${task.resource.label} · ${_statusLabel(task.status)} · ${task.speed} · 剩余 ${task.remaining}', style: TextStyle(color: scheme.onSurfaceVariant)),
                   ],
                 ),
               ),
             ],
           ),
           const SizedBox(height: 14),
-          LinearProgressIndicator(value: task.progress, minHeight: 8, borderRadius: BorderRadius.circular(99)),
+          LinearProgressIndicator(value: task.progress.clamp(0, 1).toDouble(), minHeight: 8, borderRadius: BorderRadius.circular(99)),
+          const SizedBox(height: 8),
+          Text(task.errorMessage.isNotEmpty ? task.errorMessage : task.message, style: TextStyle(color: isFailed ? scheme.error : scheme.onSurfaceVariant)),
           const SizedBox(height: 12),
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              if (!task.completed) ...[
-                FilledButton.tonalIcon(onPressed: () {}, icon: Icon(task.paused ? Icons.play_arrow_rounded : Icons.pause_rounded), label: Text(task.paused ? '继续' : '暂停')),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(onPressed: () {}, icon: const Icon(Icons.close_rounded), label: const Text('取消')),
-              ] else
+              if (task.status == DownloadStatus.downloading || task.status == DownloadStatus.preparing)
+                FilledButton.tonalIcon(
+                  onPressed: () => state.downloadManager.pause(task),
+                  icon: const Icon(Icons.pause_rounded),
+                  label: const Text('暂停'),
+                ),
+              if (task.status == DownloadStatus.paused || task.status == DownloadStatus.failed || task.status == DownloadStatus.canceled)
+                FilledButton.tonalIcon(
+                  onPressed: () => state.downloadManager.retry(task),
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: Text(task.status == DownloadStatus.failed ? '重试' : '继续'),
+                ),
+              if (!isCompleted)
+                OutlinedButton.icon(
+                  onPressed: () => state.downloadManager.cancel(task),
+                  icon: const Icon(Icons.close_rounded),
+                  label: const Text('取消'),
+                ),
+              if (isCompleted)
                 FilledButton.icon(
-                  onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PlayerScreen(title: task.title))),
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PlayerScreen(title: task.resource.title, filePath: task.localPath))),
                   icon: const Icon(Icons.play_arrow_rounded),
                   label: const Text('播放'),
                 ),
@@ -82,5 +117,22 @@ class _DownloadCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _statusLabel(DownloadStatus status) {
+    switch (status) {
+      case DownloadStatus.preparing:
+        return '准备中';
+      case DownloadStatus.downloading:
+        return '下载中';
+      case DownloadStatus.paused:
+        return '已暂停';
+      case DownloadStatus.completed:
+        return '已完成';
+      case DownloadStatus.failed:
+        return '失败';
+      case DownloadStatus.canceled:
+        return '已取消';
+    }
   }
 }

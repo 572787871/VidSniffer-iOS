@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../models/mock_models.dart';
+import '../models/video_resource.dart';
 import '../services/ui_state.dart';
 
-Future<void> showResourceSheet(BuildContext context, List<MockVideoResource> resources) {
+Future<void> showResourceSheet(BuildContext context, List<VideoResource> resources) {
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
@@ -17,7 +17,7 @@ Future<void> showResourceSheet(BuildContext context, List<MockVideoResource> res
 class ResourceSheet extends StatelessWidget {
   const ResourceSheet({required this.resources, super.key});
 
-  final List<MockVideoResource> resources;
+  final List<VideoResource> resources;
 
   @override
   Widget build(BuildContext context) {
@@ -48,7 +48,7 @@ class ResourceSheet extends StatelessWidget {
                     padding: const EdgeInsets.all(14),
                     child: Row(
                       children: [
-                        _TypePill(label: item.typeLabel),
+                        _TypePill(label: _typeLabel(item)),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
@@ -56,7 +56,7 @@ class ResourceSheet extends StatelessWidget {
                             children: [
                               Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800)),
                               const SizedBox(height: 4),
-                              Text(item.meta, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                              Text(item.source, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                             ],
                           ),
                         ),
@@ -68,7 +68,7 @@ class ResourceSheet extends StatelessWidget {
                         IconButton.filled(
                           tooltip: '下载',
                           onPressed: () {
-                            state.enqueue(item);
+                            state.downloadResource(item);
                             Navigator.pop(context);
                           },
                           icon: const Icon(Icons.download_rounded),
@@ -83,6 +83,17 @@ class ResourceSheet extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _typeLabel(VideoResource resource) {
+    switch (resource.type) {
+      case VideoResourceType.hls:
+        return 'm3u8';
+      case VideoResourceType.ts:
+        return 'ts';
+      case VideoResourceType.mp4:
+        return resource.source.toLowerCase().contains('unknown') ? 'unknown' : 'mp4';
+    }
   }
 }
 
