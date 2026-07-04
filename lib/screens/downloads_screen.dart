@@ -88,7 +88,7 @@ class _DownloadCard extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              if (task.status == DownloadStatus.downloading || task.status == DownloadStatus.preparing)
+              if (task.status == DownloadStatus.downloading || task.status == DownloadStatus.preparing || task.status == DownloadStatus.merging)
                 FilledButton.tonalIcon(
                   onPressed: () => state.downloadManager.pause(task),
                   icon: const Icon(Icons.pause_rounded),
@@ -123,8 +123,12 @@ class _DownloadCard extends StatelessWidget {
     switch (status) {
       case DownloadStatus.preparing:
         return '准备中';
+      case DownloadStatus.idle:
+        return '等待中';
       case DownloadStatus.downloading:
         return '下载中';
+      case DownloadStatus.merging:
+        return '合并中';
       case DownloadStatus.paused:
         return '已暂停';
       case DownloadStatus.completed:

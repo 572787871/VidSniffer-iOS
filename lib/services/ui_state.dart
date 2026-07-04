@@ -3,53 +3,30 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
-import '../models/mock_models.dart';
+import '../models/local_video.dart';
 import '../models/video_resource.dart';
 import 'download_manager.dart';
+import 'local_library.dart';
+import 'video_sniffer.dart';
 
 class UiState extends ChangeNotifier {
   UiState() {
-    downloadManager.addListener(notifyListeners);
+    downloadManager.addListener(_onDownloadsChanged);
+    refreshLibrary();
   }
 
   final DownloadManager downloadManager = DownloadManager();
+  final VideoSniffer sniffer = VideoSniffer();
+  final LocalLibrary library = LocalLibrary();
+
+  final List<String> recentUrls = [];
+  final List<VideoResource> resources = [];
+  List<LocalVideo> videos = [];
+
   int selectedTab = 0;
-
-  final List<String> recentUrls = [
-    'https://example.com/course/video-page',
-    'https://example.com/live/replay',
-  ];
-
-  final List<VideoResource> resources = [
-    const VideoResource(
-      title: '网页视频主线路',
-      url: 'https://media.example.com/video-1080.mp4',
-      type: VideoResourceType.mp4,
-      source: 'mock · 1080p · 128 MB',
-      pageUrl: 'https://example.com/course/video-page',
-    ),
-    const VideoResource(
-      title: 'HLS 清晰线路',
-      url: 'https://media.example.com/master.m3u8',
-      type: VideoResourceType.hls,
-      source: 'mock · 自适应码率 · 将合并为 mp4',
-      pageUrl: 'https://example.com/course/video-page',
-    ),
-    const VideoResource(
-      title: '未知媒体请求',
-      url: 'https://media.example.com/stream?id=demo',
-      type: VideoResourceType.mp4,
-      source: 'mock · unknown · 需要进一步识别',
-      pageUrl: 'https://example.com/course/video-page',
-    ),
-  ];
-
-  final List<MockLocalVideo> videos = [
-    const MockLocalVideo(title: '课程回放-已完成.mp4', size: '246 MB', date: '今天 12:10', path: ''),
-    const MockLocalVideo(title: '演示视频.mp4', size: '86 MB', date: '昨天 20:32', path: ''),
-  ];
-
   bool onlyWifi = false;
+  bool parsing = false;
+  String status = '准备就绪';
 
   void addRecent(String url) {
     final value = url.trim();
@@ -59,12 +36,70 @@ class UiState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> parseUrl(String url) async {
+    final value = url.trim();
+    if (value.isEmpty) {
+      status = '请输入网页 URL';
+      notifyListeners();
+      return;
+    }
+    parsing = true;
+    status = '正在解析网页';
+    resources.clear();
+    notifyListeners();
+    try {
+      final parsed = await sniffer.parsePage(value);
+      _replaceResources(parsed);
+      status = parsed.isEmpty ? '未发现视频资源' : '发现 ${parsed.length} 个视频资源';
+    } catch (error) {
+      status = '解析失败：$error';
+    } finally {
+      parsing = false;
+      notifyListeners();
+    }
+  }
+
+  void setResources(List<VideoResource> values) {
+    _replaceResources(values);
+    status = resources.isEmpty ? '未发现视频资源' : '发现 ${resources.length} 个视频资源';
+    notifyListeners();
+  }
+
+  void addResource(VideoResource resource) {
+    if (_shouldSkip(resource.url)) return;
+    final normalized = resource.normalizedUrl;
+    if (resources.any((item) => item.normalizedUrl == normalized)) return;
+    resources.insert(0, resource);
+    status = '发现 ${resources.length} 个视频资源';
+    notifyListeners();
+  }
+
   void downloadResource(VideoResource resource) {
     debugPrint('[download] click url=${resource.url} type=${resource.label}');
+    if (resource.url.startsWith('blob:')) {
+      status = 'blob 不是可下载地址，请播放视频后重新嗅探真实地址';
+      notifyListeners();
+      return;
+    }
     final task = downloadManager.createTask(resource);
     downloadManager.addTask(task);
     unawaited(downloadManager.start(task.id));
     selectedTab = 1;
+    notifyListeners();
+  }
+
+  Future<void> refreshLibrary() async {
+    videos = await library.scan();
+    notifyListeners();
+  }
+
+  Future<void> deleteVideo(LocalVideo video) async {
+    await library.delete(video);
+    await refreshLibrary();
+  }
+
+  void toggleWifi(bool value) {
+    onlyWifi = value;
     notifyListeners();
   }
 
@@ -73,14 +108,38 @@ class UiState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void toggleWifi(bool value) {
-    onlyWifi = value;
+  void _replaceResources(List<VideoResource> values) {
+    resources
+      ..clear()
+      ..addAll(_dedupe(values.where((item) => !_shouldSkip(item.url))));
+  }
+
+  List<VideoResource> _dedupe(Iterable<VideoResource> values) {
+    final seen = <String>{};
+    final out = <VideoResource>[];
+    for (final item in values) {
+      if (seen.add(item.normalizedUrl)) {
+        out.add(item);
+      }
+    }
+    return out;
+  }
+
+  bool _shouldSkip(String value) {
+    final lower = value.toLowerCase().trim();
+    return lower.isEmpty || lower.startsWith('blob:') || lower.startsWith('data:') || lower.startsWith('about:');
+  }
+
+  void _onDownloadsChanged() {
+    if (downloadManager.tasks.any((task) => task.localPath.isNotEmpty)) {
+      unawaited(refreshLibrary());
+    }
     notifyListeners();
   }
 
   @override
   void dispose() {
-    downloadManager.removeListener(notifyListeners);
+    downloadManager.removeListener(_onDownloadsChanged);
     downloadManager.dispose();
     super.dispose();
   }

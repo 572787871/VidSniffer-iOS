@@ -8,12 +8,11 @@ Flutter iOS app for parsing user-accessible web video pages, sniffing media reso
 - Light and dark mode.
 - Blue-purple gradient primary visual style.
 - Bottom tabs: Home, Downloads, Library, Settings.
-- Resource bottom sheet with type, metadata, copy link, and download actions.
-- Mock data is included so every page is usable before real parser/downloader wiring is completed.
+- Resource bottom sheet with real sniffed URLs, type, metadata, copy link, and download actions.
 
 ## Core Requirements Covered
 
-- `webview_flutter` for built-in WebView.
+- `flutter_inappwebview` for built-in WebView, resource callbacks, JavaScript hook, and cookie-aware sniffing.
 - `video_player` for playback page.
 - `ffmpeg_kit_flutter_new` for m3u8/ts merge path. This is the maintained full-GPL successor used because the original `ffmpeg_kit_flutter_full_gpl` iOS binary pod currently returns 404 in CI.
 - Files are designed to save under `Documents/videos/`.

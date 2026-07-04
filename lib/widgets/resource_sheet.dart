@@ -33,8 +33,19 @@ class ResourceSheet extends StatelessWidget {
             const SizedBox(height: 6),
             Text('仅下载你有权访问的视频内容。', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
             const SizedBox(height: 16),
-            Flexible(
-              child: ListView.separated(
+            if (resources.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.55),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: const Text('未发现视频资源。请确认网页已加载完成，或先在网页内播放视频后重新嗅探。'),
+              )
+            else
+              Flexible(
+                child: ListView.separated(
                 shrinkWrap: true,
                 itemCount: resources.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 10),
@@ -56,7 +67,7 @@ class ResourceSheet extends StatelessWidget {
                             children: [
                               Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800)),
                               const SizedBox(height: 4),
-                              Text(item.source, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                              Text('${item.source} · ${item.size} · ${item.quality}', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                             ],
                           ),
                         ),

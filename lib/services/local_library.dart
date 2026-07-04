@@ -31,4 +31,11 @@ class LocalLibrary {
     videos.sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt));
     return videos;
   }
+
+  Future<void> delete(LocalVideo video) async {
+    final file = File(video.path);
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
 }

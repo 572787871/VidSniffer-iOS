@@ -32,6 +32,11 @@
   <true/>
   <key>NSDocumentsFolderUsageDescription</key>
   <string>用于导入、导出和管理本地视频文件。</string>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsArbitraryLoadsInWebContent</key>
+    <true/>
+  </dict>
   <key>UIApplicationSupportsIndirectInputEvents</key>
   <true/>
   <key>UIBackgroundModes</key>

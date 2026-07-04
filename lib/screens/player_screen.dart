@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import '../services/file_utils.dart';
+
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({required this.title, this.filePath, super.key});
 
@@ -16,19 +18,14 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen> {
   VideoPlayerController? controller;
   double speed = 1;
+  String? error;
 
   @override
   void initState() {
     super.initState();
     final filePath = widget.filePath;
     if (filePath != null && filePath.isNotEmpty) {
-      controller = VideoPlayerController.file(File(filePath))
-        ..initialize().then((_) {
-          if (!mounted) return;
-          setState(() {});
-          controller?.play();
-        })
-        ..addListener(_onPlayerChanged);
+      _openFile(filePath);
     }
   }
 
@@ -107,6 +104,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Widget _videoView() {
     final player = controller;
+    if (error != null) {
+      return _placeholder(error!);
+    }
     if (player == null) {
       return _placeholder('没有可播放的本地文件');
     }
@@ -139,6 +139,34 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _onPlayerChanged() {
     if (mounted) {
       setState(() {});
+    }
+  }
+
+  Future<void> _openFile(String path) async {
+    try {
+      final file = File(path);
+      final lower = path.toLowerCase();
+      if (!await file.exists()) {
+        throw StateError('文件不存在');
+      }
+      if (await file.length() <= 0) {
+        throw StateError('文件大小为 0');
+      }
+      if (!lower.endsWith('.mp4') && !lower.endsWith('.mov') && !lower.endsWith('.m4v')) {
+        throw StateError('不是支持的视频文件后缀');
+      }
+      if (await FileUtils.looksLikeHtml(file)) {
+        throw StateError('文件内容是 HTML，不是视频');
+      }
+      controller = VideoPlayerController.file(file)
+        ..initialize().then((_) {
+          if (!mounted) return;
+          setState(() {});
+          controller?.play();
+        })
+        ..addListener(_onPlayerChanged);
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
     }
   }
 }

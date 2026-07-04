@@ -111,10 +111,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _parse(BuildContext context) {
+  Future<void> _parse(BuildContext context) async {
     FocusScope.of(context).unfocus();
     final state = UiStateScope.of(context);
     state.addRecent(controller.text);
+    await state.parseUrl(controller.text);
+    if (!context.mounted) return;
     showResourceSheet(context, state.resources);
   }
 }

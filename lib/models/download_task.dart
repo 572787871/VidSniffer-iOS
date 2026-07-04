@@ -1,6 +1,6 @@
 import 'video_resource.dart';
 
-enum DownloadStatus { preparing, downloading, paused, completed, failed, canceled }
+enum DownloadStatus { idle, preparing, downloading, paused, merging, completed, failed, canceled }
 
 class DownloadTask {
   DownloadTask({
@@ -30,7 +30,7 @@ class DownloadTask {
   String remaining;
 
   bool get canRetry => status == DownloadStatus.failed || status == DownloadStatus.canceled || status == DownloadStatus.paused;
-  bool get isActive => status == DownloadStatus.preparing || status == DownloadStatus.downloading;
+  bool get isActive => status == DownloadStatus.preparing || status == DownloadStatus.downloading || status == DownloadStatus.merging;
 
   String get idShort => id.length <= 6 ? id : id.substring(id.length - 6);
 }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
-import '../models/mock_models.dart';
+import '../models/local_video.dart';
 import '../services/ui_state.dart';
 import '../widgets/app_card.dart';
 import '../widgets/empty_state.dart';
@@ -14,7 +14,12 @@ class LibraryScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = UiStateScope.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('本地视频库')),
+      appBar: AppBar(
+        title: const Text('本地视频库'),
+        actions: [
+          IconButton(onPressed: state.refreshLibrary, icon: const Icon(Icons.refresh_rounded)),
+        ],
+      ),
       body: AnimatedBuilder(
         animation: state,
         builder: (context, _) {
@@ -40,10 +45,11 @@ class LibraryScreen extends StatelessWidget {
 class _VideoCard extends StatelessWidget {
   const _VideoCard({required this.video});
 
-  final MockLocalVideo video;
+  final LocalVideo video;
 
   @override
   Widget build(BuildContext context) {
+    final state = UiStateScope.of(context);
     final scheme = Theme.of(context).colorScheme;
     return AppCard(
       child: Row(
@@ -62,15 +68,15 @@ class _VideoCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(video.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w900)),
+                Text(video.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w900)),
                 const SizedBox(height: 6),
-                Text('${video.size} · ${video.date}', style: TextStyle(color: scheme.onSurfaceVariant)),
+                Text('${_formatBytes(video.size)} · ${_formatDate(video.modifiedAt)}', style: TextStyle(color: scheme.onSurfaceVariant)),
                 const Spacer(),
                 Row(
                   children: [
-                    IconButton.filled(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PlayerScreen(title: video.title))), icon: const Icon(Icons.play_arrow_rounded)),
-                    IconButton.filledTonal(onPressed: () => Share.share('分享视频文件：${video.title}'), icon: const Icon(Icons.ios_share_rounded)),
-                    IconButton.outlined(onPressed: () {}, icon: const Icon(Icons.delete_outline_rounded)),
+                    IconButton.filled(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PlayerScreen(title: video.name, filePath: video.path))), icon: const Icon(Icons.play_arrow_rounded)),
+                    IconButton.filledTonal(onPressed: () => Share.shareXFiles([XFile(video.path)], text: video.name), icon: const Icon(Icons.ios_share_rounded)),
+                    IconButton.outlined(onPressed: () => state.deleteVideo(video), icon: const Icon(Icons.delete_outline_rounded)),
                   ],
                 ),
               ],
@@ -79,5 +85,16 @@ class _VideoCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _formatBytes(int value) {
+    if (value < 1024) return '$value B';
+    if (value < 1024 * 1024) return '${(value / 1024).toStringAsFixed(1)} KB';
+    if (value < 1024 * 1024 * 1024) return '${(value / 1024 / 1024).toStringAsFixed(1)} MB';
+    return '${(value / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';
+  }
+
+  String _formatDate(DateTime value) {
+    return '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')} ${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
   }
 }

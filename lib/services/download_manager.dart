@@ -22,6 +22,7 @@ class DownloadManager extends ChangeNotifier {
     connectTimeout: const Duration(seconds: 30),
     receiveTimeout: const Duration(minutes: 30),
     followRedirects: true,
+    validateStatus: (status) => status != null && status < 500,
   ));
   final List<DownloadTask> tasks = [];
   final Map<String, CancelToken> _cancelTokens = {};
@@ -164,17 +165,26 @@ class DownloadManager extends ChangeNotifier {
     debugPrint('[download] request url=${task.resource.url}');
     debugPrint('[download] save path=${finalFile.path}');
 
-    final response = await _dio.get<ResponseBody>(
-      task.resource.url,
-      cancelToken: cancelToken,
-      options: Options(
-        responseType: ResponseType.stream,
-        headers: {
-          ..._headersFor(task.resource),
-          if (resumeFrom > 0) 'Range': 'bytes=$resumeFrom-',
-        },
-      ),
-    );
+    late final Response<ResponseBody> response;
+    try {
+      response = await _dio.get<ResponseBody>(
+        task.resource.url,
+        cancelToken: cancelToken,
+        options: Options(
+          responseType: ResponseType.stream,
+          headers: {
+            ..._headersFor(task.resource),
+            if (resumeFrom > 0) 'Range': 'bytes=$resumeFrom-',
+          },
+        ),
+      );
+    } on DioException catch (error) {
+      if ((error.error is HandshakeException) || error.message?.contains('HandshakeException') == true) {
+        await _downloadWithHttpClient(task, finalFile, partFile, resumeFrom, startedAt);
+        return;
+      }
+      rethrow;
+    }
     final statusCode = response.statusCode ?? 0;
     if (resumeFrom > 0 && statusCode != 206) {
       await partFile.delete().catchError((_) => partFile);
@@ -232,38 +242,22 @@ class DownloadManager extends ChangeNotifier {
       _shellQuote(output.path),
     ].join(' ');
 
-    final logs = StringBuffer();
-    final completer = Completer<void>();
-    final session = await FFmpegKit.executeAsync(
-      command,
-      (session) async {
-        final returnCode = await session.getReturnCode();
-        if (ReturnCode.isSuccess(returnCode)) {
-          completer.complete();
-        } else {
-          completer.completeError(StateError('ffmpeg 合并失败：${logs.toString().trim()}'));
-        }
-      },
-      (log) {
-        final message = log.getMessage().trim();
-        if (message.isEmpty) {
-          return;
-        }
-        logs.writeln(message);
-        task.message = '合并中';
-        notifyListeners();
-      },
-      (statistics) {
-        final timeMs = statistics.getTime();
-        if (timeMs > 0) {
-          task.progress = (task.progress + 0.01).clamp(0.02, 0.95).toDouble();
-          task.message = '合并中 ${(timeMs / 1000).toStringAsFixed(0)}s';
-          notifyListeners();
-        }
-      },
-    );
-    _ffmpegSessions[task.id] = session;
-    await completer.future;
+    var logs = await _runFfmpeg(task, command);
+    if (logs != null) {
+      final fallback = [
+        '-y',
+        '-headers ${_shellQuote(_ffmpegHeaders(task.resource))}',
+        '-i ${_shellQuote(task.resource.url)}',
+        '-c:v copy',
+        '-c:a aac',
+        '-movflags +faststart',
+        _shellQuote(output.path),
+      ].join(' ');
+      logs = await _runFfmpeg(task, fallback);
+    }
+    if (logs != null) {
+      throw StateError('ffmpeg 合并失败：$logs');
+    }
 
     if (task.status == DownloadStatus.paused || task.status == DownloadStatus.canceled) {
       return;
@@ -276,6 +270,88 @@ class DownloadManager extends ChangeNotifier {
       throw StateError('解析到的是网页，不是视频文件');
     }
     task.localPath = output.path;
+  }
+
+  Future<String?> _runFfmpeg(DownloadTask task, String command) async {
+    final logs = StringBuffer();
+    final completer = Completer<String?>();
+    final session = await FFmpegKit.executeAsync(
+      command,
+      (session) async {
+        final returnCode = await session.getReturnCode();
+        completer.complete(ReturnCode.isSuccess(returnCode) ? null : logs.toString().trim());
+      },
+      (log) {
+        final message = log.getMessage().trim();
+        if (message.isEmpty) return;
+        logs.writeln(message);
+        task.status = DownloadStatus.merging;
+        task.message = '合并中';
+        notifyListeners();
+      },
+      (statistics) {
+        final timeMs = statistics.getTime();
+        if (timeMs > 0) {
+          task.status = DownloadStatus.merging;
+          task.progress = (task.progress + 0.01).clamp(0.02, 0.95).toDouble();
+          task.message = '合并中 ${(timeMs / 1000).toStringAsFixed(0)}s';
+          notifyListeners();
+        }
+      },
+    );
+    _ffmpegSessions[task.id] = session;
+    return completer.future;
+  }
+
+  Future<void> _downloadWithHttpClient(DownloadTask task, File finalFile, File partFile, int resumeFrom, DateTime startedAt) async {
+    final uri = Uri.parse(task.resource.url);
+    final client = HttpClient();
+    try {
+      debugPrint('[download] request url=${task.resource.url}');
+      debugPrint('[download] save path=${finalFile.path}');
+      final request = await client.getUrl(uri);
+      for (final entry in _headersFor(task.resource).entries) {
+        request.headers.set(entry.key, entry.value);
+      }
+      if (resumeFrom > 0) {
+        request.headers.set(HttpHeaders.rangeHeader, 'bytes=$resumeFrom-');
+      }
+      final response = await request.close();
+      if (response.statusCode >= 500) {
+        throw HttpException('HTTP ${response.statusCode}', uri: uri);
+      }
+      final total = response.contentLength > 0 ? response.contentLength + resumeFrom : 0;
+      var received = resumeFrom;
+      final sink = partFile.openWrite(mode: resumeFrom > 0 ? FileMode.append : FileMode.write);
+      try {
+        await for (final chunk in response) {
+          if (task.status == DownloadStatus.paused || task.status == DownloadStatus.canceled) break;
+          sink.add(chunk);
+          received += chunk.length;
+          _updateProgress(task, received, total, startedAt);
+        }
+      } finally {
+        await sink.close();
+      }
+      if (task.status == DownloadStatus.paused || task.status == DownloadStatus.canceled) return;
+      if (await FileUtils.looksLikeHtml(partFile)) {
+        await partFile.delete().catchError((_) => partFile);
+        throw StateError('解析到的是网页，不是视频文件');
+      }
+      if (!await partFile.exists() || await partFile.length() <= 0) {
+        throw StateError('没有写入有效视频文件');
+      }
+      if (await finalFile.exists()) await finalFile.delete();
+      await partFile.rename(finalFile.path);
+      task.localPath = finalFile.path;
+    } catch (e) {
+      if (e is HandshakeException) {
+        throw StateError('站点拒绝 App 直连下载，需要在网页内播放后再嗅探真实地址');
+      }
+      rethrow;
+    } finally {
+      client.close(force: true);
+    }
   }
 
   void _updateProgress(DownloadTask task, int received, int total, DateTime startedAt) {
@@ -312,9 +388,14 @@ class DownloadManager extends ChangeNotifier {
 
   Map<String, String> _headersFor(VideoResource resource) {
     return {
-      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
-      if (resource.pageUrl.isNotEmpty) 'Referer': resource.pageUrl,
-    };
+      'User-Agent': resource.userAgent.isNotEmpty ? resource.userAgent : 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+      'Referer': resource.referer.isNotEmpty ? resource.referer : resource.pageUrl,
+      if (resource.origin.isNotEmpty) 'Origin': resource.origin,
+      if (resource.cookie.isNotEmpty) 'Cookie': resource.cookie,
+      'Accept': '*/*',
+      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+      'Connection': 'keep-alive',
+    }..removeWhere((_, value) => value.trim().isEmpty);
   }
 
   String _ffmpegHeaders(VideoResource resource) {
