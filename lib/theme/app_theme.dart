@@ -1,85 +1,68 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  const AppTheme._();
+  static const Color blue = Color(0xff2563eb);
+  static const Color purple = Color(0xff7c3aed);
+  static const Color cyan = Color(0xff06b6d4);
 
-  static const Color midnight = Color(0xff05070d);
-  static const Color panel = Color(0xff10131f);
-  static const Color panelStrong = Color(0xff171a29);
-  static const Color electricBlue = Color(0xff38bdf8);
-  static const Color violet = Color(0xff8b5cf6);
-  static const Color pink = Color(0xffec4899);
-  static const Color mint = Color(0xff34d399);
-  static const Color ink = Color(0xfff8fafc);
-  static const Color muted = Color(0xff9ca3af);
-  static const Color hairline = Color(0x24ffffff);
-
-  static const LinearGradient accentGradient = LinearGradient(
-    colors: [electricBlue, violet, pink],
+  static const LinearGradient primaryGradient = LinearGradient(
+    colors: [blue, purple],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
-  static ThemeData get darkTheme {
-    final base = ThemeData(
-      brightness: Brightness.dark,
-      useMaterial3: true,
-      fontFamily: 'SF Pro Display',
-      scaffoldBackgroundColor: midnight,
-      colorScheme: const ColorScheme.dark(
-        primary: electricBlue,
-        secondary: violet,
-        surface: panel,
-        error: Color(0xffff6b7a),
-      ),
+  static ThemeData light() => _theme(Brightness.light);
+  static ThemeData dark() => _theme(Brightness.dark);
+
+  static ThemeData _theme(Brightness brightness) {
+    final isDark = brightness == Brightness.dark;
+    final scheme = ColorScheme.fromSeed(
+      seedColor: blue,
+      brightness: brightness,
+      primary: blue,
+      secondary: purple,
+      tertiary: cyan,
+      surface: isDark ? const Color(0xff111318) : const Color(0xfff7f8fb),
     );
 
-    return _decorate(base, ink, muted, Colors.white.withOpacity(0.08));
-  }
-
-  static ThemeData get lightTheme {
-    final base = ThemeData(
-      brightness: Brightness.light,
+    return ThemeData(
       useMaterial3: true,
+      brightness: brightness,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: scheme.surface,
       fontFamily: 'SF Pro Display',
-      scaffoldBackgroundColor: const Color(0xfff5f7fb),
-      colorScheme: const ColorScheme.light(
-        primary: electricBlue,
-        secondary: violet,
-        surface: Colors.white,
-        error: Color(0xffdc2626),
+      appBarTheme: AppBarTheme(
+        centerTitle: false,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        backgroundColor: scheme.surface,
+        foregroundColor: scheme.onSurface,
+        titleTextStyle: TextStyle(
+          color: scheme.onSurface,
+          fontSize: 22,
+          height: 1.1,
+          fontWeight: FontWeight.w800,
+        ),
       ),
-    );
-
-    return _decorate(base, const Color(0xff111827), const Color(0xff667085), Colors.black.withOpacity(0.05));
-  }
-
-  static ThemeData _decorate(ThemeData base, Color textColor, Color hintColor, Color inputFill) {
-    return base.copyWith(
-      splashFactory: InkRipple.splashFactory,
-      highlightColor: base.brightness == Brightness.dark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.05),
-      textTheme: base.textTheme.apply(
-        bodyColor: textColor,
-        displayColor: textColor,
-        fontFamilyFallback: const ['SF Pro Text', 'Helvetica Neue', 'Arial'],
+      cardTheme: CardThemeData(
+        elevation: 0,
+        color: isDark ? const Color(0xff1b1e26) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        margin: EdgeInsets.zero,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: inputFill,
-        hintStyle: TextStyle(color: hintColor),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(28),
-          borderSide: BorderSide(color: inputFill),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(28),
-          borderSide: BorderSide(color: inputFill),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(28),
-          borderSide: const BorderSide(color: electricBlue, width: 1.2),
-        ),
+        fillColor: isDark ? const Color(0xff1b1e26) : Colors.white,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: BorderSide.none),
+        hintStyle: TextStyle(color: scheme.onSurfaceVariant),
+      ),
+      bottomNavigationBarTheme: BottomNavigationBarThemeData(
+        type: BottomNavigationBarType.fixed,
+        selectedItemColor: blue,
+        unselectedItemColor: scheme.onSurfaceVariant,
+        backgroundColor: isDark ? const Color(0xff151821) : Colors.white,
+        elevation: 0,
       ),
     );
   }

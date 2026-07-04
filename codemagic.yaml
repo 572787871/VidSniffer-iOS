@@ -1,33 +1,24 @@
 workflows:
   unsigned-ios:
-    name: Build native unsigned iOS IPA
+    name: Build unsigned iOS IPA
     max_build_duration: 60
     instance_type: mac_mini_m2
     environment:
+      flutter: stable
       xcode: latest
+      cocoapods: default
     scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
       - name: Build iOS without codesigning
-        script: |
-          set -euo pipefail
-          xcodebuild \
-            -project ios/Runner.xcodeproj \
-            -scheme Runner \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath build/ios_xcode \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            DEVELOPMENT_TEAM="" \
-            build
+        script: flutter build ios --release --no-codesign
       - name: Package unsigned IPA
         script: |
           set -euo pipefail
-          APP_PATH="$(find build -path '*/Release-iphoneos/Runner.app' -type d | head -n 1)"
+          APP_PATH="build/ios/iphoneos/Runner.app"
           IPA_DIR="build/ios/ipa"
-          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
-            echo "Runner.app not found under build/"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Runner.app not found at $APP_PATH"
             exit 1
           fi
           rm -rf "$IPA_DIR"
@@ -38,3 +29,4 @@ workflows:
           test -f unsigned.ipa
     artifacts:
       - build/ios/ipa/unsigned.ipa
+

@@ -1,5 +1,5 @@
-name: vidsniffer_pro
-description: VidSniffer Pro, a Flutter iOS app for web video sniffing, m3u8 parsing, and local downloads.
+name: web_video_downloader
+description: A Flutter iOS app for parsing, sniffing, downloading, merging, and playing user-accessible web video.
 publish_to: "none"
 version: 1.0.0+1
 
@@ -9,15 +9,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  cached_network_image: ^3.4.1
-  chewie: ^1.8.5
   cupertino_icons: ^1.0.8
   dio: ^5.7.0
-  flutter_animate: ^4.5.2
-  glassmorphism: ^3.0.0
+  ffmpeg_kit_flutter_full_gpl: ^6.0.3
+  path: ^1.9.0
   path_provider: ^2.1.5
-  percent_indicator: ^4.2.4
-  shared_preferences: ^2.3.3
   share_plus: ^10.1.4
   video_player: ^2.9.2
   webview_flutter: ^4.10.0

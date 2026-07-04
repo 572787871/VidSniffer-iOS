@@ -1,105 +1,82 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
-import 'package:percent_indicator/linear_percent_indicator.dart';
-import 'package:vidsniffer_pro/theme/app_icons.dart';
 
-import '../theme/app_theme.dart';
-import '../widgets/empty_state.dart';
-import '../widgets/glass_card.dart';
-import '../widgets/progress_ring.dart';
-import 'app_state.dart';
+import '../models/mock_models.dart';
+import '../services/ui_state.dart';
+import '../widgets/app_card.dart';
+import 'player_screen.dart';
 
 class DownloadsScreen extends StatelessWidget {
   const DownloadsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final state = AppStateScope.of(context);
-    return AnimatedBuilder(
-      animation: state,
-      builder: (context, _) {
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
-          children: [
-            const Text('下载任务', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 8),
-            const Text('查看进度、速度并管理正在下载的视频', style: TextStyle(color: AppTheme.muted)),
-            const SizedBox(height: 20),
-            if (!state.restored)
-              const GlassCard(
-                child: EmptyState(title: '正在恢复任务', message: '正在读取本地下载记录。', icon: LucideIcons.downloadCloud),
-              )
-            else if (state.downloads.isEmpty)
-              const GlassCard(
-                child: EmptyState(title: '暂无下载任务', message: '解析或嗅探到视频后，可以从卡片一键加入下载。', icon: LucideIcons.downloadCloud),
-              )
-            else
-              for (final task in state.downloads)
-                _DownloadCard(
-                  task: task,
-                  onToggle: () => state.toggleDownload(task),
-                  onDelete: () => state.deleteDownload(task),
-                ).animate().fadeIn(duration: 220.ms).slideY(begin: 0.05, end: 0),
-          ],
-        );
-      },
+    final state = UiStateScope.of(context);
+    return Scaffold(
+      appBar: AppBar(title: const Text('下载任务')),
+      body: AnimatedBuilder(
+        animation: state,
+        builder: (context, _) => ListView.separated(
+          padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
+          itemBuilder: (context, index) => _DownloadCard(task: state.downloads[index]),
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemCount: state.downloads.length,
+        ),
+      ),
     );
   }
 }
 
 class _DownloadCard extends StatelessWidget {
-  const _DownloadCard({required this.task, required this.onToggle, required this.onDelete});
+  const _DownloadCard({required this.task});
 
-  final DownloadTask task;
-  final VoidCallback onToggle;
-  final VoidCallback onDelete;
+  final MockDownloadTask task;
 
   @override
   Widget build(BuildContext context) {
-    final statusIcon = task.completed ? LucideIcons.checkCircle : (task.paused ? LucideIcons.play : LucideIcons.pause);
-    final statusColor = task.completed ? const Color(0xff35d07f) : AppTheme.electricBlue;
-
-    return GlassCard(
-      margin: const EdgeInsets.only(bottom: 14),
-      child: Row(
+    final scheme = Theme.of(context).colorScheme;
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ProgressRing(percent: task.progress),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(task.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w900)),
-                const SizedBox(height: 6),
-                Text('${task.quality} · ${task.size} · ${task.speed}', style: const TextStyle(color: AppTheme.muted, fontSize: 13)),
-                const SizedBox(height: 12),
-                LinearPercentIndicator(
-                  padding: EdgeInsets.zero,
-                  lineHeight: 7,
-                  barRadius: const Radius.circular(999),
-                  percent: task.progress.clamp(0.0, 1.0).toDouble(),
-                  backgroundColor: Colors.white.withOpacity(0.1),
-                  linearGradient: AppTheme.accentGradient,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Column(
+          Row(
             children: [
-              CupertinoButton(
-                padding: EdgeInsets.zero,
-                minSize: 38,
-                onPressed: task.completed ? null : onToggle,
-                child: Icon(statusIcon, color: statusColor, size: 20),
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: task.completed ? scheme.primaryContainer : scheme.secondaryContainer,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(task.completed ? Icons.check_rounded : Icons.downloading_rounded, color: task.completed ? scheme.primary : scheme.secondary),
               ),
-              CupertinoButton(
-                padding: EdgeInsets.zero,
-                minSize: 38,
-                onPressed: onDelete,
-                child: const Icon(LucideIcons.trash2, color: Color(0xffff6b7a), size: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(task.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 4),
+                    Text('${task.type} · ${task.speed} · 剩余 ${task.remaining}', style: TextStyle(color: scheme.onSurfaceVariant)),
+                  ],
+                ),
               ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          LinearProgressIndicator(value: task.progress, minHeight: 8, borderRadius: BorderRadius.circular(99)),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              if (!task.completed) ...[
+                FilledButton.tonalIcon(onPressed: () {}, icon: Icon(task.paused ? Icons.play_arrow_rounded : Icons.pause_rounded), label: Text(task.paused ? '继续' : '暂停')),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(onPressed: () {}, icon: const Icon(Icons.close_rounded), label: const Text('取消')),
+              ] else
+                FilledButton.icon(
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PlayerScreen(title: task.title))),
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: const Text('播放'),
+                ),
             ],
           ),
         ],

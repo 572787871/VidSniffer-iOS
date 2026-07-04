@@ -1,206 +1,120 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
-import 'package:vidsniffer_pro/theme/app_icons.dart';
+import 'package:flutter/services.dart';
 
+import '../services/ui_state.dart';
 import '../theme/app_theme.dart';
-import '../widgets/empty_state.dart';
-import '../widgets/glass_card.dart';
-import '../widgets/pill_button.dart';
-import 'app_state.dart';
+import '../widgets/app_card.dart';
+import '../widgets/app_text_field.dart';
+import '../widgets/gradient_button.dart';
+import '../widgets/resource_sheet.dart';
+import 'webview_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({required this.onOpenTab, super.key});
-
-  final ValueChanged<int> onOpenTab;
+  const HomeScreen({super.key});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final TextEditingController _controller = TextEditingController();
+  final controller = TextEditingController();
 
   @override
   void dispose() {
-    _controller.dispose();
+    controller.dispose();
     super.dispose();
   }
 
-  void _queueDownload(BuildContext context, AppState state, VideoResource resource) {
-    state.addDownload(resource);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('已开始下载：${resource.quality}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: AppTheme.electricBlue,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final state = AppStateScope.of(context);
-
-    return AnimatedBuilder(
-      animation: state,
-      builder: (context, _) {
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
+    final state = UiStateScope.of(context);
+    return Scaffold(
+      appBar: AppBar(title: const Text('视频解析下载')),
+      body: AnimatedBuilder(
+        animation: state,
+        builder: (context, _) => ListView(
+          padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
           children: [
-            const Text(
-              'VidSniffer Pro',
-              style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, height: 1.05),
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(gradient: AppTheme.primaryGradient, borderRadius: BorderRadius.circular(28)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 42),
+                  const SizedBox(height: 18),
+                  Text('解析网页视频，保存到本地', style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 8),
+                  Text('支持网页输入和内置浏览器嗅探。m3u8 下载后合并为 mp4。', style: TextStyle(color: Colors.white.withOpacity(0.86), height: 1.35)),
+                ],
+              ),
             ),
-            const SizedBox(height: 8),
-            const Text(
-              '解析网页视频，保存到本地',
-              style: TextStyle(fontSize: 16, color: AppTheme.muted),
-            ),
-            const SizedBox(height: 24),
-            GlassCard(
+            const SizedBox(height: 18),
+            AppCard(
               child: Column(
                 children: [
+                  AppTextField(controller: controller, hintText: '粘贴网页 URL', onSubmitted: (_) => _parse(context)),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
-                        child: TextField(
-                          controller: _controller,
-                          keyboardType: TextInputType.url,
-                          textInputAction: TextInputAction.go,
-                          onSubmitted: (_) => state.parse(_controller.text),
-                          decoration: const InputDecoration(
-                            hintText: '粘贴网页视频链接',
-                            prefixIcon: Icon(LucideIcons.link2, size: 20),
-                          ),
+                        child: OutlinedButton.icon(
+                          onPressed: _paste,
+                          icon: const Icon(Icons.content_paste_rounded),
+                          label: const Text('粘贴链接'),
                         ),
                       ),
                       const SizedBox(width: 10),
-                      PillButton(
-                        label: '解析',
-                        icon: LucideIcons.search,
-                        compact: true,
-                        onPressed: state.parsing ? null : () => state.parse(_controller.text),
-                      ),
+                      Expanded(child: GradientButton(label: '开始解析', icon: Icons.search_rounded, onPressed: () => _parse(context))),
                     ],
                   ),
-                  if (state.parsing) ...[
-                    const SizedBox(height: 18),
-                    const LinearProgressIndicator(minHeight: 5, borderRadius: BorderRadius.all(Radius.circular(99))),
-                  ],
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton.icon(
+                      onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => WebViewScreen(initialUrl: controller.text))),
+                      icon: const Icon(Icons.language_rounded),
+                      label: const Text('用内置 WebView 打开网页'),
+                    ),
+                  ),
                 ],
               ),
-            ).animate().fadeIn(duration: 420.ms).slideY(begin: 0.05, end: 0),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(child: _QuickEntry(label: '浏览器嗅探', icon: LucideIcons.radar, onTap: () => widget.onOpenTab(1))),
-                const SizedBox(width: 12),
-                Expanded(child: _QuickEntry(label: 'm3u8 下载', icon: LucideIcons.fileDown, onTap: () => widget.onOpenTab(2))),
-                const SizedBox(width: 12),
-                Expanded(child: _QuickEntry(label: '本地视频', icon: LucideIcons.library, onTap: () => widget.onOpenTab(3))),
-              ],
             ),
-            const SizedBox(height: 26),
-            const _SectionHeader(title: '解析结果'),
+            const SizedBox(height: 20),
+            Text('最近解析', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
             const SizedBox(height: 12),
-            if (state.parseResults.isEmpty)
-              const GlassCard(
-                child: EmptyState(
-                  title: '等待解析',
-                  message: '粘贴网页视频链接后，解析结果会显示在这里。',
-                  icon: LucideIcons.sparkles,
+            for (final item in state.recentUrls)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: AppCard(
+                  onTap: () => controller.text = item,
+                  child: Row(
+                    children: [
+                      const Icon(Icons.history_rounded),
+                      const SizedBox(width: 12),
+                      Expanded(child: Text(item, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                      const Icon(Icons.chevron_right_rounded),
+                    ],
+                  ),
                 ),
-              )
-            else
-              for (final result in state.parseResults)
-                _ResultCard(resource: result, onDownload: () => _queueDownload(context, state, result))
-                    .animate()
-                    .fadeIn(duration: 260.ms)
-                    .slideY(begin: 0.06, end: 0),
+              ),
           ],
-        );
-      },
-    );
-  }
-}
-
-class _QuickEntry extends StatelessWidget {
-  const _QuickEntry({required this.label, required this.icon, required this.onTap});
-
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GlassCard(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
-      onTap: onTap,
-      child: Column(
-        children: [
-          Icon(icon, color: AppTheme.electricBlue, size: 24),
-          const SizedBox(height: 9),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-          ),
-        ],
+        ),
       ),
     );
   }
-}
 
-class _ResultCard extends StatelessWidget {
-  const _ResultCard({required this.resource, required this.onDownload});
-
-  final VideoResource resource;
-  final VoidCallback onDownload;
-
-  @override
-  Widget build(BuildContext context) {
-    return GlassCard(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        children: [
-          Container(
-            width: 54,
-            height: 54,
-            decoration: BoxDecoration(gradient: AppTheme.accentGradient, borderRadius: BorderRadius.circular(18)),
-            child: const Icon(LucideIcons.video, color: Colors.white),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(resource.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 6),
-                Text('${resource.quality} · ${resource.size}', style: const TextStyle(color: AppTheme.muted, fontSize: 13)),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          CupertinoButton(
-            padding: EdgeInsets.zero,
-            onPressed: onDownload,
-            child: const Icon(LucideIcons.download, color: AppTheme.electricBlue),
-          ),
-        ],
-      ),
-    );
+  Future<void> _paste() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (data?.text?.trim().isNotEmpty ?? false) {
+      setState(() => controller.text = data!.text!.trim());
+    }
   }
-}
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title});
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900));
+  void _parse(BuildContext context) {
+    FocusScope.of(context).unfocus();
+    final state = UiStateScope.of(context);
+    state.addRecent(controller.text);
+    showResourceSheet(context, state.resources);
   }
 }

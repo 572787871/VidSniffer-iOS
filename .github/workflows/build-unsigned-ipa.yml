@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   build-ios:
-    name: Build native unsigned iOS IPA
+    name: Build unsigned iOS IPA
     runs-on: macos-latest
     timeout-minutes: 60
 
@@ -21,14 +21,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show Xcode version
-        run: xcodebuild -version
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Show Flutter version
+        run: flutter --version
+
+      - name: Install Flutter packages
+        run: flutter pub get
+
+      - name: Disable Flutter Swift Package Manager integration
+        run: |
+          flutter config --no-enable-swift-package-manager
+          flutter config
+
+      - name: Prepare iOS build files
+        run: flutter build ios --release --no-codesign --config-only
 
       - name: Build unsigned iOS app with Xcode
         run: |
           set -euo pipefail
           xcodebuild \
-            -project ios/Runner.xcodeproj \
+            -workspace ios/Runner.xcworkspace \
             -scheme Runner \
             -configuration Release \
             -sdk iphoneos \
