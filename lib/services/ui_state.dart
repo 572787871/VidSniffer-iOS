@@ -21,6 +21,7 @@ class UiState extends ChangeNotifier {
   final List<String> recentUrls = [];
   final List<VideoResource> resources = [];
   List<LocalVideo> videos = [];
+  bool _enrichingLibrary = false;
 
   int selectedTab = 0;
   bool onlyWifi = false;
@@ -96,10 +97,16 @@ class UiState extends ChangeNotifier {
   Future<void> refreshLibrary() async {
     videos = await library.scan();
     notifyListeners();
+    unawaited(_ensureLibraryDetails(videos));
   }
 
   Future<void> deleteVideo(LocalVideo video) async {
     await library.delete(video);
+    await refreshLibrary();
+  }
+
+  Future<void> toggleFavorite(LocalVideo video) async {
+    await library.setFavorite(video, !video.isFavorite);
     await refreshLibrary();
   }
 
@@ -147,6 +154,28 @@ class UiState extends ChangeNotifier {
       unawaited(refreshLibrary());
     }
     notifyListeners();
+  }
+
+  Future<void> _ensureLibraryDetails(List<LocalVideo> snapshot) async {
+    if (_enrichingLibrary || snapshot.isEmpty) return;
+    _enrichingLibrary = true;
+    var changed = false;
+    try {
+      for (final video in snapshot) {
+        if (video.thumbnailPath.isEmpty ||
+            video.duration == Duration.zero ||
+            video.width <= 0 ||
+            video.height <= 0) {
+          changed = await library.ensureDetails(video) || changed;
+        }
+      }
+      if (changed) {
+        videos = await library.scan();
+        notifyListeners();
+      }
+    } finally {
+      _enrichingLibrary = false;
+    }
   }
 
   @override

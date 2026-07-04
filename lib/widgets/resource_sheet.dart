@@ -21,7 +21,7 @@ Future<void> showResourceSheet(
 
 class ResourceSheet extends StatelessWidget {
   ResourceSheet({required List<VideoResource> resources, super.key})
-    : resources = VideoSniffer().prioritizeResources(resources, limit: 50);
+      : resources = VideoSniffer().prioritizeResources(resources, limit: 50);
 
   final List<VideoResource> resources;
 
@@ -51,8 +51,8 @@ class ResourceSheet extends StatelessWidget {
               Text(
                 '可下载视频',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w900,
-                ),
+                      fontWeight: FontWeight.w900,
+                    ),
               ),
               const SizedBox(height: 6),
               Text(
@@ -172,8 +172,8 @@ class _ResourceTile extends StatelessWidget {
     final badge = resource.isAdSuspect
         ? '广告嫌疑'
         : (resource.recommendation.isEmpty
-              ? '可能的视频资源'
-              : resource.recommendation);
+            ? '可能的视频资源'
+            : resource.recommendation);
 
     return Container(
       decoration: BoxDecoration(

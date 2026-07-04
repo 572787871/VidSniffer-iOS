@@ -191,26 +191,26 @@ class _WebViewScreenState extends State<WebViewScreen> {
                               },
                               shouldInterceptRequest:
                                   (controller, request) async {
-                                    final url = request.url.toString();
-                                    _captureCandidate(url, 'resource');
-                                    return null;
-                                  },
+                                final url = request.url.toString();
+                                _captureCandidate(url, 'resource');
+                                return null;
+                              },
                               shouldInterceptFetchRequest:
                                   (controller, request) async {
-                                    final url = request.url?.toString();
-                                    if (url != null) {
-                                      _captureCandidate(url, 'fetch');
-                                    }
-                                    return request;
-                                  },
+                                final url = request.url?.toString();
+                                if (url != null) {
+                                  _captureCandidate(url, 'fetch');
+                                }
+                                return request;
+                              },
                               shouldInterceptAjaxRequest:
                                   (controller, request) async {
-                                    final url = request.url?.toString();
-                                    if (url != null) {
-                                      _captureCandidate(url, 'xhr');
-                                    }
-                                    return request;
-                                  },
+                                final url = request.url?.toString();
+                                if (url != null) {
+                                  _captureCandidate(url, 'xhr');
+                                }
+                                return request;
+                              },
                               onScrollChanged: (controller, x, y) {
                                 if (!browserVisible) return;
                                 final shouldShow = y < lastScrollY || y < 24;

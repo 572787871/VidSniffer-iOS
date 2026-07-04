@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
 import '../services/file_utils.dart';
+import '../services/playback_store.dart';
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({required this.title, this.filePath, super.key});
@@ -33,6 +34,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String? error;
   String? overlayText;
   Offset? doubleTapPosition;
+  String? currentPath;
+  final playbackStore = PlaybackStore();
 
   @override
   void initState() {
@@ -53,6 +56,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void dispose() {
     overlayTimer?.cancel();
     controlsTimer?.cancel();
+    _savePlaybackPosition();
     controller?.setPlaybackSpeed(1);
     controller?.removeListener(_onPlayerChanged);
     controller?.dispose();
@@ -254,8 +258,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         final duration = value.duration;
                         player?.seekTo(
                           Duration(
-                            milliseconds: (duration.inMilliseconds * position)
-                                .round(),
+                            milliseconds:
+                                (duration.inMilliseconds * position).round(),
                           ),
                         );
                       },
@@ -477,17 +481,65 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (await FileUtils.looksLikeHtml(file)) {
         throw StateError('文件内容是 HTML，不是视频');
       }
+      currentPath = path;
       controller = VideoPlayerController.file(file)
         ..initialize().then((_) {
           if (!mounted) return;
-          controller?.setVolume(volume);
-          setState(() {});
-          _scheduleControlsHide();
-          controller?.play();
+          _afterInitialized(path);
         })
         ..addListener(_onPlayerChanged);
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     }
+  }
+
+  Future<void> _afterInitialized(String path) async {
+    final player = controller;
+    if (player == null || !player.value.isInitialized) return;
+    player.setVolume(volume);
+    final resume = await playbackStore.positionFor(path);
+    if (!mounted) return;
+    if (resume.inSeconds > 10 &&
+        resume < player.value.duration - const Duration(seconds: 10)) {
+      final shouldContinue = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('继续播放？'),
+          content: Text('上次播放到 ${_formatPosition(resume)}'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('从头播放'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('继续播放'),
+            ),
+          ],
+        ),
+      );
+      if (shouldContinue == true) {
+        await player.seekTo(resume);
+      } else {
+        await player.seekTo(Duration.zero);
+      }
+    }
+    if (!mounted) return;
+    setState(() {});
+    _scheduleControlsHide();
+    player.play();
+  }
+
+  void _savePlaybackPosition() {
+    final path = currentPath;
+    final value = controller?.value;
+    if (path == null || value == null || !value.isInitialized) return;
+    unawaited(
+      playbackStore.save(
+        path: path,
+        position: value.position,
+        duration: value.duration,
+      ),
+    );
   }
 }

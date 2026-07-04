@@ -7,12 +7,12 @@ import '../models/video_resource.dart';
 
 class VideoSniffer {
   VideoSniffer()
-    : _dio = Dio(
-        BaseOptions(
-          connectTimeout: const Duration(seconds: 20),
-          receiveTimeout: const Duration(seconds: 30),
-        ),
-      );
+      : _dio = Dio(
+          BaseOptions(
+            connectTimeout: const Duration(seconds: 20),
+            receiveTimeout: const Duration(seconds: 30),
+          ),
+        );
 
   final Dio _dio;
 
@@ -195,16 +195,15 @@ class VideoSniffer {
       );
       final contentType =
           response.headers.value(Headers.contentTypeHeader)?.toLowerCase() ??
-          '';
+              '';
       final length = response.headers.value(Headers.contentLengthHeader);
       if (contentType.contains('mpegurl') ||
           contentType.contains('application/vnd.apple.mpegurl')) {
         return _probeHls(
           resource.copyWith(
             type: VideoResourceType.hls,
-            size: length == null
-                ? '未知'
-                : _formatBytes(int.tryParse(length) ?? 0),
+            size:
+                length == null ? '未知' : _formatBytes(int.tryParse(length) ?? 0),
             contentType: contentType,
           ),
         );
@@ -213,9 +212,8 @@ class VideoSniffer {
         final mp4 = await _probeMp4(
           resource.copyWith(
             type: VideoResourceType.mp4,
-            size: length == null
-                ? '未知'
-                : _formatBytes(int.tryParse(length) ?? 0),
+            size:
+                length == null ? '未知' : _formatBytes(int.tryParse(length) ?? 0),
             contentType: contentType,
           ),
         );
@@ -424,9 +422,8 @@ class VideoSniffer {
         .contains('bytes');
     return resource.copyWith(
       container: 'direct mp4',
-      size: length == null || length <= 0
-          ? resource.size
-          : _formatBytes(length),
+      size:
+          length == null || length <= 0 ? resource.size : _formatBytes(length),
       contentType: contentType,
       acceptRanges: acceptRanges,
       recommendation: resource.isAdSuspect ? '' : '可能的视频资源',
@@ -463,9 +460,8 @@ class VideoSniffer {
           quality: height == null
               ? _qualityFromUrl(variantUri.toString())
               : '${height}p',
-          bitrate: bandwidth == null
-              ? ''
-              : '${(bandwidth / 1000).round()} kbps',
+          bitrate:
+              bandwidth == null ? '' : '${(bandwidth / 1000).round()} kbps',
           codec: codecs,
           container: 'master m3u8',
           isAdSuspect:
@@ -480,9 +476,7 @@ class VideoSniffer {
       variants.first.copyWith(
         recommendation: variants.first.isAdSuspect ? '' : '推荐下载',
       ),
-      ...variants
-          .skip(1)
-          .map(
+      ...variants.skip(1).map(
             (item) =>
                 item.copyWith(recommendation: item.isAdSuspect ? '' : '正片可能'),
           ),
@@ -577,8 +571,7 @@ class VideoSniffer {
   }
 
   int _heightHint(VideoResource resource) {
-    final fromQuality =
-        int.tryParse(
+    final fromQuality = int.tryParse(
           RegExp(
                 r'(\d{3,4})p',
               ).firstMatch(resource.quality.toLowerCase())?.group(1) ??

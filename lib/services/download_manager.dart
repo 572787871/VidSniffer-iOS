@@ -12,6 +12,7 @@ import 'package:path/path.dart' as p;
 import '../models/download_task.dart';
 import '../models/video_resource.dart';
 import 'file_utils.dart';
+import 'local_library.dart';
 
 class DownloadManager extends ChangeNotifier {
   DownloadManager();
@@ -111,6 +112,8 @@ class DownloadManager extends ChangeNotifier {
       task.speed = '完成';
       task.remaining = '00:00';
       task.message = '下载完成';
+      unawaited(
+          LocalLibrary().writeDownloadMetadata(task.localPath, task.resource));
       notifyListeners();
     } catch (error) {
       debugPrint('[download] failed error=$error');
@@ -427,20 +430,17 @@ class DownloadManager extends ChangeNotifier {
     }
     task.phase = DownloadPhase.downloadingSegments;
     task.status = DownloadStatus.downloading;
-    task.message = task.totalSegments > 0
-        ? '正在下载分片 0/${task.totalSegments}'
-        : '正在下载分片';
+    task.message =
+        task.totalSegments > 0 ? '正在下载分片 0/${task.totalSegments}' : '正在下载分片';
     notifyListeners();
   }
 
   void _appendFfmpegLog(DownloadTask task, String message) {
-    final next = task.ffmpegLog.isEmpty
-        ? message
-        : '${task.ffmpegLog}\n$message';
+    final next =
+        task.ffmpegLog.isEmpty ? message : '${task.ffmpegLog}\n$message';
     final lines = next.split('\n');
-    task.ffmpegLog = lines.length > 20
-        ? lines.sublist(lines.length - 20).join('\n')
-        : next;
+    task.ffmpegLog =
+        lines.length > 20 ? lines.sublist(lines.length - 20).join('\n') : next;
   }
 
   String _errorSummary(Object error) {
@@ -508,9 +508,8 @@ class DownloadManager extends ChangeNotifier {
       if (response.statusCode >= 500) {
         throw HttpException('HTTP ${response.statusCode}', uri: uri);
       }
-      final total = response.contentLength > 0
-          ? response.contentLength + resumeFrom
-          : 0;
+      final total =
+          response.contentLength > 0 ? response.contentLength + resumeFrom : 0;
       var received = resumeFrom;
       final sink = partFile.openWrite(
         mode: resumeFrom > 0 ? FileMode.append : FileMode.write,
@@ -565,9 +564,8 @@ class DownloadManager extends ChangeNotifier {
     task.progress = total > 0 ? (received / total).clamp(0, 1).toDouble() : 0;
     task.phase = DownloadPhase.downloadingFile;
     task.isIndeterminate = total <= 0;
-    task.speed = speedBytes <= 0
-        ? '--'
-        : '${_formatBytes(speedBytes.round())}/s';
+    task.speed =
+        speedBytes <= 0 ? '--' : '${_formatBytes(speedBytes.round())}/s';
     task.remaining = total > 0 && speedBytes > 0
         ? _formatDuration(
             Duration(seconds: ((total - received) / speedBytes).ceil()),
@@ -604,9 +602,8 @@ class DownloadManager extends ChangeNotifier {
       'User-Agent': resource.userAgent.isNotEmpty
           ? resource.userAgent
           : 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
-      'Referer': resource.referer.isNotEmpty
-          ? resource.referer
-          : resource.pageUrl,
+      'Referer':
+          resource.referer.isNotEmpty ? resource.referer : resource.pageUrl,
       if (resource.origin.isNotEmpty) 'Origin': resource.origin,
       if (resource.cookie.isNotEmpty) 'Cookie': resource.cookie,
       'Accept': '*/*',

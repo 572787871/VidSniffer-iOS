@@ -63,16 +63,16 @@ class _DownloadCard extends StatelessWidget {
                   color: isCompleted
                       ? scheme.primaryContainer
                       : (isFailed
-                            ? scheme.errorContainer
-                            : scheme.secondaryContainer),
+                          ? scheme.errorContainer
+                          : scheme.secondaryContainer),
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Icon(
                   isCompleted
                       ? Icons.check_rounded
                       : (isFailed
-                            ? Icons.error_outline_rounded
-                            : Icons.downloading_rounded),
+                          ? Icons.error_outline_rounded
+                          : Icons.downloading_rounded),
                   color: isCompleted
                       ? scheme.primary
                       : (isFailed ? scheme.error : scheme.secondary),
@@ -232,9 +232,8 @@ class _DownloadCard extends StatelessWidget {
   }
 
   void _showDetails(BuildContext context, DownloadTask task) {
-    final details = task.errorDetails.isNotEmpty
-        ? task.errorDetails
-        : task.ffmpegLog;
+    final details =
+        task.errorDetails.isNotEmpty ? task.errorDetails : task.ffmpegLog;
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
