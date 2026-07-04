@@ -79,7 +79,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
             bottom: 28,
             child: FilledButton.icon(
               onPressed: () => showResourceSheet(context, state.resources),
-              icon: const Icon(Icons.video_search_rounded),
+              icon: const Icon(Icons.video_library_rounded),
               label: const Text('发现视频'),
             ),
           ),
