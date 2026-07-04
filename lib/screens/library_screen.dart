@@ -17,14 +17,21 @@ class LibraryScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('本地视频库'),
         actions: [
-          IconButton(onPressed: state.refreshLibrary, icon: const Icon(Icons.refresh_rounded)),
+          IconButton(
+            onPressed: state.refreshLibrary,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
         ],
       ),
       body: AnimatedBuilder(
         animation: state,
         builder: (context, _) {
           if (state.videos.isEmpty) {
-            return const EmptyState(icon: Icons.video_library_outlined, title: '还没有本地视频', message: '下载完成的视频会显示在这里，并能在 iOS 文件 App 中查看。');
+            return const EmptyState(
+              icon: Icons.video_library_outlined,
+              title: '还没有本地视频',
+              message: '下载完成的视频会显示在这里，并能在 iOS 文件 App 中查看。',
+            );
           }
           return GridView.builder(
             padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
@@ -34,7 +41,8 @@ class LibraryScreen extends StatelessWidget {
               mainAxisSpacing: 14,
             ),
             itemCount: state.videos.length,
-            itemBuilder: (context, index) => _VideoCard(video: state.videos[index]),
+            itemBuilder: (context, index) =>
+                _VideoCard(video: state.videos[index]),
           );
         },
       ),
@@ -58,25 +66,57 @@ class _VideoCard extends StatelessWidget {
             width: 116,
             height: double.infinity,
             decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: [Color(0xff2563eb), Color(0xff7c3aed)]),
+              gradient: const LinearGradient(
+                colors: [Color(0xff2563eb), Color(0xff7c3aed)],
+              ),
               borderRadius: BorderRadius.circular(18),
             ),
-            child: const Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 44),
+            child: const Icon(
+              Icons.play_circle_fill_rounded,
+              color: Colors.white,
+              size: 44,
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(video.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w900)),
+                Text(
+                  video.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
                 const SizedBox(height: 6),
-                Text('${_formatBytes(video.size)} · ${_formatDate(video.modifiedAt)}', style: TextStyle(color: scheme.onSurfaceVariant)),
+                Text(
+                  '${_formatBytes(video.size)} · ${_formatDate(video.modifiedAt)}',
+                  style: TextStyle(color: scheme.onSurfaceVariant),
+                ),
                 const Spacer(),
                 Row(
                   children: [
-                    IconButton.filled(onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PlayerScreen(title: video.name, filePath: video.path))), icon: const Icon(Icons.play_arrow_rounded)),
-                    IconButton.filledTonal(onPressed: () => Share.shareXFiles([XFile(video.path)], text: video.name), icon: const Icon(Icons.ios_share_rounded)),
-                    IconButton.outlined(onPressed: () => state.deleteVideo(video), icon: const Icon(Icons.delete_outline_rounded)),
+                    IconButton.filled(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => PlayerScreen(
+                            title: video.name,
+                            filePath: video.path,
+                          ),
+                        ),
+                      ),
+                      icon: const Icon(Icons.play_arrow_rounded),
+                    ),
+                    IconButton.filledTonal(
+                      onPressed: () => Share.shareXFiles([
+                        XFile(video.path),
+                      ], text: video.name),
+                      icon: const Icon(Icons.ios_share_rounded),
+                    ),
+                    IconButton.outlined(
+                      onPressed: () => state.deleteVideo(video),
+                      icon: const Icon(Icons.delete_outline_rounded),
+                    ),
                   ],
                 ),
               ],
@@ -90,7 +130,9 @@ class _VideoCard extends StatelessWidget {
   String _formatBytes(int value) {
     if (value < 1024) return '$value B';
     if (value < 1024 * 1024) return '${(value / 1024).toStringAsFixed(1)} KB';
-    if (value < 1024 * 1024 * 1024) return '${(value / 1024 / 1024).toStringAsFixed(1)} MB';
+    if (value < 1024 * 1024 * 1024) {
+      return '${(value / 1024 / 1024).toStringAsFixed(1)} MB';
+    }
     return '${(value / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';
   }
 

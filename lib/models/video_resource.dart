@@ -28,7 +28,8 @@ class VideoResource {
   final String quality;
 
   String get id => normalizedUrl;
-  String get normalizedUrl => Uri.tryParse(url)?.removeFragment().toString() ?? url;
+  String get normalizedUrl =>
+      Uri.tryParse(url)?.removeFragment().toString() ?? url;
 
   String get label {
     switch (type) {
@@ -53,7 +54,9 @@ class VideoResource {
     if (lower.contains('.ts')) {
       return VideoResourceType.ts;
     }
-    if (lower.contains('.mp4') || lower.contains('.m4v') || lower.contains('.mov')) {
+    if (lower.contains('.mp4') ||
+        lower.contains('.m4v') ||
+        lower.contains('.mov')) {
       return VideoResourceType.mp4;
     }
     if (lower.contains('.m4s')) {

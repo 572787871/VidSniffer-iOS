@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -5,12 +6,18 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../services/ui_state.dart';
 import '../services/video_sniffer.dart';
+import '../services/video_sniffer_controller.dart';
 import '../widgets/resource_sheet.dart';
 
 class WebViewScreen extends StatefulWidget {
-  const WebViewScreen({this.initialUrl = '', super.key});
+  const WebViewScreen({
+    this.initialUrl = '',
+    this.autoDiscover = false,
+    super.key,
+  });
 
   final String initialUrl;
+  final bool autoDiscover;
 
   @override
   State<WebViewScreen> createState() => _WebViewScreenState();
@@ -19,8 +26,10 @@ class WebViewScreen extends StatefulWidget {
 class _WebViewScreenState extends State<WebViewScreen> {
   final sniffer = VideoSniffer();
   final addressController = TextEditingController();
+  late final VideoSnifferController snifferController;
   InAppWebViewController? webController;
   PullToRefreshController? pullToRefreshController;
+  Timer? noResourceHintTimer;
   double progress = 0;
   String? errorText;
   String currentUrl = '';
@@ -33,6 +42,14 @@ class _WebViewScreenState extends State<WebViewScreen> {
     debugPrint('[webview] initialUrl=$initial');
     addressController.text = initial;
     currentUrl = initial;
+    snifferController = VideoSnifferController(
+      sniffer: sniffer,
+      loadContext: _snifferContext,
+      onResourcesChanged: (resources) {
+        if (!mounted) return;
+        UiStateScope.of(context).setResources(resources);
+      },
+    )..updatePageUrl(initial);
     pullToRefreshController = PullToRefreshController(
       settings: PullToRefreshSettings(color: const Color(0xff2563eb)),
       onRefresh: () => webController?.reload(),
@@ -41,6 +58,8 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
   @override
   void dispose() {
+    noResourceHintTimer?.cancel();
+    snifferController.dispose();
     addressController.dispose();
     super.dispose();
   }
@@ -58,9 +77,18 @@ class _WebViewScreenState extends State<WebViewScreen> {
                 padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
                 child: Row(
                   children: [
-                    IconButton.filledTonal(onPressed: () => webController?.goBack(), icon: const Icon(Icons.arrow_back_ios_new_rounded)),
-                    IconButton.filledTonal(onPressed: () => webController?.goForward(), icon: const Icon(Icons.arrow_forward_ios_rounded)),
-                    IconButton.filledTonal(onPressed: () => webController?.reload(), icon: const Icon(Icons.refresh_rounded)),
+                    IconButton.filledTonal(
+                      onPressed: () => webController?.goBack(),
+                      icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                    ),
+                    IconButton.filledTonal(
+                      onPressed: () => webController?.goForward(),
+                      icon: const Icon(Icons.arrow_forward_ios_rounded),
+                    ),
+                    IconButton.filledTonal(
+                      onPressed: () => webController?.reload(),
+                      icon: const Icon(Icons.refresh_rounded),
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: TextField(
@@ -68,13 +96,17 @@ class _WebViewScreenState extends State<WebViewScreen> {
                         keyboardType: TextInputType.url,
                         textInputAction: TextInputAction.go,
                         onSubmitted: (_) => _load(),
-                        decoration: const InputDecoration(prefixIcon: Icon(Icons.lock_outline_rounded), hintText: '输入网址'),
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.lock_outline_rounded),
+                          hintText: '输入网址',
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
-              if (progress > 0 && progress < 1) LinearProgressIndicator(value: progress),
+              if (progress > 0 && progress < 1)
+                LinearProgressIndicator(value: progress),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
@@ -83,11 +115,14 @@ class _WebViewScreenState extends State<WebViewScreen> {
                     child: Stack(
                       children: [
                         InAppWebView(
-                          initialUrlRequest: URLRequest(url: WebUri(currentUrl)),
+                          initialUrlRequest: URLRequest(
+                            url: WebUri(currentUrl),
+                          ),
                           initialSettings: InAppWebViewSettings(
                             javaScriptEnabled: true,
                             mediaPlaybackRequiresUserGesture: false,
                             allowsInlineMediaPlayback: true,
+                            useShouldInterceptRequest: true,
                             useShouldInterceptAjaxRequest: true,
                             useShouldInterceptFetchRequest: true,
                           ),
@@ -99,7 +134,10 @@ class _WebViewScreenState extends State<WebViewScreen> {
                               callback: (args) {
                                 for (final arg in args) {
                                   if (arg is Map && arg['url'] is String) {
-                                    _addCandidate(arg['url'] as String, arg['source']?.toString() ?? 'jsHook');
+                                    _captureCandidate(
+                                      arg['url'] as String,
+                                      arg['source']?.toString() ?? 'jsHook',
+                                    );
                                   }
                                 }
                               },
@@ -113,7 +151,10 @@ class _WebViewScreenState extends State<WebViewScreen> {
                               currentUrl = value;
                               addressController.text = value;
                               errorText = null;
+                              progress = 0;
                             });
+                            snifferController.reset(pageUrl: value);
+                            _captureCandidate(value, 'resource');
                           },
                           onProgressChanged: (controller, value) {
                             debugPrint('[webview] progress: $value');
@@ -131,6 +172,8 @@ class _WebViewScreenState extends State<WebViewScreen> {
                             await _updateUserAgent();
                             await _injectSniffer();
                             await _scanDom();
+                            await snifferController.flush();
+                            _scheduleNoResourceHint();
                           },
                           onReceivedError: (controller, request, error) {
                             debugPrint('[webview] error: ${error.description}');
@@ -138,16 +181,30 @@ class _WebViewScreenState extends State<WebViewScreen> {
                             setState(() => errorText = error.description);
                           },
                           onLoadResource: (controller, resource) {
-                            _addCandidate(resource.url.toString(), 'network');
+                            _captureCandidate(
+                              resource.url.toString(),
+                              'resource',
+                            );
                           },
-                          shouldInterceptFetchRequest: (controller, request) async {
+                          shouldInterceptRequest: (controller, request) async {
+                            final url = request.url.toString();
+                            _captureCandidate(url, 'resource');
+                            return null;
+                          },
+                          shouldInterceptFetchRequest:
+                              (controller, request) async {
                             final url = request.url?.toString();
-                            if (url != null) _addCandidate(url, 'fetch');
+                            if (url != null) {
+                              _captureCandidate(url, 'fetch');
+                            }
                             return request;
                           },
-                          shouldInterceptAjaxRequest: (controller, request) async {
+                          shouldInterceptAjaxRequest:
+                              (controller, request) async {
                             final url = request.url?.toString();
-                            if (url != null) _addCandidate(url, 'xhr');
+                            if (url != null) {
+                              _captureCandidate(url, 'xhr');
+                            }
                             return request;
                           },
                         ),
@@ -158,7 +215,10 @@ class _WebViewScreenState extends State<WebViewScreen> {
                               child: Center(
                                 child: Padding(
                                   padding: const EdgeInsets.all(24),
-                                  child: Text('网页加载失败：$errorText', textAlign: TextAlign.center),
+                                  child: Text(
+                                    '网页加载失败：$errorText',
+                                    textAlign: TextAlign.center,
+                                  ),
                                 ),
                               ),
                             ),
@@ -177,11 +237,16 @@ class _WebViewScreenState extends State<WebViewScreen> {
             child: FilledButton.icon(
               onPressed: () async {
                 await _scanDom();
+                await snifferController.flush();
                 if (!context.mounted) return;
                 showResourceSheet(context, state.resources);
               },
               icon: const Icon(Icons.video_library_rounded),
-              label: Text(state.resources.isEmpty ? '发现视频' : '发现视频 (${state.resources.length})'),
+              label: Text(
+                state.resources.isEmpty
+                    ? '发现视频'
+                    : '发现视频 (${state.resources.length})',
+              ),
             ),
           ),
         ],
@@ -197,7 +262,9 @@ class _WebViewScreenState extends State<WebViewScreen> {
       currentUrl = url;
       addressController.text = url;
       errorText = null;
+      progress = 0;
     });
+    snifferController.reset(pageUrl: url);
     await webController?.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
   }
 
@@ -207,7 +274,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
     final result = await controller.evaluateJavascript(source: _domScanScript);
     final urls = _decodeJsStringList(result);
     for (final url in urls) {
-      _addCandidate(url, 'dom');
+      _captureCandidate(url, 'dom');
     }
   }
 
@@ -216,34 +283,53 @@ class _WebViewScreenState extends State<WebViewScreen> {
   }
 
   Future<void> _updateUserAgent() async {
-    final value = await webController?.evaluateJavascript(source: 'navigator.userAgent');
+    final value = await webController?.evaluateJavascript(
+      source: 'navigator.userAgent',
+    );
     if (value != null) {
       userAgent = value.toString().replaceAll('"', '');
     }
   }
 
   Future<String> _cookiesFor(String pageUrl) async {
-    final uri = WebUri(pageUrl);
-    final cookies = await CookieManager.instance().getCookies(url: uri);
-    return cookies.map((item) => '${item.name}=${item.value}').join('; ');
+    try {
+      final uri = WebUri(pageUrl);
+      final cookies = await CookieManager.instance().getCookies(url: uri);
+      return cookies.map((item) => '${item.name}=${item.value}').join('; ');
+    } catch (_) {
+      return '';
+    }
   }
 
-  Future<void> _addCandidate(String rawUrl, String source) async {
-    final state = UiStateScope.of(context);
-    final pageUrl = currentUrl.isEmpty ? addressController.text : currentUrl;
-    final cookie = await _cookiesFor(pageUrl);
-    final resource = sniffer.resourceFromUrl(
-      rawUrl,
-      pageTitle: await _pageTitle(),
-      pageUrl: pageUrl,
-      source: source,
-      userAgent: userAgent,
-      cookie: cookie,
+  void _captureCandidate(String rawUrl, String source) {
+    snifferController.updatePageUrl(
+      currentUrl.isEmpty ? addressController.text : currentUrl,
     );
-    if (resource == null) return;
-    final probed = await sniffer.probeUnknown(resource);
-    if (probed == null) return;
-    state.addResource(probed);
+    snifferController.capture(rawUrl, source);
+  }
+
+  Future<SnifferPageContext> _snifferContext() async {
+    final pageUrl = currentUrl.isEmpty ? addressController.text : currentUrl;
+    return SnifferPageContext(
+      pageUrl: pageUrl,
+      pageTitle: await _pageTitle(),
+      userAgent: userAgent,
+      cookie: await _cookiesFor(pageUrl),
+    );
+  }
+
+  void _scheduleNoResourceHint() {
+    if (!widget.autoDiscover) return;
+    noResourceHintTimer?.cancel();
+    noResourceHintTimer = Timer(const Duration(seconds: 4), () {
+      if (!mounted) return;
+      final state = UiStateScope.of(context);
+      if (state.resources.isEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('请点击播放网页视频后再点发现视频')));
+      }
+    });
   }
 
   Future<String> _pageTitle() async {
@@ -261,7 +347,9 @@ class _WebViewScreenState extends State<WebViewScreen> {
     final text = value.toString();
     try {
       final decoded = jsonDecode(text);
-      if (decoded is List) return decoded.map((item) => item.toString()).toList();
+      if (decoded is List) {
+        return decoded.map((item) => item.toString()).toList();
+      }
     } catch (_) {}
     return const [];
   }

@@ -5,17 +5,34 @@ import 'package:dio/dio.dart';
 import '../models/video_resource.dart';
 
 class VideoSniffer {
-  VideoSniffer() : _dio = Dio(BaseOptions(connectTimeout: const Duration(seconds: 20), receiveTimeout: const Duration(seconds: 30)));
+  VideoSniffer()
+      : _dio = Dio(
+          BaseOptions(
+            connectTimeout: const Duration(seconds: 20),
+            receiveTimeout: const Duration(seconds: 30),
+          ),
+        );
 
   final Dio _dio;
 
-  Future<List<VideoResource>> parsePage(String input, {String userAgent = '', String cookie = ''}) async {
+  Future<List<VideoResource>> parsePage(
+    String input, {
+    String userAgent = '',
+    String cookie = '',
+  }) async {
     final pageUri = normalizeUrl(input);
     if (pageUri == null) {
       throw FormatException('URL 格式不正确：$input');
     }
 
-    final direct = resourceFromUrl(pageUri.toString(), pageTitle: pageUri.host, source: 'direct', pageUrl: pageUri.toString(), userAgent: userAgent, cookie: cookie);
+    final direct = resourceFromUrl(
+      pageUri.toString(),
+      pageTitle: pageUri.host,
+      source: 'direct',
+      pageUrl: pageUri.toString(),
+      userAgent: userAgent,
+      cookie: cookie,
+    );
     if (direct != null) {
       return [direct];
     }
@@ -26,8 +43,10 @@ class VideoSniffer {
         responseType: ResponseType.plain,
         followRedirects: true,
         headers: const {
-          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'User-Agent':
+              'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+          'Accept':
+              'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         },
       ),
     );
@@ -38,20 +57,45 @@ class VideoSniffer {
     return scanHtml(html, pageUri, userAgent: userAgent, cookie: cookie);
   }
 
-  List<VideoResource> scanHtml(String html, Uri pageUri, {String userAgent = '', String cookie = '', String source = 'dom'}) {
+  List<VideoResource> scanHtml(
+    String html,
+    Uri pageUri, {
+    String userAgent = '',
+    String cookie = '',
+    String source = 'dom',
+  }) {
     final title = _pageTitle(html) ?? pageUri.host;
     final candidates = <String>[];
     final patterns = <RegExp>[
-      RegExp(r'''https?:[^"'\\\s<>]+?\.(?:m3u8|mp4|m4v|mov|ts|m4s)(?:\?[^"'\\\s<>]*)?''', caseSensitive: false),
-      RegExp(r'''(?:src|href|url|file|video|source|content)["'\s:=]+([^"'\s<>]+?\.(?:m3u8|mp4|m4v|mov|ts|m4s)(?:\?[^"'\s<>]*)?)''', caseSensitive: false),
-      RegExp(r'''"([^"]+?\.(?:m3u8|mp4|m4v|mov|ts|m4s)(?:\?[^"]*)?)"''', caseSensitive: false),
-      RegExp(r'''<video[^>]+(?:src|data-src)=["']([^"']+)["']''', caseSensitive: false),
-      RegExp(r'''<source[^>]+(?:src|data-src)=["']([^"']+)["']''', caseSensitive: false),
+      RegExp(
+        r'''https?:[^"'\\\s<>]+?\.(?:m3u8|mp4|m4v|mov|ts|m4s)(?:\?[^"'\\\s<>]*)?''',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'''(?:src|href|url|file|video|source|content)["'\s:=]+([^"'\s<>]+?\.(?:m3u8|mp4|m4v|mov|ts|m4s)(?:\?[^"'\s<>]*)?)''',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'''"([^"]+?\.(?:m3u8|mp4|m4v|mov|ts|m4s)(?:\?[^"]*)?)"''',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'''<video[^>]+(?:src|data-src)=["']([^"']+)["']''',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'''<source[^>]+(?:src|data-src)=["']([^"']+)["']''',
+        caseSensitive: false,
+      ),
     ];
 
     for (final pattern in patterns) {
       for (final match in pattern.allMatches(html)) {
-        candidates.add(match.groupCount >= 1 ? (match.group(1) ?? match.group(0)!) : match.group(0)!);
+        candidates.add(
+          match.groupCount >= 1
+              ? (match.group(1) ?? match.group(0)!)
+              : match.group(0)!,
+        );
       }
     }
 
@@ -63,14 +107,20 @@ class VideoSniffer {
       if (resolved == null) {
         continue;
       }
-      final resource = resourceFromUrl(resolved.toString(), pageTitle: title, pageUrl: pageUri.toString(), source: source, userAgent: userAgent, cookie: cookie);
+      final resource = resourceFromUrl(
+        resolved.toString(),
+        pageTitle: title,
+        pageUrl: pageUri.toString(),
+        source: source,
+        userAgent: userAgent,
+        cookie: cookie,
+      );
       if (resource == null || !seen.add(resource.url)) {
         continue;
       }
       resources.add(resource);
     }
-    resources.sort((a, b) => _priority(a).compareTo(_priority(b)));
-    return resources;
+    return prioritizeResources(resources);
   }
 
   VideoResource? resourceFromUrl(
@@ -83,16 +133,19 @@ class VideoSniffer {
     String cookie = '',
     String size = '未知',
     String quality = '未知',
+    bool allowUnknown = false,
   }) {
     final base = pageUrl.isEmpty ? null : Uri.tryParse(pageUrl);
     final uri = normalizeUrl(value, base: base);
-    if (uri == null || !_isAllowedMedia(uri)) {
+    if (uri == null || (!_isAllowedMedia(uri) && !allowUnknown)) {
       return null;
     }
     final pageUri = Uri.tryParse(pageUrl);
     return VideoResource(
       url: uri.toString(),
-      title: pageTitle.trim().isEmpty ? (uri.host.isEmpty ? '网页视频' : uri.host) : pageTitle.trim(),
+      title: pageTitle.trim().isEmpty
+          ? (uri.host.isEmpty ? '网页视频' : uri.host)
+          : pageTitle.trim(),
       type: VideoResource.typeFromUrl(uri.toString()),
       source: source,
       pageUrl: pageUrl,
@@ -123,13 +176,24 @@ class VideoSniffer {
           validateStatus: (status) => status != null && status < 500,
         ),
       );
-      final contentType = response.headers.value(Headers.contentTypeHeader)?.toLowerCase() ?? '';
+      final contentType =
+          response.headers.value(Headers.contentTypeHeader)?.toLowerCase() ??
+              '';
       final length = response.headers.value(Headers.contentLengthHeader);
-      if (contentType.contains('mpegurl') || contentType.contains('application/vnd.apple.mpegurl')) {
-        return _copyWith(resource, type: VideoResourceType.hls, size: length ?? '未知');
+      if (contentType.contains('mpegurl') ||
+          contentType.contains('application/vnd.apple.mpegurl')) {
+        return _copyWith(
+          resource,
+          type: VideoResourceType.hls,
+          size: length ?? '未知',
+        );
       }
       if (contentType.startsWith('video/') || contentType.contains('mp4')) {
-        return _copyWith(resource, type: VideoResourceType.mp4, size: length ?? '未知');
+        return _copyWith(
+          resource,
+          type: VideoResourceType.mp4,
+          size: length ?? '未知',
+        );
       }
       return null;
     } catch (_) {
@@ -137,7 +201,106 @@ class VideoSniffer {
     }
   }
 
-  VideoResource _copyWith(VideoResource resource, {required VideoResourceType type, required String size}) {
+  bool isLikelyMediaCandidate(String value) {
+    final lower = value.toLowerCase().trim();
+    if (lower.isEmpty ||
+        lower.startsWith('blob:') ||
+        lower.startsWith('data:') ||
+        lower.startsWith('about:')) {
+      return false;
+    }
+    if (lower.contains('widevine') ||
+        lower.contains('fairplay') ||
+        lower.contains('drm') ||
+        lower.contains('license')) {
+      return false;
+    }
+    if (lower.contains('doubleclick') ||
+        lower.contains('/ads/') ||
+        lower.contains('analytics') ||
+        lower.contains('advert')) {
+      return false;
+    }
+    if (RegExp(
+      r'\.(?:png|jpe?g|gif|webp|svg|ico|css|js|woff2?|ttf|otf)(?:\?|$)',
+      caseSensitive: false,
+    ).hasMatch(lower)) {
+      return false;
+    }
+    return RegExp(
+          r'\.(?:mp4|m4v|mov|m3u8|ts|m4s|aac)(?:[?#]|$)',
+          caseSensitive: false,
+        ).hasMatch(lower) ||
+        lower.contains('mpegurl') ||
+        lower.contains('video/') ||
+        lower.contains('audio/') ||
+        lower.contains('/video') ||
+        lower.contains('media') ||
+        lower.contains('playurl');
+  }
+
+  bool isFragmentResource(VideoResource resource) {
+    final lower = resource.url.toLowerCase();
+    return resource.type == VideoResourceType.ts || lower.contains('.m4s');
+  }
+
+  List<VideoResource> prioritizeResources(
+    Iterable<VideoResource> values, {
+    int limit = 50,
+  }) {
+    final deduped = _dedupe(values);
+    deduped.sort((a, b) {
+      final priority = _priority(a).compareTo(_priority(b));
+      if (priority != 0) return priority;
+      final size = _sizeHint(b).compareTo(_sizeHint(a));
+      if (size != 0) return size;
+      return a.url.length.compareTo(b.url.length);
+    });
+    return deduped.take(limit).toList();
+  }
+
+  String dedupeKey(String value, {Uri? base}) {
+    final uri = normalizeUrl(value, base: base);
+    if (uri == null) {
+      return value.trim();
+    }
+    final lowerPath = uri.path.toLowerCase();
+    if (lowerPath.endsWith('.ts') || lowerPath.endsWith('.m4s')) {
+      return _fragmentGroupKey(uri);
+    }
+    final keptQuery = <String, List<String>>{};
+    final noise = {
+      '_',
+      't',
+      'time',
+      'timestamp',
+      'cache',
+      'cb',
+      'rnd',
+      'random',
+      'r',
+    };
+    for (final entry in uri.queryParametersAll.entries) {
+      final key = entry.key.toLowerCase();
+      if (noise.contains(key)) {
+        continue;
+      }
+      keptQuery[entry.key] = entry.value;
+    }
+    final sortedKeys = keptQuery.keys.toList()..sort();
+    final query = <String, dynamic>{
+      for (final key in sortedKeys) key: keptQuery[key],
+    };
+    return uri
+        .replace(queryParameters: query.isEmpty ? null : query, fragment: '')
+        .toString();
+  }
+
+  VideoResource _copyWith(
+    VideoResource resource, {
+    required VideoResourceType type,
+    required String size,
+  }) {
     return VideoResource(
       url: resource.url,
       title: resource.title,
@@ -175,18 +338,71 @@ class VideoSniffer {
     if (!(uri.scheme == 'http' || uri.scheme == 'https')) {
       return false;
     }
-    if (value.contains('widevine') || value.contains('fairplay') || value.contains('drm') || value.contains('license')) {
+    if (value.contains('widevine') ||
+        value.contains('fairplay') ||
+        value.contains('drm') ||
+        value.contains('license')) {
       return false;
     }
-    if (value.contains('doubleclick') || value.contains('/ads/') || value.contains('analytics')) {
+    if (value.contains('doubleclick') ||
+        value.contains('/ads/') ||
+        value.contains('analytics')) {
       return false;
     }
-    return ['.mp4', '.m4v', '.mov', '.m3u8', '.ts', '.m4s'].any(value.contains) || value.contains('application/vnd.apple.mpegurl') || value.contains('application/x-mpegurl');
+    return [
+          '.mp4',
+          '.m4v',
+          '.mov',
+          '.m3u8',
+          '.ts',
+          '.m4s',
+        ].any(value.contains) ||
+        value.contains('application/vnd.apple.mpegurl') ||
+        value.contains('application/x-mpegurl');
+  }
+
+  List<VideoResource> _dedupe(Iterable<VideoResource> values) {
+    final out = <VideoResource>[];
+    final seen = <String>{};
+    for (final item in values) {
+      final key = dedupeKey(item.url);
+      if (seen.add(key)) {
+        out.add(item);
+      }
+    }
+    return out;
+  }
+
+  int _sizeHint(VideoResource resource) {
+    final raw = resource.size.trim().toLowerCase();
+    final number = double.tryParse(
+      RegExp(r'[\d.]+').firstMatch(raw)?.group(0) ?? '',
+    );
+    if (number == null) return 0;
+    if (raw.contains('gb')) return (number * 1024 * 1024 * 1024).round();
+    if (raw.contains('mb')) return (number * 1024 * 1024).round();
+    if (raw.contains('kb')) return (number * 1024).round();
+    return number.round();
+  }
+
+  String _fragmentGroupKey(Uri uri) {
+    final segments = uri.pathSegments.toList();
+    if (segments.isNotEmpty) {
+      final name = segments.removeLast();
+      final grouped = name.replaceAll(RegExp(r'\d{2,}'), '{n}');
+      segments.add(grouped);
+    }
+    return uri
+        .replace(pathSegments: segments, queryParameters: null, fragment: '')
+        .toString();
   }
 
   bool _looksLikeProtectedPage(String html) {
     final lower = html.toLowerCase();
-    return lower.contains('widevine') || lower.contains('fairplay') || lower.contains('encrypted-media') || lower.contains('eme');
+    return lower.contains('widevine') ||
+        lower.contains('fairplay') ||
+        lower.contains('encrypted-media') ||
+        lower.contains('eme');
   }
 
   String _decodeCandidate(String raw) {
@@ -203,7 +419,11 @@ class VideoSniffer {
   }
 
   String? _pageTitle(String html) {
-    final match = RegExp(r'<title[^>]*>(.*?)</title>', caseSensitive: false, dotAll: true).firstMatch(html);
+    final match = RegExp(
+      r'<title[^>]*>(.*?)</title>',
+      caseSensitive: false,
+      dotAll: true,
+    ).firstMatch(html);
     return match?.group(1)?.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 

@@ -13,20 +13,21 @@ class LocalLibrary {
         .where((entity) => entity is File)
         .cast<File>()
         .where((file) {
-          final ext = p.extension(file.path).toLowerCase();
-          return ['.mp4', '.m4v', '.mov'].contains(ext);
-        })
-        .toList();
+      final ext = p.extension(file.path).toLowerCase();
+      return ['.mp4', '.m4v', '.mov'].contains(ext);
+    }).toList();
 
     final videos = <LocalVideo>[];
     for (final file in files) {
       final stat = await file.stat();
-      videos.add(LocalVideo(
-        path: file.path,
-        name: p.basename(file.path),
-        size: stat.size,
-        modifiedAt: stat.modified,
-      ));
+      videos.add(
+        LocalVideo(
+          path: file.path,
+          name: p.basename(file.path),
+          size: stat.size,
+          modifiedAt: stat.modified,
+        ),
+      );
     }
     videos.sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt));
     return videos;

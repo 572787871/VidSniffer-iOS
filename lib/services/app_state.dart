@@ -37,7 +37,9 @@ class AppState extends ChangeNotifier {
       parsedResources
         ..clear()
         ..addAll(resources);
-      status = resources.isEmpty ? '未发现直链资源，可用内置 WebView 打开网页嗅探' : '发现 ${resources.length} 个资源';
+      status = resources.isEmpty
+          ? '未发现直链资源，可用内置 WebView 打开网页嗅探'
+          : '发现 ${resources.length} 个资源';
     } catch (error) {
       status = '解析失败：$error';
     } finally {
@@ -61,7 +63,12 @@ class AppState extends ChangeNotifier {
     required String source,
     required String pageUrl,
   }) {
-    final resource = sniffer.resourceFromUrl(url, pageTitle: title, source: source, pageUrl: pageUrl);
+    final resource = sniffer.resourceFromUrl(
+      url,
+      pageTitle: title,
+      source: source,
+      pageUrl: pageUrl,
+    );
     if (resource != null) {
       addSniffed(resource);
     }
@@ -92,7 +99,9 @@ class AppState extends ChangeNotifier {
   }
 
   void _onDownloadsChanged() {
-    if (downloads.tasks.any((task) => task.status == DownloadStatus.completed)) {
+    if (downloads.tasks.any(
+      (task) => task.status == DownloadStatus.completed,
+    )) {
       refreshLibrary();
     }
     notifyListeners();

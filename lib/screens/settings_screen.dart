@@ -23,15 +23,26 @@ class SettingsScreen extends StatelessWidget {
                   Container(
                     width: 52,
                     height: 52,
-                    decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xff2563eb), Color(0xff7c3aed)]), borderRadius: BorderRadius.circular(18)),
-                    child: const Icon(Icons.folder_rounded, color: Colors.white),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xff2563eb), Color(0xff7c3aed)],
+                      ),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: const Icon(
+                      Icons.folder_rounded,
+                      color: Colors.white,
+                    ),
                   ),
                   const SizedBox(width: 14),
                   const Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('默认保存路径', style: TextStyle(fontWeight: FontWeight.w900)),
+                        Text(
+                          '默认保存路径',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
                         SizedBox(height: 4),
                         Text('文件 App / 本 App / Documents / videos'),
                       ],
@@ -46,7 +57,10 @@ class SettingsScreen extends StatelessWidget {
                 value: state.onlyWifi,
                 onChanged: state.toggleWifi,
                 contentPadding: EdgeInsets.zero,
-                title: const Text('仅 Wi-Fi 下载', style: TextStyle(fontWeight: FontWeight.w800)),
+                title: const Text(
+                  '仅 Wi-Fi 下载',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
                 subtitle: const Text('避免移动网络消耗过多流量'),
               ),
             ),

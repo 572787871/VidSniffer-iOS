@@ -64,6 +64,12 @@ class UiState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void clearResources({String message = '正在嗅探网页视频'}) {
+    resources.clear();
+    status = message;
+    notifyListeners();
+  }
+
   void addResource(VideoResource resource) {
     if (_shouldSkip(resource.url)) return;
     final normalized = resource.normalizedUrl;
@@ -110,7 +116,11 @@ class UiState extends ChangeNotifier {
   void _replaceResources(List<VideoResource> values) {
     resources
       ..clear()
-      ..addAll(_dedupe(values.where((item) => !_shouldSkip(item.url))));
+      ..addAll(
+        sniffer.prioritizeResources(
+          _dedupe(values.where((item) => !_shouldSkip(item.url))),
+        ),
+      );
   }
 
   List<VideoResource> _dedupe(Iterable<VideoResource> values) {
@@ -126,7 +136,10 @@ class UiState extends ChangeNotifier {
 
   bool _shouldSkip(String value) {
     final lower = value.toLowerCase().trim();
-    return lower.isEmpty || lower.startsWith('blob:') || lower.startsWith('data:') || lower.startsWith('about:');
+    return lower.isEmpty ||
+        lower.startsWith('blob:') ||
+        lower.startsWith('data:') ||
+        lower.startsWith('about:');
   }
 
   void _onDownloadsChanged() {
@@ -145,7 +158,8 @@ class UiState extends ChangeNotifier {
 }
 
 class UiStateScope extends InheritedNotifier<UiState> {
-  const UiStateScope({required UiState state, required super.child, super.key}) : super(notifier: state);
+  const UiStateScope({required UiState state, required super.child, super.key})
+      : super(notifier: state);
 
   static UiState of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<UiStateScope>();

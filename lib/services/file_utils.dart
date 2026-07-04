@@ -37,11 +37,17 @@ class FileUtils {
     if (!await file.exists()) {
       return false;
     }
-    final bytes = await file.openRead(0, 512).fold<List<int>>(<int>[], (previous, chunk) {
+    final bytes = await file.openRead(0, 512).fold<List<int>>(<int>[], (
+      previous,
+      chunk,
+    ) {
       previous.addAll(chunk);
       return previous.length > 512 ? previous.sublist(0, 512) : previous;
     });
     final head = String.fromCharCodes(bytes).toLowerCase();
-    return head.contains('<!doctype html') || head.contains('<html') || head.contains('<body') || head.contains('<script');
+    return head.contains('<!doctype html') ||
+        head.contains('<html') ||
+        head.contains('<body') ||
+        head.contains('<script');
   }
 }

@@ -58,12 +58,22 @@ class _DownloadCard extends StatelessWidget {
                 width: 46,
                 height: 46,
                 decoration: BoxDecoration(
-                  color: isCompleted ? scheme.primaryContainer : (isFailed ? scheme.errorContainer : scheme.secondaryContainer),
+                  color: isCompleted
+                      ? scheme.primaryContainer
+                      : (isFailed
+                          ? scheme.errorContainer
+                          : scheme.secondaryContainer),
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Icon(
-                  isCompleted ? Icons.check_rounded : (isFailed ? Icons.error_outline_rounded : Icons.downloading_rounded),
-                  color: isCompleted ? scheme.primary : (isFailed ? scheme.error : scheme.secondary),
+                  isCompleted
+                      ? Icons.check_rounded
+                      : (isFailed
+                          ? Icons.error_outline_rounded
+                          : Icons.downloading_rounded),
+                  color: isCompleted
+                      ? scheme.primary
+                      : (isFailed ? scheme.error : scheme.secondary),
                 ),
               ),
               const SizedBox(width: 12),
@@ -71,34 +81,66 @@ class _DownloadCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(task.resource.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w900)),
+                    Text(
+                      task.resource.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
                     const SizedBox(height: 4),
-                    Text('${task.resource.label} · ${_statusLabel(task.status)} · ${task.speed} · 剩余 ${task.remaining}', style: TextStyle(color: scheme.onSurfaceVariant)),
+                    Text(
+                      '${task.resource.label} · ${_phaseLabel(task)} · ${task.speed} · 剩余 ${task.remaining}',
+                      style: TextStyle(color: scheme.onSurfaceVariant),
+                    ),
                   ],
                 ),
               ),
             ],
           ),
           const SizedBox(height: 14),
-          LinearProgressIndicator(value: task.progress.clamp(0, 1).toDouble(), minHeight: 8, borderRadius: BorderRadius.circular(99)),
+          LinearProgressIndicator(
+            value: task.isIndeterminate
+                ? null
+                : task.progress.clamp(0, 1).toDouble(),
+            minHeight: 8,
+            borderRadius: BorderRadius.circular(99),
+          ),
           const SizedBox(height: 8),
-          Text(task.errorMessage.isNotEmpty ? task.errorMessage : task.message, style: TextStyle(color: isFailed ? scheme.error : scheme.onSurfaceVariant)),
+          Text(
+            task.errorMessage.isNotEmpty ? task.errorMessage : task.message,
+            style: TextStyle(
+              color: isFailed ? scheme.error : scheme.onSurfaceVariant,
+            ),
+          ),
+          if (task.resource.isMergeRequired && task.totalSegments > 0) ...[
+            const SizedBox(height: 6),
+            Text(
+              '分片 ${task.downloadedSegments}/${task.totalSegments} · ffmpeg time ${task.ffmpegTime} · speed ${task.ffmpegSpeed}',
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+            ),
+          ],
           const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
-              if (task.status == DownloadStatus.downloading || task.status == DownloadStatus.preparing || task.status == DownloadStatus.merging)
+              if (task.status == DownloadStatus.downloading ||
+                  task.status == DownloadStatus.preparing ||
+                  task.status == DownloadStatus.merging)
                 FilledButton.tonalIcon(
                   onPressed: () => state.downloadManager.pause(task),
                   icon: const Icon(Icons.pause_rounded),
                   label: const Text('暂停'),
                 ),
-              if (task.status == DownloadStatus.paused || task.status == DownloadStatus.failed || task.status == DownloadStatus.canceled)
+              if (task.status == DownloadStatus.paused ||
+                  task.status == DownloadStatus.failed ||
+                  task.status == DownloadStatus.canceled)
                 FilledButton.tonalIcon(
                   onPressed: () => state.downloadManager.retry(task),
                   icon: const Icon(Icons.play_arrow_rounded),
-                  label: Text(task.status == DownloadStatus.failed ? '重试' : '继续'),
+                  label: Text(
+                    task.status == DownloadStatus.failed ? '重试' : '继续',
+                  ),
                 ),
               if (!isCompleted)
                 OutlinedButton.icon(
@@ -108,9 +150,22 @@ class _DownloadCard extends StatelessWidget {
                 ),
               if (isCompleted)
                 FilledButton.icon(
-                  onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PlayerScreen(title: task.resource.title, filePath: task.localPath))),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => PlayerScreen(
+                        title: task.resource.title,
+                        filePath: task.localPath,
+                      ),
+                    ),
+                  ),
                   icon: const Icon(Icons.play_arrow_rounded),
                   label: const Text('播放'),
+                ),
+              if (task.ffmpegLog.isNotEmpty)
+                OutlinedButton.icon(
+                  onPressed: () => _showFfmpegLog(context, task),
+                  icon: const Icon(Icons.article_outlined),
+                  label: const Text('日志'),
                 ),
             ],
           ),
@@ -138,5 +193,45 @@ class _DownloadCard extends StatelessWidget {
       case DownloadStatus.canceled:
         return '已取消';
     }
+  }
+
+  String _phaseLabel(DownloadTask task) {
+    switch (task.phase) {
+      case DownloadPhase.preparing:
+        return '准备中';
+      case DownloadPhase.fetchingPlaylist:
+        return '获取播放列表';
+      case DownloadPhase.downloadingSegments:
+        return '下载分片';
+      case DownloadPhase.downloadingFile:
+        return _statusLabel(task.status);
+      case DownloadPhase.merging:
+        return '合并中';
+      case DownloadPhase.completed:
+        return '已完成';
+      case DownloadPhase.failed:
+        return '失败';
+      case DownloadPhase.canceled:
+        return '已取消';
+    }
+  }
+
+  void _showFfmpegLog(BuildContext context, DownloadTask task) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('ffmpeg 日志'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(child: SelectableText(task.ffmpegLog)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
   }
 }
