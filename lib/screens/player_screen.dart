@@ -20,7 +20,9 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen> {
   VideoPlayerController? controller;
   Timer? overlayTimer;
+  Timer? controlsTimer;
   double speed = 1;
+  double speedBeforeHold = 1;
   double volume = 1;
   double brightness = 1;
   double horizontalDrag = 0;
@@ -50,6 +52,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     overlayTimer?.cancel();
+    controlsTimer?.cancel();
+    controller?.setPlaybackSpeed(1);
     controller?.removeListener(_onPlayerChanged);
     controller?.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -91,10 +95,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
           behavior: HitTestBehavior.opaque,
           onTap: locked
               ? null
-              : () => setState(() => controlsVisible = !controlsVisible),
+              : () {
+                  setState(() => controlsVisible = !controlsVisible);
+                  if (controlsVisible) _scheduleControlsHide();
+                },
           onDoubleTapDown: (details) =>
               doubleTapPosition = details.localPosition,
           onDoubleTap: locked ? null : _handleDoubleTap,
+          onLongPressStart: locked ? null : _handleLongPressStart,
+          onLongPressEnd: locked ? null : (_) => _handleLongPressEnd(),
           onHorizontalDragStart: locked ? null : (_) => horizontalDrag = 0,
           onHorizontalDragUpdate: locked ? null : _handleHorizontalDrag,
           onHorizontalDragEnd: locked ? null : (_) => _commitHorizontalDrag(),
@@ -245,8 +254,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         final duration = value.duration;
                         player?.seekTo(
                           Duration(
-                            milliseconds:
-                                (duration.inMilliseconds * position).round(),
+                            milliseconds: (duration.inMilliseconds * position)
+                                .round(),
                           ),
                         );
                       },
@@ -315,6 +324,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   onChanged: (selected) {
                     setState(() => speed = selected ?? 1);
                     controller?.setPlaybackSpeed(speed);
+                    _scheduleControlsHide();
                   },
                 ),
               ],
@@ -342,11 +352,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (player == null) return;
     player.value.isPlaying ? player.pause() : player.play();
     setState(() {});
+    _scheduleControlsHide();
   }
 
   void _toggleFit() {
     setState(() => coverFit = !coverFit);
     _showOverlay(coverFit ? '画面填充' : '完整显示');
+    _scheduleControlsHide();
   }
 
   void _handleDoubleTap() {
@@ -396,6 +408,34 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _showOverlay(seconds > 0 ? '+${seconds}s' : '${seconds}s');
   }
 
+  void _handleLongPressStart(LongPressStartDetails details) {
+    final player = controller;
+    if (player == null || !player.value.isInitialized) return;
+    speedBeforeHold = speed;
+    speed = 2;
+    player.setPlaybackSpeed(2);
+    _showOverlay('2.0x 快进中');
+    setState(() {});
+  }
+
+  void _handleLongPressEnd() {
+    final player = controller;
+    speed = speedBeforeHold <= 0 ? 1 : speedBeforeHold;
+    player?.setPlaybackSpeed(speed);
+    _showOverlay('已恢复 ${speed.toStringAsFixed(2)}x');
+    setState(() {});
+  }
+
+  void _scheduleControlsHide() {
+    controlsTimer?.cancel();
+    if (!controlsVisible) return;
+    controlsTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted && !locked) {
+        setState(() => controlsVisible = false);
+      }
+    });
+  }
+
   void _showOverlay(String text) {
     overlayTimer?.cancel();
     setState(() => overlayText = text);
@@ -442,6 +482,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           if (!mounted) return;
           controller?.setVolume(volume);
           setState(() {});
+          _scheduleControlsHide();
           controller?.play();
         })
         ..addListener(_onPlayerChanged);

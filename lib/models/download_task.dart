@@ -31,6 +31,7 @@ class DownloadTask {
     this.localPath = '',
     this.message = '准备中',
     this.errorMessage = '',
+    this.errorDetails = '',
     this.receivedBytes = 0,
     this.totalBytes = 0,
     this.speed = '--',
@@ -51,6 +52,7 @@ class DownloadTask {
   String localPath;
   String message;
   String errorMessage;
+  String errorDetails;
   int receivedBytes;
   int totalBytes;
   String speed;

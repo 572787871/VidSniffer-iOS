@@ -13,6 +13,14 @@ class VideoResource {
     this.origin = '',
     this.size = '未知',
     this.quality = '未知',
+    this.bitrate = '',
+    this.codec = '',
+    this.container = '',
+    this.contentType = '',
+    this.acceptRanges = false,
+    this.isAdSuspect = false,
+    this.recommendation = '',
+    this.detectedAtMs = 0,
   });
 
   final String url;
@@ -26,6 +34,14 @@ class VideoResource {
   final String origin;
   final String size;
   final String quality;
+  final String bitrate;
+  final String codec;
+  final String container;
+  final String contentType;
+  final bool acceptRanges;
+  final bool isAdSuspect;
+  final String recommendation;
+  final int detectedAtMs;
 
   String get id => normalizedUrl;
   String get normalizedUrl =>
@@ -45,6 +61,74 @@ class VideoResource {
   }
 
   bool get isMergeRequired => type == VideoResourceType.hls;
+
+  bool get isPlayable =>
+      type == VideoResourceType.hls || type == VideoResourceType.mp4;
+
+  bool get isFragment {
+    final lower = url.toLowerCase();
+    return type == VideoResourceType.ts || lower.contains('.m4s');
+  }
+
+  String get displayFormat {
+    switch (type) {
+      case VideoResourceType.hls:
+        return 'M3U8-HLS';
+      case VideoResourceType.ts:
+        return 'TS 分片';
+      case VideoResourceType.mp4:
+        final lower = url.toLowerCase();
+        if (lower.contains('.mov')) return 'MOV';
+        if (lower.contains('.m4v')) return 'M4V';
+        return 'MP4';
+      case VideoResourceType.unknown:
+        return url.toLowerCase().contains('.m4s') ? 'M4S' : 'unknown';
+    }
+  }
+
+  VideoResource copyWith({
+    String? url,
+    String? title,
+    VideoResourceType? type,
+    String? source,
+    String? pageUrl,
+    String? referer,
+    String? userAgent,
+    String? cookie,
+    String? origin,
+    String? size,
+    String? quality,
+    String? bitrate,
+    String? codec,
+    String? container,
+    String? contentType,
+    bool? acceptRanges,
+    bool? isAdSuspect,
+    String? recommendation,
+    int? detectedAtMs,
+  }) {
+    return VideoResource(
+      url: url ?? this.url,
+      title: title ?? this.title,
+      type: type ?? this.type,
+      source: source ?? this.source,
+      pageUrl: pageUrl ?? this.pageUrl,
+      referer: referer ?? this.referer,
+      userAgent: userAgent ?? this.userAgent,
+      cookie: cookie ?? this.cookie,
+      origin: origin ?? this.origin,
+      size: size ?? this.size,
+      quality: quality ?? this.quality,
+      bitrate: bitrate ?? this.bitrate,
+      codec: codec ?? this.codec,
+      container: container ?? this.container,
+      contentType: contentType ?? this.contentType,
+      acceptRanges: acceptRanges ?? this.acceptRanges,
+      isAdSuspect: isAdSuspect ?? this.isAdSuspect,
+      recommendation: recommendation ?? this.recommendation,
+      detectedAtMs: detectedAtMs ?? this.detectedAtMs,
+    );
+  }
 
   static VideoResourceType typeFromUrl(String url) {
     final lower = url.toLowerCase();

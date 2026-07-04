@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/download_task.dart';
 import '../services/ui_state.dart';
@@ -61,16 +63,16 @@ class _DownloadCard extends StatelessWidget {
                   color: isCompleted
                       ? scheme.primaryContainer
                       : (isFailed
-                          ? scheme.errorContainer
-                          : scheme.secondaryContainer),
+                            ? scheme.errorContainer
+                            : scheme.secondaryContainer),
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Icon(
                   isCompleted
                       ? Icons.check_rounded
                       : (isFailed
-                          ? Icons.error_outline_rounded
-                          : Icons.downloading_rounded),
+                            ? Icons.error_outline_rounded
+                            : Icons.downloading_rounded),
                   color: isCompleted
                       ? scheme.primary
                       : (isFailed ? scheme.error : scheme.secondary),
@@ -89,7 +91,7 @@ class _DownloadCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${task.resource.label} · ${_phaseLabel(task)} · ${task.speed} · 剩余 ${task.remaining}',
+                      '${task.resource.label} · ${_phaseLabel(task)} · ${_percent(task)} · ${task.speed} · 剩余 ${task.remaining}',
                       style: TextStyle(color: scheme.onSurfaceVariant),
                     ),
                   ],
@@ -161,11 +163,19 @@ class _DownloadCard extends StatelessWidget {
                   icon: const Icon(Icons.play_arrow_rounded),
                   label: const Text('播放'),
                 ),
-              if (task.ffmpegLog.isNotEmpty)
+              if (isCompleted && task.localPath.isNotEmpty)
                 OutlinedButton.icon(
-                  onPressed: () => _showFfmpegLog(context, task),
+                  onPressed: () => Share.shareXFiles([
+                    XFile(task.localPath),
+                  ], text: task.resource.title),
+                  icon: const Icon(Icons.ios_share_rounded),
+                  label: const Text('分享'),
+                ),
+              if (task.ffmpegLog.isNotEmpty || task.errorDetails.isNotEmpty)
+                OutlinedButton.icon(
+                  onPressed: () => _showDetails(context, task),
                   icon: const Icon(Icons.article_outlined),
-                  label: const Text('日志'),
+                  label: const Text('查看详情'),
                 ),
             ],
           ),
@@ -216,16 +226,33 @@ class _DownloadCard extends StatelessWidget {
     }
   }
 
-  void _showFfmpegLog(BuildContext context, DownloadTask task) {
+  String _percent(DownloadTask task) {
+    if (task.isIndeterminate) return '--';
+    return '${(task.progress.clamp(0, 1) * 100).round()}%';
+  }
+
+  void _showDetails(BuildContext context, DownloadTask task) {
+    final details = task.errorDetails.isNotEmpty
+        ? task.errorDetails
+        : task.ffmpegLog;
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('ffmpeg 日志'),
+        title: const Text('任务详情'),
         content: SizedBox(
           width: double.maxFinite,
-          child: SingleChildScrollView(child: SelectableText(task.ffmpegLog)),
+          child: SingleChildScrollView(child: SelectableText(details)),
         ),
         actions: [
+          TextButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: details));
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(const SnackBar(content: Text('已复制详情日志')));
+            },
+            child: const Text('复制'),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('关闭'),

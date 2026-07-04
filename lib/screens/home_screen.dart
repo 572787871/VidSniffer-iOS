@@ -69,6 +69,21 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 18),
             AppCard(
+              child: Row(
+                children: [
+                  _StatItem(label: '视频数量', value: '${state.videos.length}'),
+                  _StatItem(
+                    label: '总容量',
+                    value: _formatBytes(
+                      state.videos.fold<int>(0, (sum, item) => sum + item.size),
+                    ),
+                  ),
+                  _StatItem(label: '今日下载', value: '${_todayCount(state)}'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            AppCard(
               child: Column(
                 children: [
                   AppTextField(
@@ -170,7 +185,60 @@ class _HomeScreenState extends State<HomeScreen> {
     state.clearResources(message: '正在打开网页并嗅探视频');
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => WebViewScreen(initialUrl: value, autoDiscover: true),
+        builder: (_) => WebViewScreen(
+          initialUrl: value,
+          autoDiscover: true,
+          autoParseOnly: true,
+        ),
+      ),
+    );
+  }
+
+  int _todayCount(UiState state) {
+    final now = DateTime.now();
+    return state.videos.where((item) {
+      final value = item.modifiedAt;
+      return value.year == now.year &&
+          value.month == now.month &&
+          value.day == now.day;
+    }).length;
+  }
+
+  String _formatBytes(int value) {
+    if (value < 1024) return '$value B';
+    if (value < 1024 * 1024) return '${(value / 1024).toStringAsFixed(1)} KB';
+    if (value < 1024 * 1024 * 1024) {
+      return '${(value / 1024 / 1024).toStringAsFixed(1)} MB';
+    }
+    return '${(value / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';
+  }
+}
+
+class _StatItem extends StatelessWidget {
+  const _StatItem({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 12,
+            ),
+          ),
+        ],
       ),
     );
   }

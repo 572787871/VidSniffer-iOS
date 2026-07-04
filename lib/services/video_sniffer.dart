@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 
@@ -6,12 +7,12 @@ import '../models/video_resource.dart';
 
 class VideoSniffer {
   VideoSniffer()
-      : _dio = Dio(
-          BaseOptions(
-            connectTimeout: const Duration(seconds: 20),
-            receiveTimeout: const Duration(seconds: 30),
-          ),
-        );
+    : _dio = Dio(
+        BaseOptions(
+          connectTimeout: const Duration(seconds: 20),
+          receiveTimeout: const Duration(seconds: 30),
+        ),
+      );
 
   final Dio _dio;
 
@@ -34,7 +35,7 @@ class VideoSniffer {
       cookie: cookie,
     );
     if (direct != null) {
-      return [direct];
+      return probeResource(direct);
     }
 
     final response = await _dio.getUri<String>(
@@ -154,13 +155,29 @@ class VideoSniffer {
       cookie: cookie,
       origin: pageUri?.origin ?? '',
       size: size,
-      quality: quality,
+      quality: quality == '未知' ? _qualityFromUrl(uri.toString()) : quality,
+      container: _containerFromUrl(uri.toString()),
+      isAdSuspect: isAdSuspect(uri.toString()),
+      detectedAtMs: DateTime.now().millisecondsSinceEpoch,
     );
   }
 
   Future<VideoResource?> probeUnknown(VideoResource resource) async {
-    if (resource.type != VideoResourceType.unknown) {
-      return resource;
+    if (resource.type != VideoResourceType.unknown) return resource;
+    final resources = await probeResource(resource);
+    return resources.isEmpty ? null : resources.first;
+  }
+
+  Future<List<VideoResource>> probeResource(VideoResource resource) async {
+    if (resource.type == VideoResourceType.hls) {
+      return _probeHls(resource);
+    }
+    if (resource.type == VideoResourceType.mp4) {
+      final probed = await _probeMp4(resource);
+      return probed == null ? const [] : [probed];
+    }
+    if (resource.type == VideoResourceType.ts || resource.isFragment) {
+      return [resource.copyWith(container: resource.displayFormat)];
     }
     try {
       final response = await _dio.headUri(
@@ -178,26 +195,35 @@ class VideoSniffer {
       );
       final contentType =
           response.headers.value(Headers.contentTypeHeader)?.toLowerCase() ??
-              '';
+          '';
       final length = response.headers.value(Headers.contentLengthHeader);
       if (contentType.contains('mpegurl') ||
           contentType.contains('application/vnd.apple.mpegurl')) {
-        return _copyWith(
-          resource,
-          type: VideoResourceType.hls,
-          size: length ?? '未知',
+        return _probeHls(
+          resource.copyWith(
+            type: VideoResourceType.hls,
+            size: length == null
+                ? '未知'
+                : _formatBytes(int.tryParse(length) ?? 0),
+            contentType: contentType,
+          ),
         );
       }
       if (contentType.startsWith('video/') || contentType.contains('mp4')) {
-        return _copyWith(
-          resource,
-          type: VideoResourceType.mp4,
-          size: length ?? '未知',
+        final mp4 = await _probeMp4(
+          resource.copyWith(
+            type: VideoResourceType.mp4,
+            size: length == null
+                ? '未知'
+                : _formatBytes(int.tryParse(length) ?? 0),
+            contentType: contentType,
+          ),
         );
+        return mp4 == null ? const [] : [mp4];
       }
-      return null;
+      return const [];
     } catch (_) {
-      return null;
+      return const [];
     }
   }
 
@@ -213,12 +239,6 @@ class VideoSniffer {
         lower.contains('fairplay') ||
         lower.contains('drm') ||
         lower.contains('license')) {
-      return false;
-    }
-    if (lower.contains('doubleclick') ||
-        lower.contains('/ads/') ||
-        lower.contains('analytics') ||
-        lower.contains('advert')) {
       return false;
     }
     if (RegExp(
@@ -244,16 +264,38 @@ class VideoSniffer {
     return resource.type == VideoResourceType.ts || lower.contains('.m4s');
   }
 
+  bool isAdSuspect(String value) {
+    final lower = value.toLowerCase();
+    const keywords = [
+      'ad',
+      'ads',
+      'advert',
+      'banner',
+      'promo',
+      'vast',
+      'vpaid',
+      'ima',
+      'doubleclick',
+      'googlesyndication',
+      'tracking',
+      'analytics',
+    ];
+    return keywords.any((keyword) {
+      if (keyword == 'ad') {
+        return RegExp(r'(^|[./?&=_-])ad([./?&=_-]|$)').hasMatch(lower);
+      }
+      return lower.contains(keyword);
+    });
+  }
+
   List<VideoResource> prioritizeResources(
     Iterable<VideoResource> values, {
     int limit = 50,
   }) {
     final deduped = _dedupe(values);
     deduped.sort((a, b) {
-      final priority = _priority(a).compareTo(_priority(b));
-      if (priority != 0) return priority;
-      final size = _sizeHint(b).compareTo(_sizeHint(a));
-      if (size != 0) return size;
+      final score = _score(b).compareTo(_score(a));
+      if (score != 0) return score;
       return a.url.length.compareTo(b.url.length);
     });
     return deduped.take(limit).toList();
@@ -296,24 +338,164 @@ class VideoSniffer {
         .toString();
   }
 
-  VideoResource _copyWith(
-    VideoResource resource, {
-    required VideoResourceType type,
-    required String size,
-  }) {
-    return VideoResource(
-      url: resource.url,
-      title: resource.title,
-      type: type,
-      source: resource.source,
-      pageUrl: resource.pageUrl,
-      referer: resource.referer,
-      userAgent: resource.userAgent,
-      cookie: resource.cookie,
-      origin: resource.origin,
-      size: size,
-      quality: resource.quality,
+  Future<List<VideoResource>> _probeHls(VideoResource resource) async {
+    try {
+      final response = await _dio.get<String>(
+        resource.url,
+        options: Options(
+          responseType: ResponseType.plain,
+          followRedirects: true,
+          headers: _headersFor(resource),
+          validateStatus: (status) => status != null && status < 500,
+        ),
+      );
+      final body = response.data ?? '';
+      if ((response.statusCode ?? 0) >= 400 || _looksLikeHtmlText(body)) {
+        return [resource.copyWith(container: 'm3u8', recommendation: '')];
+      }
+      final variants = _parseHlsVariants(resource, body);
+      if (variants.isNotEmpty) {
+        return prioritizeResources(variants, limit: variants.length);
+      }
+      final duration = _playlistDuration(body);
+      final shortAd = duration > 0 && duration < 45;
+      return [
+        resource.copyWith(
+          container: 'media m3u8',
+          quality: resource.quality == '未知' ? '单清晰度 HLS' : resource.quality,
+          isAdSuspect: resource.isAdSuspect || shortAd,
+          recommendation: shortAd ? '' : '可能的视频资源',
+        ),
+      ];
+    } catch (_) {
+      return [
+        resource.copyWith(
+          container: 'm3u8',
+          recommendation: resource.isAdSuspect ? '' : '可能的视频资源',
+        ),
+      ];
+    }
+  }
+
+  Future<VideoResource?> _probeMp4(VideoResource resource) async {
+    try {
+      final response = await _dio.headUri(
+        Uri.parse(resource.url),
+        options: Options(
+          followRedirects: true,
+          headers: _headersFor(resource),
+          validateStatus: (status) => status != null && status < 500,
+        ),
+      );
+      return _resourceFromHeaders(resource, response.headers);
+    } catch (_) {
+      try {
+        final response = await _dio.get<ResponseBody>(
+          resource.url,
+          options: Options(
+            responseType: ResponseType.stream,
+            followRedirects: true,
+            headers: {..._headersFor(resource), 'Range': 'bytes=0-1'},
+            validateStatus: (status) => status != null && status < 500,
+          ),
+        );
+        await response.data?.stream.first;
+        return _resourceFromHeaders(resource, response.headers);
+      } catch (_) {
+        return resource.copyWith(
+          container: 'direct mp4',
+          recommendation: resource.isAdSuspect ? '' : '可能的视频资源',
+        );
+      }
+    }
+  }
+
+  VideoResource? _resourceFromHeaders(VideoResource resource, Headers headers) {
+    final contentType =
+        headers.value(Headers.contentTypeHeader)?.toLowerCase() ?? '';
+    if (contentType.contains('text/html')) {
+      return null;
+    }
+    final length = int.tryParse(
+      headers.value(Headers.contentLengthHeader) ?? '',
     );
+    final acceptRanges = (headers.value(HttpHeaders.acceptRangesHeader) ?? '')
+        .toLowerCase()
+        .contains('bytes');
+    return resource.copyWith(
+      container: 'direct mp4',
+      size: length == null || length <= 0
+          ? resource.size
+          : _formatBytes(length),
+      contentType: contentType,
+      acceptRanges: acceptRanges,
+      recommendation: resource.isAdSuspect ? '' : '可能的视频资源',
+    );
+  }
+
+  List<VideoResource> _parseHlsVariants(VideoResource resource, String body) {
+    final lines = body.split('\n').map((line) => line.trim()).toList();
+    final variants = <VideoResource>[];
+    final base = Uri.parse(resource.url);
+    for (var index = 0; index < lines.length; index++) {
+      final line = lines[index];
+      if (!line.startsWith('#EXT-X-STREAM-INF')) continue;
+      final attrs = _parseAttributes(line.substring(line.indexOf(':') + 1));
+      String? next;
+      for (var nextIndex = index + 1; nextIndex < lines.length; nextIndex++) {
+        final candidate = lines[nextIndex].trim();
+        if (candidate.isEmpty) continue;
+        if (candidate.startsWith('#')) continue;
+        next = candidate;
+        break;
+      }
+      if (next == null) continue;
+      final variantUri = base.resolve(next);
+      final resolution = attrs['RESOLUTION'] ?? '';
+      final height = int.tryParse(
+        RegExp(r'x(\d+)').firstMatch(resolution)?.group(1) ?? '',
+      );
+      final bandwidth = int.tryParse(attrs['BANDWIDTH'] ?? '');
+      final codecs = (attrs['CODECS'] ?? '').replaceAll('"', '');
+      variants.add(
+        resource.copyWith(
+          url: variantUri.toString(),
+          quality: height == null
+              ? _qualityFromUrl(variantUri.toString())
+              : '${height}p',
+          bitrate: bandwidth == null
+              ? ''
+              : '${(bandwidth / 1000).round()} kbps',
+          codec: codecs,
+          container: 'master m3u8',
+          isAdSuspect:
+              resource.isAdSuspect || isAdSuspect(variantUri.toString()),
+          recommendation: '最高分辨率',
+        ),
+      );
+    }
+    if (variants.isEmpty) return variants;
+    variants.sort((a, b) => _heightHint(b).compareTo(_heightHint(a)));
+    return [
+      variants.first.copyWith(
+        recommendation: variants.first.isAdSuspect ? '' : '推荐下载',
+      ),
+      ...variants
+          .skip(1)
+          .map(
+            (item) =>
+                item.copyWith(recommendation: item.isAdSuspect ? '' : '正片可能'),
+          ),
+    ];
+  }
+
+  Map<String, String> _parseAttributes(String value) {
+    final result = <String, String>{};
+    final matches = RegExp(r'([A-Z0-9-]+)=("[^"]*"|[^,]*)').allMatches(value);
+    for (final match in matches) {
+      result[match.group(1)!] = match.group(2) ?? '';
+    }
+    return result;
   }
 
   Uri? normalizeUrl(String value, {Uri? base}) {
@@ -361,6 +543,15 @@ class VideoSniffer {
         value.contains('application/x-mpegurl');
   }
 
+  Map<String, String> _headersFor(VideoResource resource) {
+    return {
+      if (resource.userAgent.isNotEmpty) 'User-Agent': resource.userAgent,
+      if (resource.referer.isNotEmpty) 'Referer': resource.referer,
+      if (resource.cookie.isNotEmpty) 'Cookie': resource.cookie,
+      'Accept': '*/*',
+    };
+  }
+
   List<VideoResource> _dedupe(Iterable<VideoResource> values) {
     final out = <VideoResource>[];
     final seen = <String>{};
@@ -383,6 +574,103 @@ class VideoSniffer {
     if (raw.contains('mb')) return (number * 1024 * 1024).round();
     if (raw.contains('kb')) return (number * 1024).round();
     return number.round();
+  }
+
+  int _heightHint(VideoResource resource) {
+    final fromQuality =
+        int.tryParse(
+          RegExp(
+                r'(\d{3,4})p',
+              ).firstMatch(resource.quality.toLowerCase())?.group(1) ??
+              '',
+        ) ??
+        0;
+    if (fromQuality > 0) return fromQuality;
+    return int.tryParse(
+          RegExp(r'(\d{3,4})').firstMatch(resource.url)?.group(1) ?? '',
+        ) ??
+        0;
+  }
+
+  int _bitrateHint(VideoResource resource) {
+    return int.tryParse(
+          RegExp(r'\d+').firstMatch(resource.bitrate)?.group(0) ?? '',
+        ) ??
+        0;
+  }
+
+  int _score(VideoResource resource) {
+    var score = 0;
+    if (resource.isAdSuspect) score -= 10000;
+    if (resource.isFragment) score -= 2000;
+    if (resource.source.toLowerCase().contains('current')) score += 5000;
+    if (resource.source.toLowerCase().contains('video-play')) score += 4000;
+    if (resource.source.toLowerCase().contains('media')) score += 2500;
+    switch (resource.type) {
+      case VideoResourceType.hls:
+        score += 1500;
+        break;
+      case VideoResourceType.mp4:
+        score += 1200;
+        break;
+      case VideoResourceType.ts:
+        score += 100;
+        break;
+      case VideoResourceType.unknown:
+        score += 0;
+        break;
+    }
+    if (resource.container.contains('master')) score += 500;
+    score += _heightHint(resource) * 3;
+    score += _bitrateHint(resource);
+    score += (_sizeHint(resource) / (1024 * 1024)).round();
+    return score;
+  }
+
+  double _playlistDuration(String body) {
+    var total = 0.0;
+    final regExp = RegExp(r'#EXTINF:([\d.]+)', caseSensitive: false);
+    for (final match in regExp.allMatches(body)) {
+      total += double.tryParse(match.group(1) ?? '') ?? 0;
+    }
+    return total;
+  }
+
+  bool _looksLikeHtmlText(String value) {
+    final lower = value.trimLeft().toLowerCase();
+    return lower.startsWith('<!doctype html') ||
+        lower.startsWith('<html') ||
+        lower.contains('<body');
+  }
+
+  String _qualityFromUrl(String value) {
+    final lower = value.toLowerCase();
+    final pMatch = RegExp(r'([1-9]\d{2,3})p').firstMatch(lower);
+    if (pMatch != null) return '${pMatch.group(1)}p';
+    final resMatch = RegExp(r'(\d{3,4})x([1-9]\d{2,3})').firstMatch(lower);
+    if (resMatch != null) return '${resMatch.group(2)}p';
+    return '未知';
+  }
+
+  String _containerFromUrl(String value) {
+    final lower = value.toLowerCase();
+    if (lower.contains('.m3u8')) return 'm3u8';
+    if (lower.contains('.mp4')) return 'direct mp4';
+    if (lower.contains('.m4v')) return 'direct m4v';
+    if (lower.contains('.mov')) return 'direct mov';
+    if (lower.contains('.ts')) return 'ts segment';
+    if (lower.contains('.m4s')) return 'm4s segment';
+    return '';
+  }
+
+  String _formatBytes(int value) {
+    if (value <= 0) return '未知';
+    if (value < 1024) return '$value B';
+    if (value < 1024 * 1024) return '${(value / 1024).toStringAsFixed(1)} KB';
+    if (value < 1024 * 1024 * 1024) {
+      return '${(value / 1024 / 1024).toStringAsFixed(1)} MB';
+    }
+    return '${(value / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';
   }
 
   String _fragmentGroupKey(Uri uri) {
@@ -425,18 +713,5 @@ class VideoSniffer {
       dotAll: true,
     ).firstMatch(html);
     return match?.group(1)?.replaceAll(RegExp(r'\s+'), ' ').trim();
-  }
-
-  int _priority(VideoResource resource) {
-    switch (resource.type) {
-      case VideoResourceType.hls:
-        return 0;
-      case VideoResourceType.mp4:
-        return 1;
-      case VideoResourceType.ts:
-        return 2;
-      case VideoResourceType.unknown:
-        return 3;
-    }
   }
 }

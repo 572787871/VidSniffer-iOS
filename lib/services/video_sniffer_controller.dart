@@ -99,14 +99,10 @@ class VideoSnifferController {
         if (resource == null) {
           continue;
         }
-        final resolved = resource.type == VideoResourceType.unknown &&
-                !sniffer.isFragmentResource(resource)
-            ? await sniffer.probeUnknown(resource)
-            : resource;
-        if (resolved == null) {
-          continue;
+        final resolved = await sniffer.probeResource(resource);
+        for (final item in resolved) {
+          _resources[sniffer.dedupeKey(item.url)] = item;
         }
-        _resources[sniffer.dedupeKey(resolved.url)] = resolved;
       }
       onResourcesChanged(resources);
     } finally {

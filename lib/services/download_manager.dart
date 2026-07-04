@@ -44,6 +44,11 @@ class DownloadManager extends ChangeNotifier {
 
   void addTask(DownloadTask task) {
     tasks.removeWhere((item) => item.id == task.id);
+    tasks.removeWhere(
+      (item) =>
+          item.resource.normalizedUrl == task.resource.normalizedUrl &&
+          item.status == DownloadStatus.failed,
+    );
     tasks.insert(0, task);
     notifyListeners();
   }
@@ -65,6 +70,7 @@ class DownloadManager extends ChangeNotifier {
     task.message = '准备中';
     task.phase = DownloadPhase.preparing;
     task.errorMessage = '';
+    task.errorDetails = '';
     task.isIndeterminate = false;
     task.ffmpegLog = '';
     task.ffmpegTime = '--';
@@ -114,7 +120,8 @@ class DownloadManager extends ChangeNotifier {
         task.phase = DownloadPhase.failed;
       }
       task.isIndeterminate = false;
-      task.errorMessage = '$error';
+      task.errorDetails = _errorDetails(error, task);
+      task.errorMessage = _errorSummary(error);
       task.message = task.status == DownloadStatus.paused
           ? '已暂停'
           : (task.status == DownloadStatus.canceled ? '已取消' : '下载失败');
@@ -122,6 +129,9 @@ class DownloadManager extends ChangeNotifier {
     } finally {
       _cancelTokens.remove(task.id);
       _ffmpegSessions.remove(task.id);
+      if (task.status != DownloadStatus.paused) {
+        _partFiles.remove(task.id);
+      }
       await _endBackgroundTask(backgroundId);
     }
   }
@@ -135,6 +145,7 @@ class DownloadManager extends ChangeNotifier {
     task.phase = DownloadPhase.preparing;
     task.message = '准备重试';
     task.errorMessage = '';
+    task.errorDetails = '';
     task.receivedBytes = 0;
     task.totalBytes = 0;
     task.speed = '--';
@@ -279,6 +290,7 @@ class DownloadManager extends ChangeNotifier {
   Future<void> _downloadWithFFmpeg(DownloadTask task) async {
     final dir = await FileUtils.videosDirectory();
     final output = File(p.join(dir.path, _targetName(task.resource, 'mp4')));
+    _partFiles[task.id] = output;
     if (await output.exists()) {
       await output.delete();
     }
@@ -415,16 +427,50 @@ class DownloadManager extends ChangeNotifier {
     }
     task.phase = DownloadPhase.downloadingSegments;
     task.status = DownloadStatus.downloading;
-    task.message =
-        task.totalSegments > 0 ? '正在下载分片 0/${task.totalSegments}' : '正在下载分片';
+    task.message = task.totalSegments > 0
+        ? '正在下载分片 0/${task.totalSegments}'
+        : '正在下载分片';
     notifyListeners();
   }
 
   void _appendFfmpegLog(DownloadTask task, String message) {
-    final next =
-        task.ffmpegLog.isEmpty ? message : '${task.ffmpegLog}\n$message';
-    task.ffmpegLog =
-        next.length > 8000 ? next.substring(next.length - 8000) : next;
+    final next = task.ffmpegLog.isEmpty
+        ? message
+        : '${task.ffmpegLog}\n$message';
+    final lines = next.split('\n');
+    task.ffmpegLog = lines.length > 20
+        ? lines.sublist(lines.length - 20).join('\n')
+        : next;
+  }
+
+  String _errorSummary(Object error) {
+    final text = '$error'.toLowerCase();
+    if (text.contains('ffmpeg')) return 'm3u8 合并失败';
+    if (text.contains('handshake') ||
+        text.contains('connection') ||
+        text.contains('network')) {
+      return '网络连接失败';
+    }
+    if (text.contains('html') || text.contains('不是视频') || text.contains('无效')) {
+      return '资源无效或已过期';
+    }
+    if (text.contains('403') || text.contains('401') || text.contains('拒绝')) {
+      return '站点拒绝 App 下载';
+    }
+    return '下载失败，请查看详情';
+  }
+
+  String _errorDetails(Object error, DownloadTask task) {
+    final lines = <String>[
+      '$error',
+      if (task.resource.url.isNotEmpty) 'URL: ${task.resource.url}',
+      if (task.ffmpegLog.isNotEmpty) 'ffmpeg log:\n${task.ffmpegLog}',
+      if ('$error'.contains('过期') ||
+          '$error'.contains('403') ||
+          '$error'.contains('401'))
+        '请回到网页重新播放后再下载。',
+    ];
+    return lines.join('\n');
   }
 
   bool _looksLikeHtmlText(String value) {
@@ -462,8 +508,9 @@ class DownloadManager extends ChangeNotifier {
       if (response.statusCode >= 500) {
         throw HttpException('HTTP ${response.statusCode}', uri: uri);
       }
-      final total =
-          response.contentLength > 0 ? response.contentLength + resumeFrom : 0;
+      final total = response.contentLength > 0
+          ? response.contentLength + resumeFrom
+          : 0;
       var received = resumeFrom;
       final sink = partFile.openWrite(
         mode: resumeFrom > 0 ? FileMode.append : FileMode.write,
@@ -518,8 +565,9 @@ class DownloadManager extends ChangeNotifier {
     task.progress = total > 0 ? (received / total).clamp(0, 1).toDouble() : 0;
     task.phase = DownloadPhase.downloadingFile;
     task.isIndeterminate = total <= 0;
-    task.speed =
-        speedBytes <= 0 ? '--' : '${_formatBytes(speedBytes.round())}/s';
+    task.speed = speedBytes <= 0
+        ? '--'
+        : '${_formatBytes(speedBytes.round())}/s';
     task.remaining = total > 0 && speedBytes > 0
         ? _formatDuration(
             Duration(seconds: ((total - received) / speedBytes).ceil()),
@@ -556,8 +604,9 @@ class DownloadManager extends ChangeNotifier {
       'User-Agent': resource.userAgent.isNotEmpty
           ? resource.userAgent
           : 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
-      'Referer':
-          resource.referer.isNotEmpty ? resource.referer : resource.pageUrl,
+      'Referer': resource.referer.isNotEmpty
+          ? resource.referer
+          : resource.pageUrl,
       if (resource.origin.isNotEmpty) 'Origin': resource.origin,
       if (resource.cookie.isNotEmpty) 'Cookie': resource.cookie,
       'Accept': '*/*',
