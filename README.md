@@ -15,7 +15,7 @@ Flutter iOS app for parsing user-accessible web video pages, sniffing media reso
 
 - `webview_flutter` for built-in WebView.
 - `video_player` for playback page.
-- `ffmpeg_kit_flutter_full_gpl` for m3u8/ts merge path.
+- `ffmpeg_kit_flutter_new` for m3u8/ts merge path. This is the maintained full-GPL successor used because the original `ffmpeg_kit_flutter_full_gpl` iOS binary pod currently returns 404 in CI.
 - Files are designed to save under `Documents/videos/`.
 - iOS file sharing is enabled in `Info.plist`.
 - Downloader service includes progress, cancel, pause/retry states, HTML mis-save guard, safe filenames, and HLS merge command path.
