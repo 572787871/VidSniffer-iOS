@@ -21,7 +21,7 @@ Future<void> showResourceSheet(
 
 class ResourceSheet extends StatelessWidget {
   ResourceSheet({required List<VideoResource> resources, super.key})
-      : resources = VideoSniffer().prioritizeResources(resources, limit: 50);
+    : resources = VideoSniffer().prioritizeResources(resources, limit: 50);
 
   final List<VideoResource> resources;
 
@@ -51,8 +51,8 @@ class ResourceSheet extends StatelessWidget {
               Text(
                 '可下载视频',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
+                  fontWeight: FontWeight.w900,
+                ),
               ),
               const SizedBox(height: 6),
               Text(
@@ -165,15 +165,20 @@ class _ResourceTile extends StatelessWidget {
     final path = _pathLabel(uri);
     final meta = [
       resource.quality,
+      if (resource.duration > Duration.zero) _durationLabel(resource.duration),
       if (resource.bitrate.isNotEmpty) resource.bitrate,
       if (resource.size != '未知') resource.size,
       if (resource.container.isNotEmpty) resource.container,
     ].where((item) => item.trim().isNotEmpty && item != '未知').join(' · ');
-    final badge = resource.isAdSuspect
-        ? '广告嫌疑'
-        : (resource.recommendation.isEmpty
-            ? '可能的视频资源'
-            : resource.recommendation);
+    final badges = [
+      if (resource.isCurrentPlayback) '当前播放',
+      if (resource.isAdSuspect)
+        '广告嫌疑'
+      else if (resource.recommendation.isNotEmpty)
+        resource.recommendation
+      else
+        '可能的视频资源',
+    ];
 
     return Container(
       decoration: BoxDecoration(
@@ -187,12 +192,19 @@ class _ResourceTile extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _TypePill(label: _typeLabel(resource)),
+              _ResourceThumb(resource: resource, label: _typeLabel(resource)),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Text(
+                      resource.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 5),
                     Row(
                       children: [
                         Expanded(
@@ -203,19 +215,26 @@ class _ResourceTile extends StatelessWidget {
                             style: const TextStyle(fontWeight: FontWeight.w900),
                           ),
                         ),
-                        _Badge(label: badge, danger: resource.isAdSuspect),
+                        for (final badge in badges.take(2)) ...[
+                          const SizedBox(width: 6),
+                          _Badge(
+                            label: badge,
+                            danger: badge == '广告嫌疑',
+                            highlighted: badge == '当前播放',
+                          ),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      '域名：$host',
+                      '来源网站：${_siteLabel(host)}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(color: scheme.onSurfaceVariant),
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      '来源：${_sourceLabel(resource.source)}',
+                      '来源方式：${_sourceLabel(resource.source)}${resource.playerId.isEmpty ? '' : ' · 播放器 ${resource.playerId}'}',
                       style: TextStyle(
                         color: scheme.onSurfaceVariant,
                         fontSize: 12,
@@ -361,6 +380,23 @@ class _ResourceTile extends StatelessWidget {
     return 'resource';
   }
 
+  String _siteLabel(String host) {
+    if (host.isEmpty || host == '未知域名') return host;
+    final parts = host.split('.').where((item) => item.isNotEmpty).toList();
+    if (parts.length >= 2) {
+      final name = parts[parts.length - 2];
+      return '${name[0].toUpperCase()}${name.substring(1)} ($host)';
+    }
+    return host;
+  }
+
+  String _durationLabel(Duration duration) {
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
+  }
+
   String _typeLabel(VideoResource resource) {
     switch (resource.type) {
       case VideoResourceType.hls:
@@ -405,10 +441,15 @@ class _InfoLine extends StatelessWidget {
 }
 
 class _Badge extends StatelessWidget {
-  const _Badge({required this.label, required this.danger});
+  const _Badge({
+    required this.label,
+    required this.danger,
+    this.highlighted = false,
+  });
 
   final String label;
   final bool danger;
+  final bool highlighted;
 
   @override
   Widget build(BuildContext context) {
@@ -416,16 +457,71 @@ class _Badge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: danger ? scheme.errorContainer : scheme.primaryContainer,
+        color: danger
+            ? scheme.errorContainer
+            : (highlighted
+                  ? scheme.tertiaryContainer
+                  : scheme.primaryContainer),
         borderRadius: BorderRadius.circular(99),
       ),
       child: Text(
         label,
         style: TextStyle(
-          color: danger ? scheme.onErrorContainer : scheme.onPrimaryContainer,
+          color: danger
+              ? scheme.onErrorContainer
+              : (highlighted
+                    ? scheme.onTertiaryContainer
+                    : scheme.onPrimaryContainer),
           fontSize: 11,
           fontWeight: FontWeight.w800,
         ),
+      ),
+    );
+  }
+}
+
+class _ResourceThumb extends StatelessWidget {
+  const _ResourceThumb({required this.resource, required this.label});
+
+  final VideoResource resource;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final thumb = resource.thumbnailUrl;
+    if (thumb.isEmpty ||
+        (!thumb.startsWith('http://') && !thumb.startsWith('https://'))) {
+      return _TypePill(label: label);
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Stack(
+        alignment: Alignment.bottomLeft,
+        children: [
+          Image.network(
+            thumb,
+            width: 76,
+            height: 54,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _TypePill(label: label),
+          ),
+          Container(
+            margin: const EdgeInsets.all(4),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.65),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+                fontSize: 10,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

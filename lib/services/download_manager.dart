@@ -113,7 +113,8 @@ class DownloadManager extends ChangeNotifier {
       task.remaining = '00:00';
       task.message = '下载完成';
       unawaited(
-          LocalLibrary().writeDownloadMetadata(task.localPath, task.resource));
+        LocalLibrary().writeDownloadMetadata(task.localPath, task.resource),
+      );
       notifyListeners();
     } catch (error) {
       debugPrint('[download] failed error=$error');
@@ -293,9 +294,17 @@ class DownloadManager extends ChangeNotifier {
   Future<void> _downloadWithFFmpeg(DownloadTask task) async {
     final dir = await FileUtils.videosDirectory();
     final output = File(p.join(dir.path, _targetName(task.resource, 'mp4')));
-    _partFiles[task.id] = output;
+    final tempDir = Directory(p.join(dir.path, '.tmp'));
+    if (!await tempDir.exists()) {
+      await tempDir.create(recursive: true);
+    }
+    final tempOutput = File(p.join(tempDir.path, '${task.id}.mp4'));
+    _partFiles[task.id] = tempOutput;
     if (await output.exists()) {
       await output.delete();
+    }
+    if (await tempOutput.exists()) {
+      await tempOutput.delete();
     }
     debugPrint('[download] request url=${task.resource.url}');
     debugPrint('[download] save path=${output.path}');
@@ -307,11 +316,14 @@ class DownloadManager extends ChangeNotifier {
       '-i ${_shellQuote(task.resource.url)}',
       '-c copy',
       '-movflags +faststart',
-      _shellQuote(output.path),
+      _shellQuote(tempOutput.path),
     ].join(' ');
 
     var logs = await _runFfmpeg(task, command);
     if (logs != null) {
+      if (await tempOutput.exists()) {
+        await tempOutput.delete().catchError((_) => tempOutput);
+      }
       final fallback = [
         '-y',
         '-headers ${_shellQuote(_ffmpegHeaders(task.resource))}',
@@ -319,7 +331,7 @@ class DownloadManager extends ChangeNotifier {
         '-c:v copy',
         '-c:a aac',
         '-movflags +faststart',
-        _shellQuote(output.path),
+        _shellQuote(tempOutput.path),
       ].join(' ');
       logs = await _runFfmpeg(task, fallback);
     }
@@ -331,13 +343,22 @@ class DownloadManager extends ChangeNotifier {
         task.status == DownloadStatus.canceled) {
       return;
     }
-    if (!await output.exists() || await output.length() <= 0) {
+    task.status = DownloadStatus.merging;
+    task.phase = DownloadPhase.merging;
+    task.message = '正在写入视频文件';
+    task.isIndeterminate = true;
+    notifyListeners();
+    if (!await tempOutput.exists() || await tempOutput.length() <= 0) {
       throw StateError('m3u8 没有合并出有效 mp4 文件');
     }
-    if (await FileUtils.looksLikeHtml(output)) {
-      await output.delete().catchError((_) => output);
+    if (await FileUtils.looksLikeHtml(tempOutput)) {
+      await tempOutput.delete().catchError((_) => tempOutput);
       throw StateError('解析到的是网页，不是视频文件');
     }
+    if (await output.exists()) {
+      await output.delete();
+    }
+    await tempOutput.rename(output.path);
     task.localPath = output.path;
   }
 
@@ -354,6 +375,7 @@ class DownloadManager extends ChangeNotifier {
         );
       },
       (log) {
+        if (_isTerminalOrPaused(task)) return;
         final message = log.getMessage().trim();
         if (message.isEmpty) return;
         logs.writeln(message);
@@ -371,6 +393,7 @@ class DownloadManager extends ChangeNotifier {
         notifyListeners();
       },
       (statistics) {
+        if (_isTerminalOrPaused(task)) return;
         final timeMs = statistics.getTime();
         if (timeMs > 0) {
           task.status = DownloadStatus.merging;
@@ -430,17 +453,20 @@ class DownloadManager extends ChangeNotifier {
     }
     task.phase = DownloadPhase.downloadingSegments;
     task.status = DownloadStatus.downloading;
-    task.message =
-        task.totalSegments > 0 ? '正在下载分片 0/${task.totalSegments}' : '正在下载分片';
+    task.message = task.totalSegments > 0
+        ? '正在下载分片 0/${task.totalSegments}'
+        : '正在下载分片';
     notifyListeners();
   }
 
   void _appendFfmpegLog(DownloadTask task, String message) {
-    final next =
-        task.ffmpegLog.isEmpty ? message : '${task.ffmpegLog}\n$message';
+    final next = task.ffmpegLog.isEmpty
+        ? message
+        : '${task.ffmpegLog}\n$message';
     final lines = next.split('\n');
-    task.ffmpegLog =
-        lines.length > 20 ? lines.sublist(lines.length - 20).join('\n') : next;
+    task.ffmpegLog = lines.length > 20
+        ? lines.sublist(lines.length - 20).join('\n')
+        : next;
   }
 
   String _errorSummary(Object error) {
@@ -485,6 +511,13 @@ class DownloadManager extends ChangeNotifier {
     return lower.contains('.ts') || lower.contains('.m4s');
   }
 
+  bool _isTerminalOrPaused(DownloadTask task) {
+    return task.status == DownloadStatus.completed ||
+        task.status == DownloadStatus.failed ||
+        task.status == DownloadStatus.canceled ||
+        task.status == DownloadStatus.paused;
+  }
+
   Future<void> _downloadWithHttpClient(
     DownloadTask task,
     File finalFile,
@@ -508,8 +541,9 @@ class DownloadManager extends ChangeNotifier {
       if (response.statusCode >= 500) {
         throw HttpException('HTTP ${response.statusCode}', uri: uri);
       }
-      final total =
-          response.contentLength > 0 ? response.contentLength + resumeFrom : 0;
+      final total = response.contentLength > 0
+          ? response.contentLength + resumeFrom
+          : 0;
       var received = resumeFrom;
       final sink = partFile.openWrite(
         mode: resumeFrom > 0 ? FileMode.append : FileMode.write,
@@ -564,8 +598,9 @@ class DownloadManager extends ChangeNotifier {
     task.progress = total > 0 ? (received / total).clamp(0, 1).toDouble() : 0;
     task.phase = DownloadPhase.downloadingFile;
     task.isIndeterminate = total <= 0;
-    task.speed =
-        speedBytes <= 0 ? '--' : '${_formatBytes(speedBytes.round())}/s';
+    task.speed = speedBytes <= 0
+        ? '--'
+        : '${_formatBytes(speedBytes.round())}/s';
     task.remaining = total > 0 && speedBytes > 0
         ? _formatDuration(
             Duration(seconds: ((total - received) / speedBytes).ceil()),
@@ -602,8 +637,9 @@ class DownloadManager extends ChangeNotifier {
       'User-Agent': resource.userAgent.isNotEmpty
           ? resource.userAgent
           : 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
-      'Referer':
-          resource.referer.isNotEmpty ? resource.referer : resource.pageUrl,
+      'Referer': resource.referer.isNotEmpty
+          ? resource.referer
+          : resource.pageUrl,
       if (resource.origin.isNotEmpty) 'Origin': resource.origin,
       if (resource.cookie.isNotEmpty) 'Cookie': resource.cookie,
       'Accept': '*/*',

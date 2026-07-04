@@ -7,12 +7,12 @@ import '../models/video_resource.dart';
 
 class VideoSniffer {
   VideoSniffer()
-      : _dio = Dio(
-          BaseOptions(
-            connectTimeout: const Duration(seconds: 20),
-            receiveTimeout: const Duration(seconds: 30),
-          ),
-        );
+    : _dio = Dio(
+        BaseOptions(
+          connectTimeout: const Duration(seconds: 20),
+          receiveTimeout: const Duration(seconds: 30),
+        ),
+      );
 
   final Dio _dio;
 
@@ -134,6 +134,10 @@ class VideoSniffer {
     String cookie = '',
     String size = '未知',
     String quality = '未知',
+    Duration duration = Duration.zero,
+    String thumbnailUrl = '',
+    bool isCurrentPlayback = false,
+    String playerId = '',
     bool allowUnknown = false,
   }) {
     final base = pageUrl.isEmpty ? null : Uri.tryParse(pageUrl);
@@ -142,6 +146,14 @@ class VideoSniffer {
       return null;
     }
     final pageUri = Uri.tryParse(pageUrl);
+    final sourceLower = source.toLowerCase();
+    final currentPlayback =
+        isCurrentPlayback ||
+        sourceLower.contains('current') ||
+        sourceLower.contains('video-play');
+    final adSuspect =
+        isAdSuspect(uri.toString()) ||
+        (duration > Duration.zero && duration.inSeconds < 45);
     return VideoResource(
       url: uri.toString(),
       title: pageTitle.trim().isEmpty
@@ -157,8 +169,12 @@ class VideoSniffer {
       size: size,
       quality: quality == '未知' ? _qualityFromUrl(uri.toString()) : quality,
       container: _containerFromUrl(uri.toString()),
-      isAdSuspect: isAdSuspect(uri.toString()),
+      isAdSuspect: adSuspect,
       detectedAtMs: DateTime.now().millisecondsSinceEpoch,
+      duration: duration,
+      thumbnailUrl: thumbnailUrl,
+      isCurrentPlayback: currentPlayback,
+      playerId: playerId,
     );
   }
 
@@ -195,15 +211,16 @@ class VideoSniffer {
       );
       final contentType =
           response.headers.value(Headers.contentTypeHeader)?.toLowerCase() ??
-              '';
+          '';
       final length = response.headers.value(Headers.contentLengthHeader);
       if (contentType.contains('mpegurl') ||
           contentType.contains('application/vnd.apple.mpegurl')) {
         return _probeHls(
           resource.copyWith(
             type: VideoResourceType.hls,
-            size:
-                length == null ? '未知' : _formatBytes(int.tryParse(length) ?? 0),
+            size: length == null
+                ? '未知'
+                : _formatBytes(int.tryParse(length) ?? 0),
             contentType: contentType,
           ),
         );
@@ -212,8 +229,9 @@ class VideoSniffer {
         final mp4 = await _probeMp4(
           resource.copyWith(
             type: VideoResourceType.mp4,
-            size:
-                length == null ? '未知' : _formatBytes(int.tryParse(length) ?? 0),
+            size: length == null
+                ? '未知'
+                : _formatBytes(int.tryParse(length) ?? 0),
             contentType: contentType,
           ),
         );
@@ -361,6 +379,9 @@ class VideoSniffer {
         resource.copyWith(
           container: 'media m3u8',
           quality: resource.quality == '未知' ? '单清晰度 HLS' : resource.quality,
+          duration: duration > 0
+              ? Duration(milliseconds: (duration * 1000).round())
+              : resource.duration,
           isAdSuspect: resource.isAdSuspect || shortAd,
           recommendation: shortAd ? '' : '可能的视频资源',
         ),
@@ -422,8 +443,9 @@ class VideoSniffer {
         .contains('bytes');
     return resource.copyWith(
       container: 'direct mp4',
-      size:
-          length == null || length <= 0 ? resource.size : _formatBytes(length),
+      size: length == null || length <= 0
+          ? resource.size
+          : _formatBytes(length),
       contentType: contentType,
       acceptRanges: acceptRanges,
       recommendation: resource.isAdSuspect ? '' : '可能的视频资源',
@@ -460,8 +482,9 @@ class VideoSniffer {
           quality: height == null
               ? _qualityFromUrl(variantUri.toString())
               : '${height}p',
-          bitrate:
-              bandwidth == null ? '' : '${(bandwidth / 1000).round()} kbps',
+          bitrate: bandwidth == null
+              ? ''
+              : '${(bandwidth / 1000).round()} kbps',
           codec: codecs,
           container: 'master m3u8',
           isAdSuspect:
@@ -476,7 +499,9 @@ class VideoSniffer {
       variants.first.copyWith(
         recommendation: variants.first.isAdSuspect ? '' : '推荐下载',
       ),
-      ...variants.skip(1).map(
+      ...variants
+          .skip(1)
+          .map(
             (item) =>
                 item.copyWith(recommendation: item.isAdSuspect ? '' : '正片可能'),
           ),
@@ -571,7 +596,8 @@ class VideoSniffer {
   }
 
   int _heightHint(VideoResource resource) {
-    final fromQuality = int.tryParse(
+    final fromQuality =
+        int.tryParse(
           RegExp(
                 r'(\d{3,4})p',
               ).firstMatch(resource.quality.toLowerCase())?.group(1) ??
@@ -595,10 +621,15 @@ class VideoSniffer {
   int _score(VideoResource resource) {
     var score = 0;
     if (resource.isAdSuspect) score -= 10000;
+    if (resource.isCurrentPlayback) score += 9000;
     if (resource.isFragment) score -= 2000;
     if (resource.source.toLowerCase().contains('current')) score += 5000;
     if (resource.source.toLowerCase().contains('video-play')) score += 4000;
     if (resource.source.toLowerCase().contains('media')) score += 2500;
+    if (resource.duration.inSeconds >= 45) score += resource.duration.inSeconds;
+    if (resource.duration > Duration.zero && resource.duration.inSeconds < 45) {
+      score -= 7000;
+    }
     switch (resource.type) {
       case VideoResourceType.hls:
         score += 1500;

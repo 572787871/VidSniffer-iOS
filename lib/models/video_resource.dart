@@ -21,6 +21,10 @@ class VideoResource {
     this.isAdSuspect = false,
     this.recommendation = '',
     this.detectedAtMs = 0,
+    this.duration = Duration.zero,
+    this.thumbnailUrl = '',
+    this.isCurrentPlayback = false,
+    this.playerId = '',
   });
 
   final String url;
@@ -42,6 +46,10 @@ class VideoResource {
   final bool isAdSuspect;
   final String recommendation;
   final int detectedAtMs;
+  final Duration duration;
+  final String thumbnailUrl;
+  final bool isCurrentPlayback;
+  final String playerId;
 
   String get id => normalizedUrl;
   String get normalizedUrl =>
@@ -106,6 +114,10 @@ class VideoResource {
     bool? isAdSuspect,
     String? recommendation,
     int? detectedAtMs,
+    Duration? duration,
+    String? thumbnailUrl,
+    bool? isCurrentPlayback,
+    String? playerId,
   }) {
     return VideoResource(
       url: url ?? this.url,
@@ -127,6 +139,10 @@ class VideoResource {
       isAdSuspect: isAdSuspect ?? this.isAdSuspect,
       recommendation: recommendation ?? this.recommendation,
       detectedAtMs: detectedAtMs ?? this.detectedAtMs,
+      duration: duration ?? this.duration,
+      thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
+      isCurrentPlayback: isCurrentPlayback ?? this.isCurrentPlayback,
+      playerId: playerId ?? this.playerId,
     );
   }
 

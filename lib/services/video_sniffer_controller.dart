@@ -18,10 +18,48 @@ class SnifferPageContext {
 }
 
 class _SnifferCandidate {
-  const _SnifferCandidate({required this.url, required this.source});
+  const _SnifferCandidate({
+    required this.url,
+    required this.source,
+    this.title = '',
+    this.duration = Duration.zero,
+    this.thumbnailUrl = '',
+    this.isCurrentPlayback = false,
+    this.playerId = '',
+  });
 
   final String url;
   final String source;
+  final String title;
+  final Duration duration;
+  final String thumbnailUrl;
+  final bool isCurrentPlayback;
+  final String playerId;
+
+  _SnifferCandidate merge(_SnifferCandidate other) {
+    final current = isCurrentPlayback || other.isCurrentPlayback;
+    return _SnifferCandidate(
+      url: other.url.isNotEmpty ? other.url : url,
+      source: _mergeSource(source, other.source),
+      title: other.title.isNotEmpty ? other.title : title,
+      duration: other.duration > Duration.zero ? other.duration : duration,
+      thumbnailUrl: other.thumbnailUrl.isNotEmpty
+          ? other.thumbnailUrl
+          : thumbnailUrl,
+      isCurrentPlayback: current,
+      playerId: other.playerId.isNotEmpty ? other.playerId : playerId,
+    );
+  }
+
+  String _mergeSource(String a, String b) {
+    if (a == b || b.isEmpty) return a;
+    if (a.isEmpty) return b;
+    if (a.toLowerCase().contains('current')) return a;
+    if (b.toLowerCase().contains('current')) return b;
+    if (a.toLowerCase().contains('video-play')) return a;
+    if (b.toLowerCase().contains('video-play')) return b;
+    return '$a/$b';
+  }
 }
 
 class VideoSnifferController {
@@ -61,16 +99,66 @@ class VideoSnifferController {
     onResourcesChanged(const []);
   }
 
-  void capture(String rawUrl, String source) {
+  void capture(
+    String rawUrl,
+    String source, {
+    String title = '',
+    Duration duration = Duration.zero,
+    String thumbnailUrl = '',
+    bool isCurrentPlayback = false,
+    String playerId = '',
+  }) {
     if (!sniffer.isLikelyMediaCandidate(rawUrl)) {
       return;
     }
     final base = Uri.tryParse(_lastPageUrl);
     final key = sniffer.dedupeKey(rawUrl, base: base);
-    if (_resources.containsKey(key) || _pending.containsKey(key)) {
+    final next = _SnifferCandidate(
+      url: rawUrl,
+      source: source,
+      title: title,
+      duration: duration,
+      thumbnailUrl: thumbnailUrl,
+      isCurrentPlayback: isCurrentPlayback,
+      playerId: playerId,
+    );
+    final existingResource = _resources[key];
+    if (existingResource != null) {
+      _resources[key] = existingResource.copyWith(
+        source: next
+            .merge(
+              _SnifferCandidate(
+                url: existingResource.url,
+                source: existingResource.source,
+                title: existingResource.title,
+                duration: existingResource.duration,
+                thumbnailUrl: existingResource.thumbnailUrl,
+                isCurrentPlayback: existingResource.isCurrentPlayback,
+                playerId: existingResource.playerId,
+              ),
+            )
+            .source,
+        title: title.isNotEmpty ? title : existingResource.title,
+        duration: duration > Duration.zero
+            ? duration
+            : existingResource.duration,
+        thumbnailUrl: thumbnailUrl.isNotEmpty
+            ? thumbnailUrl
+            : existingResource.thumbnailUrl,
+        isCurrentPlayback:
+            existingResource.isCurrentPlayback ||
+            isCurrentPlayback ||
+            source.toLowerCase().contains('current') ||
+            source.toLowerCase().contains('video-play'),
+        playerId: playerId.isNotEmpty ? playerId : existingResource.playerId,
+      );
+      onResourcesChanged(resources);
       return;
     }
-    _pending[key] = _SnifferCandidate(url: rawUrl, source: source);
+    final existingPending = _pending[key];
+    _pending[key] = existingPending == null
+        ? next
+        : existingPending.merge(next);
     _timer?.cancel();
     _timer = Timer(debounce, () => unawaited(flush()));
   }
@@ -89,11 +177,17 @@ class VideoSnifferController {
       for (final candidate in candidates) {
         final resource = sniffer.resourceFromUrl(
           candidate.url,
-          pageTitle: context.pageTitle,
+          pageTitle: candidate.title.isNotEmpty
+              ? candidate.title
+              : context.pageTitle,
           pageUrl: context.pageUrl,
           source: candidate.source,
           userAgent: context.userAgent,
           cookie: context.cookie,
+          duration: candidate.duration,
+          thumbnailUrl: candidate.thumbnailUrl,
+          isCurrentPlayback: candidate.isCurrentPlayback,
+          playerId: candidate.playerId,
           allowUnknown: true,
         );
         if (resource == null) {

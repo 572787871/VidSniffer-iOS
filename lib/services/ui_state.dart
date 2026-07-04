@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 
+import '../models/download_task.dart';
 import '../models/local_video.dart';
 import '../models/video_resource.dart';
 import 'download_manager.dart';
@@ -150,7 +151,10 @@ class UiState extends ChangeNotifier {
   }
 
   void _onDownloadsChanged() {
-    if (downloadManager.tasks.any((task) => task.localPath.isNotEmpty)) {
+    if (downloadManager.tasks.any(
+      (task) =>
+          task.status == DownloadStatus.completed && task.localPath.isNotEmpty,
+    )) {
       unawaited(refreshLibrary());
     }
     notifyListeners();
@@ -188,7 +192,7 @@ class UiState extends ChangeNotifier {
 
 class UiStateScope extends InheritedNotifier<UiState> {
   const UiStateScope({required UiState state, required super.child, super.key})
-      : super(notifier: state);
+    : super(notifier: state);
 
   static UiState of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<UiStateScope>();

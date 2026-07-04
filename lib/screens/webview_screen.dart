@@ -34,13 +34,18 @@ class _WebViewScreenState extends State<WebViewScreen> {
   PullToRefreshController? pullToRefreshController;
   Timer? noResourceHintTimer;
   Timer? autoResultTimer;
+  Timer? autoScanTimer;
   double progress = 0;
   String? errorText;
   String currentUrl = '';
   String userAgent = '';
+  String autoStatus = '正在解析网页...';
+  int autoFoundCount = 0;
   bool browserVisible = true;
   bool toolbarVisible = true;
   bool autoDialogVisible = false;
+  bool autoResultFinished = false;
+  bool autoScanBusy = false;
   int lastScrollY = 0;
 
   @override
@@ -57,11 +62,18 @@ class _WebViewScreenState extends State<WebViewScreen> {
       onResourcesChanged: (resources) {
         if (!mounted) return;
         UiStateScope.of(context).setResources(resources);
-        _scheduleAutoResult(
-          shortDelay: resources.any(
-            (item) => item.isPlayable && !item.isAdSuspect,
-          ),
-        );
+        final found = _downloadableResources(resources).length;
+        if (found != autoFoundCount && widget.autoParseOnly) {
+          setState(() {
+            autoFoundCount = found;
+            if (found > 0) {
+              autoStatus = '已发现 $found 个视频，正在生成下载列表...';
+            }
+          });
+        }
+        if (found > 0) {
+          _scheduleAutoResult(shortDelay: true);
+        }
       },
     )..updatePageUrl(initial);
     pullToRefreshController = PullToRefreshController(
@@ -74,6 +86,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
   void dispose() {
     noResourceHintTimer?.cancel();
     autoResultTimer?.cancel();
+    autoScanTimer?.cancel();
     snifferController.dispose();
     addressController.dispose();
     super.dispose();
@@ -105,7 +118,9 @@ class _WebViewScreenState extends State<WebViewScreen> {
                     curve: Curves.easeOut,
                     child: ClipRect(child: _browserToolbar()),
                   ),
-                  if (progress > 0 && progress < 1)
+                  if ((browserVisible || !widget.autoParseOnly) &&
+                      progress > 0 &&
+                      progress < 1)
                     LinearProgressIndicator(value: progress, minHeight: 2),
                   Expanded(
                     child: Stack(
@@ -133,16 +148,18 @@ class _WebViewScreenState extends State<WebViewScreen> {
                                   handlerName: 'VidSniffer',
                                   callback: (args) {
                                     for (final arg in args) {
-                                      if (arg is Map && arg['url'] is String) {
-                                        _captureCandidate(
-                                          arg['url'] as String,
-                                          arg['source']?.toString() ?? 'jsHook',
-                                        );
+                                      final candidate = _candidateFromDynamic(
+                                        arg,
+                                      );
+                                      if (candidate != null) {
+                                        _captureCandidate(candidate);
                                       }
                                     }
                                   },
                                 );
                                 await _updateUserAgent();
+                                unawaited(_injectSniffer());
+                                _startAutoParseLoop(reset: true);
                               },
                               onLoadStart: (controller, url) {
                                 final value = url?.toString() ?? '';
@@ -154,11 +171,22 @@ class _WebViewScreenState extends State<WebViewScreen> {
                                   progress = 0;
                                 });
                                 snifferController.reset(pageUrl: value);
-                                _captureCandidate(value, 'resource');
+                                _captureCandidate(
+                                  _CapturedCandidate(
+                                    url: value,
+                                    source: 'resource',
+                                  ),
+                                );
+                                unawaited(_injectSniffer());
+                                _startAutoParseLoop(reset: true);
                               },
                               onProgressChanged: (controller, value) {
                                 debugPrint('[webview] progress: $value');
-                                setState(() => progress = value / 100);
+                                if (!widget.autoParseOnly || browserVisible) {
+                                  setState(() => progress = value / 100);
+                                } else {
+                                  progress = value / 100;
+                                }
                               },
                               onLoadStop: (controller, url) async {
                                 final value = url?.toString() ?? '';
@@ -185,32 +213,49 @@ class _WebViewScreenState extends State<WebViewScreen> {
                               },
                               onLoadResource: (controller, resource) {
                                 _captureCandidate(
-                                  resource.url.toString(),
-                                  'resource',
+                                  _CapturedCandidate(
+                                    url: resource.url.toString(),
+                                    source: 'resource',
+                                  ),
                                 );
                               },
                               shouldInterceptRequest:
                                   (controller, request) async {
-                                final url = request.url.toString();
-                                _captureCandidate(url, 'resource');
-                                return null;
-                              },
+                                    final url = request.url.toString();
+                                    _captureCandidate(
+                                      _CapturedCandidate(
+                                        url: url,
+                                        source: 'resource',
+                                      ),
+                                    );
+                                    return null;
+                                  },
                               shouldInterceptFetchRequest:
                                   (controller, request) async {
-                                final url = request.url?.toString();
-                                if (url != null) {
-                                  _captureCandidate(url, 'fetch');
-                                }
-                                return request;
-                              },
+                                    final url = request.url?.toString();
+                                    if (url != null) {
+                                      _captureCandidate(
+                                        _CapturedCandidate(
+                                          url: url,
+                                          source: 'fetch',
+                                        ),
+                                      );
+                                    }
+                                    return request;
+                                  },
                               shouldInterceptAjaxRequest:
                                   (controller, request) async {
-                                final url = request.url?.toString();
-                                if (url != null) {
-                                  _captureCandidate(url, 'xhr');
-                                }
-                                return request;
-                              },
+                                    final url = request.url?.toString();
+                                    if (url != null) {
+                                      _captureCandidate(
+                                        _CapturedCandidate(
+                                          url: url,
+                                          source: 'xhr',
+                                        ),
+                                      );
+                                    }
+                                    return request;
+                                  },
                               onScrollChanged: (controller, x, y) {
                                 if (!browserVisible) return;
                                 final shouldShow = y < lastScrollY || y < 24;
@@ -237,7 +282,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
                               ),
                             ),
                           ),
-                        if (!browserVisible) _autoParsingOverlay(state),
+                        if (!browserVisible) _autoParsingOverlay(),
                       ],
                     ),
                   ),
@@ -320,7 +365,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
     );
   }
 
-  Widget _autoParsingOverlay(UiState state) {
+  Widget _autoParsingOverlay() {
     return Positioned.fill(
       child: ColoredBox(
         color: Theme.of(context).colorScheme.surface,
@@ -340,32 +385,34 @@ class _WebViewScreenState extends State<WebViewScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  progress < 1
-                      ? '正在加载网页 ${(progress * 100).round()}%'
-                      : '正在扫描 DOM、XHR、fetch 和媒体请求',
+                  autoStatus,
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
+                if (autoFoundCount > 0) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '已发现 $autoFoundCount 个视频资源',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 18),
                 FilledButton.tonalIcon(
                   onPressed: () => setState(() {
+                    autoResultFinished = true;
+                    autoResultTimer?.cancel();
+                    autoScanTimer?.cancel();
                     browserVisible = true;
                     toolbarVisible = true;
                   }),
                   icon: const Icon(Icons.language_rounded),
                   label: const Text('进入网页播放并嗅探'),
                 ),
-                if (state.resources.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    '已发现 ${state.resources.length} 个候选资源',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
@@ -401,9 +448,9 @@ class _WebViewScreenState extends State<WebViewScreen> {
     final controller = webController;
     if (controller == null) return;
     final result = await controller.evaluateJavascript(source: _domScanScript);
-    final urls = _decodeJsStringList(result);
-    for (final url in urls) {
-      _captureCandidate(url, 'dom');
+    final candidates = _decodeJsCandidates(result);
+    for (final candidate in candidates) {
+      _captureCandidate(candidate);
     }
   }
 
@@ -430,11 +477,19 @@ class _WebViewScreenState extends State<WebViewScreen> {
     }
   }
 
-  void _captureCandidate(String rawUrl, String source) {
+  void _captureCandidate(_CapturedCandidate candidate) {
     snifferController.updatePageUrl(
       currentUrl.isEmpty ? addressController.text : currentUrl,
     );
-    snifferController.capture(rawUrl, source);
+    snifferController.capture(
+      candidate.url,
+      candidate.source,
+      title: candidate.title,
+      duration: candidate.duration,
+      thumbnailUrl: candidate.thumbnailUrl,
+      isCurrentPlayback: candidate.isCurrentPlayback,
+      playerId: candidate.playerId,
+    );
   }
 
   Future<SnifferPageContext> _snifferContext() async {
@@ -462,64 +517,162 @@ class _WebViewScreenState extends State<WebViewScreen> {
   }
 
   void _scheduleAutoResult({bool shortDelay = false}) {
-    if (!widget.autoParseOnly || browserVisible || autoDialogVisible) return;
+    if (!widget.autoParseOnly ||
+        browserVisible ||
+        autoDialogVisible ||
+        autoResultFinished) {
+      return;
+    }
     autoResultTimer?.cancel();
-    autoResultTimer = Timer(Duration(seconds: shortDelay ? 1 : 6), () async {
-      if (!mounted || browserVisible || autoDialogVisible) return;
-      await _scanDom();
-      await snifferController.flush();
-      if (!mounted) return;
-      final state = UiStateScope.of(context);
-      final downloadable = _downloadableResources(state.resources);
-      if (downloadable.isNotEmpty) {
-        autoDialogVisible = true;
-        setState(() {
-          browserVisible = true;
-          toolbarVisible = true;
-        });
-        await showResourceSheet(context, state.resources);
-        autoDialogVisible = false;
-      } else {
-        autoDialogVisible = true;
-        await showDialog<void>(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => AlertDialog(
-            title: const Text('未自动发现视频'),
-            content: const Text('部分网站需要先播放视频，请进入网页播放后再点发现视频。'),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _retryAutoParse();
-                },
-                child: const Text('重试自动解析'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  setState(() {
-                    browserVisible = true;
-                    toolbarVisible = true;
-                  });
-                },
-                child: const Text('进入网页播放并嗅探'),
-              ),
-            ],
-          ),
-        );
-        autoDialogVisible = false;
-      }
-    });
+    autoResultTimer = Timer(
+      shortDelay
+          ? const Duration(milliseconds: 250)
+          : const Duration(seconds: 5),
+      () async {
+        if (!mounted ||
+            browserVisible ||
+            autoDialogVisible ||
+            autoResultFinished) {
+          return;
+        }
+        await _scanDom();
+        await snifferController.flush();
+        if (!mounted) return;
+        final state = UiStateScope.of(context);
+        final downloadable = _downloadableResources(state.resources);
+        if (downloadable.isNotEmpty) {
+          await _showAutoResources(state.resources);
+        } else {
+          await _showAutoFailedPrompt();
+        }
+      },
+    );
   }
 
   void _retryAutoParse() {
     autoDialogVisible = false;
+    autoResultFinished = false;
+    autoResultTimer?.cancel();
+    autoScanTimer?.cancel();
     setState(() {
       browserVisible = false;
       toolbarVisible = false;
+      autoFoundCount = 0;
+      autoStatus = '正在解析网页...';
     });
     _load();
+  }
+
+  void _startAutoParseLoop({bool reset = false}) {
+    if (!widget.autoParseOnly || browserVisible) return;
+    if (reset) {
+      autoResultFinished = false;
+      autoFoundCount = 0;
+    }
+    autoScanTimer?.cancel();
+    autoResultTimer?.cancel();
+    if (mounted) {
+      setState(() => autoStatus = '正在解析网页...');
+    }
+    autoScanTimer = Timer.periodic(
+      const Duration(milliseconds: 700),
+      (_) => unawaited(_autoScanTick()),
+    );
+    unawaited(_autoScanTick());
+    _scheduleAutoResult();
+  }
+
+  Future<void> _autoScanTick() async {
+    if (!widget.autoParseOnly ||
+        browserVisible ||
+        autoDialogVisible ||
+        autoResultFinished ||
+        autoScanBusy) {
+      return;
+    }
+    autoScanBusy = true;
+    try {
+      if (mounted) {
+        setState(() {
+          autoStatus = autoFoundCount > 0 ? '正在生成下载列表...' : '正在监听视频资源...';
+        });
+      }
+      await _injectSniffer();
+      await _scanDom();
+      await snifferController.flush();
+      if (!mounted || autoResultFinished) return;
+      final resources = UiStateScope.of(context).resources;
+      final downloadable = _downloadableResources(resources);
+      if (downloadable.isNotEmpty) {
+        await _showAutoResources(resources);
+      }
+    } catch (error) {
+      debugPrint('[webview] auto scan error: $error');
+    } finally {
+      autoScanBusy = false;
+    }
+  }
+
+  Future<void> _showAutoResources(List<VideoResource> resources) async {
+    if (!mounted || browserVisible || autoDialogVisible || autoResultFinished) {
+      return;
+    }
+    autoResultFinished = true;
+    autoDialogVisible = true;
+    autoResultTimer?.cancel();
+    autoScanTimer?.cancel();
+    setState(() {
+      autoFoundCount = _downloadableResources(resources).length;
+      autoStatus = '正在生成下载列表...';
+    });
+    await showResourceSheet(context, resources);
+    if (mounted) {
+      autoDialogVisible = false;
+    }
+  }
+
+  Future<void> _showAutoFailedPrompt() async {
+    if (!mounted || browserVisible || autoDialogVisible || autoResultFinished) {
+      return;
+    }
+    autoResultFinished = true;
+    autoDialogVisible = true;
+    autoScanTimer?.cancel();
+    autoResultTimer?.cancel();
+    setState(() {
+      autoStatus = '未自动发现视频资源';
+      autoFoundCount = 0;
+    });
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('未自动发现视频'),
+        content: const Text('部分网站需要先播放视频，请进入网页播放后继续嗅探。'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _retryAutoParse();
+            },
+            child: const Text('重试自动解析'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                browserVisible = true;
+                toolbarVisible = true;
+              });
+            },
+            child: const Text('进入网页播放并嗅探'),
+          ),
+        ],
+      ),
+    );
+    if (mounted) {
+      autoDialogVisible = false;
+    }
   }
 
   List<VideoResource> _downloadableResources(List<VideoResource> resources) {
@@ -550,17 +703,53 @@ class _WebViewScreenState extends State<WebViewScreen> {
     return trimmed;
   }
 
-  List<String> _decodeJsStringList(Object? value) {
+  List<_CapturedCandidate> _decodeJsCandidates(Object? value) {
     if (value == null) return const [];
-    if (value is List) return value.map((item) => item.toString()).toList();
-    final text = value.toString();
+    if (value is List) {
+      return value
+          .map(_candidateFromDynamic)
+          .whereType<_CapturedCandidate>()
+          .toList();
+    }
+    var text = value.toString();
     try {
-      final decoded = jsonDecode(text);
+      var decoded = jsonDecode(text);
+      if (decoded is String) {
+        decoded = jsonDecode(decoded);
+      }
       if (decoded is List) {
-        return decoded.map((item) => item.toString()).toList();
+        return decoded
+            .map(_candidateFromDynamic)
+            .whereType<_CapturedCandidate>()
+            .toList();
       }
     } catch (_) {}
     return const [];
+  }
+
+  _CapturedCandidate? _candidateFromDynamic(Object? value) {
+    if (value == null) return null;
+    if (value is String) {
+      return _CapturedCandidate(url: value, source: 'dom');
+    }
+    if (value is! Map) return null;
+    final url = value['url']?.toString() ?? '';
+    if (url.isEmpty) return null;
+    final seconds = double.tryParse('${value['duration'] ?? ''}') ?? 0;
+    return _CapturedCandidate(
+      url: url,
+      source: value['source']?.toString() ?? 'jsHook',
+      title: value['title']?.toString() ?? '',
+      duration: seconds > 0
+          ? Duration(milliseconds: (seconds * 1000).round())
+          : Duration.zero,
+      thumbnailUrl:
+          value['poster']?.toString() ??
+          value['thumbnailUrl']?.toString() ??
+          '',
+      isCurrentPlayback: value['current'] == true,
+      playerId: value['playerId']?.toString() ?? '',
+    );
   }
 
   String _normalized(String value) {
@@ -572,27 +761,78 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
   static const String _domScanScript = r'''
 (() => {
-  const out = new Set();
-  const push = (value) => {
+  const out = new Map();
+  const pageTitle = (() => {
+    const meta = document.querySelector('meta[property="og:title"], meta[name="twitter:title"], meta[itemprop="name"]');
+    return (meta && meta.content) || document.title || '';
+  })();
+  const nodeTitle = (node) => {
+    if (!node) return pageTitle;
+    const video = node.tagName === 'VIDEO' || node.tagName === 'AUDIO' ? node : node.closest && node.closest('video,audio');
+    const owner = video || node;
+    return owner.getAttribute('title') ||
+      owner.getAttribute('data-title') ||
+      owner.getAttribute('data-video-title') ||
+      owner.getAttribute('aria-label') ||
+      pageTitle;
+  };
+  const playerId = (node) => {
+    if (!node) return '';
+    const video = node.tagName === 'VIDEO' || node.tagName === 'AUDIO' ? node : node.closest && node.closest('video,audio');
+    const owner = video || node;
+    return owner.id ||
+      owner.getAttribute('data-player') ||
+      owner.getAttribute('data-player-id') ||
+      owner.getAttribute('data-video-id') ||
+      '';
+  };
+  const poster = (node) => {
+    if (!node) return '';
+    const video = node.tagName === 'VIDEO' || node.tagName === 'AUDIO' ? node : node.closest && node.closest('video,audio');
+    return (video && (video.poster || video.getAttribute('poster'))) || '';
+  };
+  const duration = (node) => {
+    const video = node && (node.tagName === 'VIDEO' || node.tagName === 'AUDIO' ? node : node.closest && node.closest('video,audio'));
+    return video && isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+  };
+  const isCurrent = (node, source) => {
+    const video = node && (node.tagName === 'VIDEO' || node.tagName === 'AUDIO' ? node : node.closest && node.closest('video,audio'));
+    return /current|play/i.test(source) || !!(video && (!video.paused || video.currentTime > 0));
+  };
+  const push = (value, source, node) => {
     try {
       if (!value || typeof value !== 'string') return;
-      out.add(new URL(value, location.href).href);
+      const absolute = new URL(value, location.href).href;
+      out.set(absolute, {
+        url: absolute,
+        source,
+        title: nodeTitle(node),
+        duration: duration(node),
+        poster: poster(node),
+        current: isCurrent(node, source),
+        playerId: playerId(node)
+      });
     } catch (_) {}
   };
-  document.querySelectorAll('video, source').forEach((node) => {
-    push(node.src);
-    push(node.currentSrc);
-    push(node.getAttribute('src'));
-    push(node.getAttribute('data-src'));
+  document.querySelectorAll('video,audio').forEach((node) => {
+    push(node.currentSrc, 'video-current', node);
+    push(node.src, 'video-tag', node);
+    push(node.getAttribute('src'), 'video-tag', node);
+    push(node.getAttribute('data-src'), 'video-tag', node);
+    node.querySelectorAll('source').forEach((source) => {
+      push(source.src, 'video-source', source);
+      push(source.getAttribute('src'), 'video-source', source);
+      push(source.getAttribute('data-src'), 'video-source', source);
+    });
   });
   document.querySelectorAll('a[href]').forEach((node) => {
     const href = node.getAttribute('href') || '';
-    if (/\.(mp4|m3u8|m4v|mov|ts|m4s)(\?|$)/i.test(href)) push(href);
+    if (/\.(mp4|m3u8|m4v|mov|ts|m4s)(\?|$)/i.test(href)) push(href, 'dom-link', node);
   });
   const html = document.documentElement.outerHTML || '';
   const matches = html.match(/https?:[^"'\\\s<>]+?\.(?:mp4|m3u8|m4v|mov|ts|m4s)(?:\?[^"'\\\s<>]*)?/ig) || [];
-  matches.forEach(push);
-  return Array.from(out);
+  matches.forEach((url) => push(url, 'dom-html', null));
+  return JSON.stringify(Array.from(out.values()));
 })();
 ''';
 
@@ -600,11 +840,26 @@ class _WebViewScreenState extends State<WebViewScreen> {
 (() => {
   if (window.__videoDownloaderHooked) return;
   window.__videoDownloaderHooked = true;
-  const post = (url, source) => {
+  const pageTitle = () => {
+    const meta = document.querySelector('meta[property="og:title"], meta[name="twitter:title"], meta[itemprop="name"]');
+    return (meta && meta.content) || document.title || '';
+  };
+  const metaFor = (element, source) => {
+    const media = element && (element.tagName === 'VIDEO' || element.tagName === 'AUDIO' ? element : element.closest && element.closest('video,audio'));
+    const owner = media || element;
+    return {
+      title: (owner && (owner.getAttribute('title') || owner.getAttribute('data-title') || owner.getAttribute('data-video-title') || owner.getAttribute('aria-label'))) || pageTitle(),
+      duration: media && isFinite(media.duration) && media.duration > 0 ? media.duration : 0,
+      poster: (media && (media.poster || media.getAttribute('poster'))) || '',
+      current: /current|play/i.test(source) || !!(media && (!media.paused || media.currentTime > 0)),
+      playerId: (owner && (owner.id || owner.getAttribute('data-player') || owner.getAttribute('data-player-id') || owner.getAttribute('data-video-id'))) || ''
+    };
+  };
+  const post = (url, source, element) => {
     try {
       if (!url || typeof url !== 'string') return;
       const absolute = new URL(url, location.href).href;
-      window.flutter_inappwebview.callHandler('VidSniffer', {url: absolute, source});
+      window.flutter_inappwebview.callHandler('VidSniffer', {url: absolute, source, ...metaFor(element, source)});
     } catch (_) {}
   };
   const originalFetch = window.fetch;
@@ -612,31 +867,68 @@ class _WebViewScreenState extends State<WebViewScreen> {
     window.fetch = function() {
       try {
         const input = arguments[0];
-        post(typeof input === 'string' ? input : input && input.url, 'fetch');
+        post(typeof input === 'string' ? input : input && input.url, 'fetch', null);
       } catch (_) {}
       return originalFetch.apply(this, arguments).then((response) => {
-        try { post(response.url, 'fetch-response'); } catch (_) {}
+        try { post(response.url, 'fetch-response', null); } catch (_) {}
         return response;
       });
     };
   }
   const originalOpen = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function(method, url) {
-    post(url, 'xhr');
+    post(url, 'xhr', null);
     return originalOpen.apply(this, arguments);
   };
   const desc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
   if (desc && desc.set) {
     Object.defineProperty(HTMLMediaElement.prototype, 'src', {
-      set: function(value) { post(value, 'media-src'); return desc.set.call(this, value); },
+      set: function(value) { post(value, 'media-src', this); return desc.set.call(this, value); },
       get: function() { return desc.get.call(this); }
     });
   }
   const originalPlay = HTMLMediaElement.prototype.play;
   HTMLMediaElement.prototype.play = function() {
-    post(this.currentSrc || this.src, 'video-play');
+    post(this.currentSrc || this.src, 'video-current', this);
     return originalPlay.apply(this, arguments);
   };
+  const bind = (node) => {
+    if (!node || node.__vidSnifferBound) return;
+    node.__vidSnifferBound = true;
+    ['play', 'loadedmetadata', 'canplay', 'durationchange'].forEach((event) => {
+      node.addEventListener(event, () => post(node.currentSrc || node.src, event === 'play' ? 'video-current' : 'video-tag', node), true);
+    });
+  };
+  document.querySelectorAll('video,audio').forEach(bind);
+  new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes && mutation.addedNodes.forEach((node) => {
+        if (!node.querySelectorAll) return;
+        if (node.tagName === 'VIDEO' || node.tagName === 'AUDIO') bind(node);
+        node.querySelectorAll('video,audio').forEach(bind);
+      });
+    });
+  }).observe(document.documentElement, {childList: true, subtree: true});
 })();
 ''';
+}
+
+class _CapturedCandidate {
+  const _CapturedCandidate({
+    required this.url,
+    required this.source,
+    this.title = '',
+    this.duration = Duration.zero,
+    this.thumbnailUrl = '',
+    this.isCurrentPlayback = false,
+    this.playerId = '',
+  });
+
+  final String url;
+  final String source;
+  final String title;
+  final Duration duration;
+  final String thumbnailUrl;
+  final bool isCurrentPlayback;
+  final String playerId;
 }
