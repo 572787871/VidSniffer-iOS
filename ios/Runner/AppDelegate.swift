@@ -2,6 +2,7 @@ import Foundation
 import UIKit
 import WebKit
 import AVKit
+import AVFoundation
 
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -11,6 +12,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
+        AppTheme.install()
         window = UIWindow(frame: UIScreen.main.bounds)
         window?.rootViewController = MainTabController()
         window?.makeKeyAndVisible()
@@ -26,6 +28,158 @@ struct VideoResource: Hashable, Codable {
 
     var detail: String {
         "\(type) · \(source)"
+    }
+}
+
+enum AppTheme {
+    static let accent = UIColor(red: 0.02, green: 0.39, blue: 0.92, alpha: 1)
+    static let accent2 = UIColor(red: 0.00, green: 0.66, blue: 0.75, alpha: 1)
+    static let warning = UIColor(red: 0.94, green: 0.43, blue: 0.12, alpha: 1)
+
+    static func install() {
+        UINavigationBar.appearance().tintColor = accent
+        UITabBar.appearance().tintColor = accent
+        UITableView.appearance().backgroundColor = .systemGroupedBackground
+    }
+}
+
+final class HeroPanelView: UIView {
+    private let gradient = CAGradientLayer()
+    let titleLabel = UILabel()
+    let subtitleLabel = UILabel()
+    let badgeLabel = UILabel()
+
+    init(title: String, subtitle: String, badge: String) {
+        super.init(frame: .zero)
+        layer.cornerRadius = 18
+        layer.masksToBounds = true
+        gradient.colors = [AppTheme.accent.cgColor, AppTheme.accent2.cgColor]
+        gradient.startPoint = CGPoint(x: 0, y: 0)
+        gradient.endPoint = CGPoint(x: 1, y: 1)
+        layer.insertSublayer(gradient, at: 0)
+
+        titleLabel.text = title
+        titleLabel.textColor = .white
+        titleLabel.font = .preferredFont(forTextStyle: .title1)
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.numberOfLines = 1
+
+        subtitleLabel.text = subtitle
+        subtitleLabel.textColor = UIColor.white.withAlphaComponent(0.86)
+        subtitleLabel.font = .preferredFont(forTextStyle: .subheadline)
+        subtitleLabel.adjustsFontForContentSizeCategory = true
+        subtitleLabel.numberOfLines = 2
+
+        badgeLabel.text = badge
+        badgeLabel.textColor = .white
+        badgeLabel.font = .preferredFont(forTextStyle: .caption1)
+        badgeLabel.adjustsFontForContentSizeCategory = true
+        badgeLabel.backgroundColor = UIColor.white.withAlphaComponent(0.18)
+        badgeLabel.layer.cornerRadius = 10
+        badgeLabel.layer.masksToBounds = true
+        badgeLabel.textAlignment = .center
+
+        let stack = UIStackView(arrangedSubviews: [badgeLabel, titleLabel, subtitleLabel])
+        stack.axis = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 18),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -18),
+            badgeLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 24),
+            badgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 96)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        gradient.frame = bounds
+    }
+}
+
+final class ResourceCell: UITableViewCell {
+    private let typeBadge = UILabel()
+    private let title = UILabel()
+    private let detail = UILabel()
+    private let downloadButton = UIButton(type: .system)
+    private var onDownload: (() -> Void)?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        backgroundColor = .secondarySystemGroupedBackground
+        contentView.backgroundColor = .secondarySystemGroupedBackground
+
+        typeBadge.textAlignment = .center
+        typeBadge.font = .preferredFont(forTextStyle: .caption1)
+        typeBadge.adjustsFontForContentSizeCategory = true
+        typeBadge.textColor = .white
+        typeBadge.backgroundColor = AppTheme.accent
+        typeBadge.layer.cornerRadius = 8
+        typeBadge.layer.masksToBounds = true
+
+        title.font = .preferredFont(forTextStyle: .headline)
+        title.adjustsFontForContentSizeCategory = true
+        title.numberOfLines = 2
+
+        detail.font = .preferredFont(forTextStyle: .subheadline)
+        detail.adjustsFontForContentSizeCategory = true
+        detail.textColor = .secondaryLabel
+        detail.numberOfLines = 2
+
+        downloadButton.setImage(UIImage(systemName: "arrow.down.circle.fill"), for: .normal)
+        downloadButton.setTitle(" 下载", for: .normal)
+        downloadButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
+        downloadButton.tintColor = .white
+        downloadButton.backgroundColor = AppTheme.accent
+        downloadButton.layer.cornerRadius = 16
+        downloadButton.contentEdgeInsets = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
+        downloadButton.addTarget(self, action: #selector(downloadTapped), for: .touchUpInside)
+
+        let textStack = UIStackView(arrangedSubviews: [typeBadge, title, detail])
+        textStack.axis = .vertical
+        textStack.alignment = .leading
+        textStack.spacing = 6
+
+        let row = UIStackView(arrangedSubviews: [textStack, downloadButton])
+        row.axis = .horizontal
+        row.alignment = .center
+        row.spacing = 12
+        row.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
+            row.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 14),
+            row.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -14),
+            row.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
+            typeBadge.heightAnchor.constraint(greaterThanOrEqualToConstant: 22),
+            typeBadge.widthAnchor.constraint(greaterThanOrEqualToConstant: 52),
+            downloadButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 88)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(with resource: VideoResource, onDownload: @escaping () -> Void) {
+        typeBadge.text = resource.type
+        typeBadge.backgroundColor = resource.type == "HLS" ? AppTheme.warning : AppTheme.accent
+        title.text = resource.title
+        detail.text = "\(resource.source)\n\(resource.url.absoluteString)"
+        self.onDownload = onDownload
+    }
+
+    @objc private func downloadTapped() {
+        onDownload?()
     }
 }
 
@@ -56,6 +210,7 @@ final class AppStore {
 
     func startDownload(_ resource: VideoResource) {
         let record = DownloadRecord(resource: resource)
+        record.status = resource.type == "HLS" ? "HLS 转码保存中" : "下载中"
         downloads.insert(record, at: 0)
         notify()
         DownloadManager.shared.download(resource: resource) { [weak self, weak record] result in
@@ -122,6 +277,11 @@ final class DownloadManager {
     private init() {}
 
     func download(resource: VideoResource, completion: @escaping (Result<URL, Error>) -> Void) {
+        if resource.type == "HLS" {
+            exportHLS(resource: resource, completion: completion)
+            return
+        }
+
         let request = URLRequest(url: resource.url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 45)
         URLSession.shared.downloadTask(with: request) { tempURL, response, error in
             if let error = error {
@@ -147,12 +307,67 @@ final class DownloadManager {
         }.resume()
     }
 
+    private func exportHLS(resource: VideoResource, completion: @escaping (Result<URL, Error>) -> Void) {
+        do {
+            try FileManager.default.createDirectory(at: Self.videosDirectory, withIntermediateDirectories: true)
+        } catch {
+            completion(.failure(error))
+            return
+        }
+
+        let asset = AVURLAsset(url: resource.url)
+        guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality)
+            ?? AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
+            completion(.failure(NSError(domain: "VidSniffer", code: -20, userInfo: [NSLocalizedDescriptionKey: "当前系统无法导出这个 m3u8 视频"])))
+            return
+        }
+
+        let outputType: AVFileType
+        let outputExtension: String
+        if session.supportedFileTypes.contains(.mp4) {
+            outputType = .mp4
+            outputExtension = "mp4"
+        } else if session.supportedFileTypes.contains(.m4v) {
+            outputType = .m4v
+            outputExtension = "m4v"
+        } else {
+            completion(.failure(NSError(domain: "VidSniffer", code: -21, userInfo: [NSLocalizedDescriptionKey: "这个 m3u8 不支持导出为本地视频文件"])))
+            return
+        }
+
+        let target = Self.videosDirectory.appendingPathComponent(fileName(for: resource, forcedExtension: outputExtension))
+        if FileManager.default.fileExists(atPath: target.path) {
+            try? FileManager.default.removeItem(at: target)
+        }
+        session.outputURL = target
+        session.outputFileType = outputType
+        session.shouldOptimizeForNetworkUse = true
+        session.exportAsynchronously {
+            DispatchQueue.main.async {
+                switch session.status {
+                case .completed:
+                    completion(.success(target))
+                case .failed:
+                    completion(.failure(session.error ?? NSError(domain: "VidSniffer", code: -22, userInfo: [NSLocalizedDescriptionKey: "m3u8 转码失败"])))
+                case .cancelled:
+                    completion(.failure(NSError(domain: "VidSniffer", code: -23, userInfo: [NSLocalizedDescriptionKey: "m3u8 转码已取消"])))
+                default:
+                    completion(.failure(NSError(domain: "VidSniffer", code: -24, userInfo: [NSLocalizedDescriptionKey: "m3u8 转码没有完成"])))
+                }
+            }
+        }
+    }
+
     private func fileName(for resource: VideoResource, response: URLResponse?) -> String {
+        fileName(for: resource, forcedExtension: nil)
+    }
+
+    private func fileName(for resource: VideoResource, forcedExtension: String?) -> String {
         let rawTitle = resource.title.isEmpty ? "video" : resource.title
         let safeTitle = rawTitle
             .replacingOccurrences(of: "[^A-Za-z0-9._ -]+", with: "_", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let ext = resource.url.pathExtension.isEmpty ? (resource.type == "HLS" ? "m3u8" : "mp4") : resource.url.pathExtension
+        let ext = forcedExtension ?? (resource.url.pathExtension.isEmpty ? "mp4" : resource.url.pathExtension)
         return "\(safeTitle.isEmpty ? "video" : safeTitle)-\(Int(Date().timeIntervalSince1970)).\(ext)"
     }
 }
@@ -250,7 +465,8 @@ func mediaType(_ url: URL) -> String {
 final class MainTabController: UITabBarController {
     override func viewDidLoad() {
         super.viewDidLoad()
-        tabBar.tintColor = .systemBlue
+        view.backgroundColor = .systemGroupedBackground
+        tabBar.tintColor = AppTheme.accent
         viewControllers = [
             nav(HomeViewController(), title: "解析", icon: "link"),
             nav(BrowserViewController(), title: "浏览器", icon: "safari"),
@@ -263,6 +479,7 @@ final class MainTabController: UITabBarController {
     private func nav(_ root: UIViewController, title: String, icon: String) -> UIViewController {
         let controller = UINavigationController(rootViewController: root)
         controller.navigationBar.prefersLargeTitles = true
+        controller.navigationBar.tintColor = AppTheme.accent
         controller.tabBarItem = UITabBarItem(title: title, image: UIImage(systemName: icon), selectedImage: UIImage(systemName: "\(icon).fill"))
         return controller
     }
@@ -274,16 +491,25 @@ final class HomeViewController: UIViewController, UITableViewDataSource, UITable
     private let urlField = UITextField()
     private let statusLabel = UILabel()
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
+    private let hero = HeroPanelView(
+        title: "视频解析工作台",
+        subtitle: "输入网页链接后扫描直链；m3u8 会尝试转存为本地视频，不再只保存文本清单。",
+        badge: "Native iOS"
+    )
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "VidSniffer Pro"
-        view.backgroundColor = .systemBackground
+        title = "解析"
+        view.backgroundColor = .systemGroupedBackground
         configureUI()
         store.observe { [weak self] in self?.tableView.reloadData() }
     }
 
     private func configureUI() {
+        let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+        tap.cancelsTouchesInView = false
+        view.addGestureRecognizer(tap)
+
         urlField.borderStyle = .roundedRect
         urlField.placeholder = "粘贴网页或视频链接"
         urlField.keyboardType = .URL
@@ -292,10 +518,14 @@ final class HomeViewController: UIViewController, UITableViewDataSource, UITable
         urlField.font = .preferredFont(forTextStyle: .body)
         urlField.returnKeyType = .go
         urlField.addTarget(self, action: #selector(parseTapped), for: .primaryActionTriggered)
+        urlField.backgroundColor = .secondarySystemGroupedBackground
 
         let button = UIButton(type: .system)
         button.setTitle("解析", for: .normal)
         button.titleLabel?.font = .preferredFont(forTextStyle: .headline)
+        button.tintColor = .white
+        button.backgroundColor = AppTheme.accent
+        button.layer.cornerRadius = 12
         button.addTarget(self, action: #selector(parseTapped), for: .touchUpInside)
 
         statusLabel.text = "输入网页后会扫描源码里的 mp4、m3u8、ts 资源。"
@@ -305,30 +535,41 @@ final class HomeViewController: UIViewController, UITableViewDataSource, UITable
 
         tableView.dataSource = self
         tableView.delegate = self
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 104
+        tableView.keyboardDismissMode = .onDrag
+        tableView.register(ResourceCell.self, forCellReuseIdentifier: "ResourceCell")
 
         let row = UIStackView(arrangedSubviews: [urlField, button])
         row.axis = .horizontal
         row.spacing = 10
         row.alignment = .fill
-        button.widthAnchor.constraint(equalToConstant: 70).isActive = true
+        button.widthAnchor.constraint(equalToConstant: 78).isActive = true
 
-        let stack = UIStackView(arrangedSubviews: [row, statusLabel, tableView])
+        let inputPanel = UIStackView(arrangedSubviews: [row, statusLabel])
+        inputPanel.axis = .vertical
+        inputPanel.spacing = 10
+        inputPanel.backgroundColor = .secondarySystemGroupedBackground
+        inputPanel.layer.cornerRadius = 16
+        inputPanel.layoutMargins = UIEdgeInsets(top: 14, left: 14, bottom: 14, right: 14)
+        inputPanel.isLayoutMarginsRelativeArrangement = true
+
+        let stack = UIStackView(arrangedSubviews: [hero, inputPanel, tableView])
         stack.axis = .vertical
-        stack.spacing = 12
+        stack.spacing = 14
         stack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 14),
+            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14),
+            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            hero.heightAnchor.constraint(greaterThanOrEqualToConstant: 136)
         ])
-        row.layoutMargins = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
-        row.isLayoutMarginsRelativeArrangement = true
-        statusLabel.layoutMargins = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
     }
 
     @objc private func parseTapped() {
+        dismissKeyboard()
         let input = urlField.text ?? ""
         statusLabel.text = "正在解析..."
         parser.parse(input) { [weak self] result in
@@ -349,19 +590,24 @@ final class HomeViewController: UIViewController, UITableViewDataSource, UITable
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
         let item = store.parsedResources[indexPath.row]
-        cell.textLabel?.text = item.title
-        cell.textLabel?.font = .preferredFont(forTextStyle: .headline)
-        cell.detailTextLabel?.text = item.detail
-        cell.detailTextLabel?.numberOfLines = 2
-        cell.accessoryView = UIImageView(image: UIImage(systemName: "arrow.down.circle"))
+        let cell = tableView.dequeueReusableCell(withIdentifier: "ResourceCell", for: indexPath) as! ResourceCell
+        cell.configure(with: item) { [weak self] in
+            self?.dismissKeyboard()
+            self?.store.startDownload(item)
+            self?.tabBarController?.selectedIndex = 2
+        }
         return cell
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         store.startDownload(store.parsedResources[indexPath.row])
+        tabBarController?.selectedIndex = 2
+    }
+
+    @objc private func dismissKeyboard() {
+        view.endEditing(true)
     }
 }
 
@@ -369,6 +615,11 @@ final class BrowserViewController: UIViewController, WKNavigationDelegate, WKScr
     private let store = AppStore.shared
     private let addressField = UITextField()
     private let tableView = UITableView(frame: .zero, style: .plain)
+    private let hero = HeroPanelView(
+        title: "浏览器嗅探",
+        subtitle: "打开网页后自动捕获 video、fetch、XHR 和网络性能记录里的媒体链接。",
+        badge: "Live Sniffer"
+    )
     private lazy var webView: WKWebView = {
         let config = WKWebViewConfiguration()
         config.userContentController.add(self, name: "VidSniffer")
@@ -382,12 +633,16 @@ final class BrowserViewController: UIViewController, WKNavigationDelegate, WKScr
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "浏览器嗅探"
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = .systemGroupedBackground
         configureUI()
         store.observe { [weak self] in self?.tableView.reloadData() }
     }
 
     private func configureUI() {
+        let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+        tap.cancelsTouchesInView = false
+        view.addGestureRecognizer(tap)
+
         addressField.borderStyle = .roundedRect
         addressField.placeholder = "输入网页地址"
         addressField.text = "https://"
@@ -395,6 +650,7 @@ final class BrowserViewController: UIViewController, WKNavigationDelegate, WKScr
         addressField.autocapitalizationType = .none
         addressField.font = .preferredFont(forTextStyle: .body)
         addressField.addTarget(self, action: #selector(loadTapped), for: .primaryActionTriggered)
+        addressField.backgroundColor = .secondarySystemGroupedBackground
 
         navigationItem.rightBarButtonItems = [
             UIBarButtonItem(image: UIImage(systemName: "arrow.clockwise"), style: .plain, target: self, action: #selector(refreshTapped)),
@@ -403,29 +659,39 @@ final class BrowserViewController: UIViewController, WKNavigationDelegate, WKScr
 
         tableView.dataSource = self
         tableView.delegate = self
-        tableView.rowHeight = 64
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 104
+        tableView.keyboardDismissMode = .onDrag
+        tableView.register(ResourceCell.self, forCellReuseIdentifier: "ResourceCell")
+        tableView.layer.cornerRadius = 16
 
-        let stack = UIStackView(arrangedSubviews: [addressField, webView, tableView])
+        webView.layer.cornerRadius = 16
+        webView.layer.masksToBounds = true
+
+        let stack = UIStackView(arrangedSubviews: [hero, addressField, webView, tableView])
         stack.axis = .vertical
-        stack.spacing = 8
+        stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 14),
+            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14),
             stack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            hero.heightAnchor.constraint(greaterThanOrEqualToConstant: 126),
             webView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.55)
         ])
     }
 
     @objc private func loadTapped() {
+        dismissKeyboard()
         guard let url = normalizedURL(addressField.text ?? "") else { return }
         addressField.text = url.absoluteString
         webView.load(URLRequest(url: url))
     }
 
     @objc private func refreshTapped() {
+        dismissKeyboard()
         webView.reload()
         injectScan()
     }
@@ -459,12 +725,13 @@ final class BrowserViewController: UIViewController, WKNavigationDelegate, WKScr
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
         let item = store.sniffedResources[indexPath.row]
-        cell.textLabel?.text = item.title
-        cell.detailTextLabel?.text = item.detail
-        cell.detailTextLabel?.numberOfLines = 2
-        cell.accessoryType = .detailButton
+        let cell = tableView.dequeueReusableCell(withIdentifier: "ResourceCell", for: indexPath) as! ResourceCell
+        cell.configure(with: item) { [weak self] in
+            self?.dismissKeyboard()
+            self?.store.startDownload(item)
+            self?.tabBarController?.selectedIndex = 2
+        }
         return cell
     }
 
@@ -480,6 +747,10 @@ final class BrowserViewController: UIViewController, WKNavigationDelegate, WKScr
 
     func tableView(_ tableView: UITableView, accessoryButtonTappedForRowWith indexPath: IndexPath) {
         store.startDownload(store.sniffedResources[indexPath.row])
+    }
+
+    @objc private func dismissKeyboard() {
+        view.endEditing(true)
     }
 
     private var snifferScript: String {
@@ -540,6 +811,8 @@ final class DownloadsViewController: UITableViewController {
         super.viewDidLoad()
         title = "下载"
         tableView = UITableView(frame: .zero, style: .insetGrouped)
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 72
         store.observe { [weak self] in self?.tableView.reloadData() }
     }
 
@@ -551,8 +824,11 @@ final class DownloadsViewController: UITableViewController {
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
         let item = store.downloads[indexPath.row]
         cell.textLabel?.text = item.resource.title
-        cell.detailTextLabel?.text = item.status
+        cell.textLabel?.font = .preferredFont(forTextStyle: .headline)
+        cell.detailTextLabel?.text = "\(item.resource.type) · \(item.status)"
         cell.detailTextLabel?.numberOfLines = 2
+        cell.imageView?.image = UIImage(systemName: item.localURL == nil ? "clock.arrow.circlepath" : "checkmark.circle.fill")
+        cell.imageView?.tintColor = item.localURL == nil ? AppTheme.warning : AppTheme.accent
         return cell
     }
 }

@@ -5,9 +5,10 @@ Native iOS video utility app for web video parsing, browser sniffing, m3u8/mp4 d
 ## Features
 
 - Native UIKit interface using system background colors and Dynamic Type fonts.
+- Larger native UIKit interface with a stronger blue/teal theme and explicit download controls.
 - Home parser that scans page source for mp4, m4v, mov, m3u8, and ts media URLs.
 - Built-in WKWebView browser with DOM, fetch, XHR, performance, and navigation sniffing.
-- Download task screen for detected resources.
+- Download task screen for detected resources. HLS/m3u8 resources are exported through AVFoundation instead of saving the playlist text directly.
 - Local file screen for saved videos and manifests.
 - GitHub Actions workflow that builds an unsigned IPA for self-signing.
 
