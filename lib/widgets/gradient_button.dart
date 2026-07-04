@@ -21,7 +21,7 @@ class GradientButton extends StatelessWidget {
     final button = DecoratedBox(
       decoration: BoxDecoration(
         gradient: onPressed == null ? null : AppTheme.primaryGradient,
-        color: onPressed == null ? Theme.of(context).disabledColor.withOpacity(0.2) : null,
+        color: onPressed == null ? Theme.of(context).disabledColor.withValues(alpha: 0.2) : null,
         borderRadius: BorderRadius.circular(18),
       ),
       child: FilledButton.icon(

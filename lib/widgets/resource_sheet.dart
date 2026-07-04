@@ -38,7 +38,7 @@ class ResourceSheet extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.55),
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
                   borderRadius: BorderRadius.circular(18),
                 ),
                 child: const Text('未发现视频资源。请确认网页已加载完成，或先在网页内播放视频后重新嗅探。'),
@@ -53,7 +53,7 @@ class ResourceSheet extends StatelessWidget {
                   final item = resources[index];
                   return Container(
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.55),
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
                       borderRadius: BorderRadius.circular(18),
                     ),
                     padding: const EdgeInsets.all(14),
@@ -104,6 +104,8 @@ class ResourceSheet extends StatelessWidget {
         return 'ts';
       case VideoResourceType.mp4:
         return resource.source.toLowerCase().contains('unknown') ? 'unknown' : 'mp4';
+      case VideoResourceType.unknown:
+        return 'unknown';
     }
   }
 }

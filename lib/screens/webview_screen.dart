@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
-import '../models/video_resource.dart';
 import '../services/ui_state.dart';
 import '../services/video_sniffer.dart';
 import '../widgets/resource_sheet.dart';
@@ -249,7 +248,11 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
   Future<String> _pageTitle() async {
     final title = await webController?.getTitle();
-    return (title == null || title.trim().isEmpty) ? '网页视频' : title.trim();
+    final trimmed = title?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return '网页视频';
+    }
+    return trimmed;
   }
 
   List<String> _decodeJsStringList(Object? value) {

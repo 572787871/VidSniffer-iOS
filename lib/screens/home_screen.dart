@@ -45,7 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 18),
                   Text('解析网页视频，保存到本地', style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w900)),
                   const SizedBox(height: 8),
-                  Text('支持网页输入和内置浏览器嗅探。m3u8 下载后合并为 mp4。', style: TextStyle(color: Colors.white.withOpacity(0.86), height: 1.35)),
+                  Text('支持网页输入和内置浏览器嗅探。m3u8 下载后合并为 mp4。', style: TextStyle(color: Colors.white.withValues(alpha: 0.86), height: 1.35)),
                 ],
               ),
             ),

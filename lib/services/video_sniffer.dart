@@ -51,7 +51,7 @@ class VideoSniffer {
 
     for (final pattern in patterns) {
       for (final match in pattern.allMatches(html)) {
-        candidates.add(match.groupCount >= 1 && match.group(1) != null ? match.group(1)! : match.group(0)!);
+        candidates.add(match.groupCount >= 1 ? (match.group(1) ?? match.group(0)!) : match.group(0)!);
       }
     }
 
@@ -99,7 +99,7 @@ class VideoSniffer {
       referer: referer.isNotEmpty ? referer : pageUrl,
       userAgent: userAgent,
       cookie: cookie,
-      origin: pageUri == null ? '' : '${pageUri.scheme}://${pageUri.host}',
+      origin: pageUri?.origin ?? '',
       size: size,
       quality: quality,
     );
@@ -126,10 +126,10 @@ class VideoSniffer {
       final contentType = response.headers.value(Headers.contentTypeHeader)?.toLowerCase() ?? '';
       final length = response.headers.value(Headers.contentLengthHeader);
       if (contentType.contains('mpegurl') || contentType.contains('application/vnd.apple.mpegurl')) {
-        return _copyWith(resource, type: VideoResourceType.hls, size: length == null ? '未知' : length);
+        return _copyWith(resource, type: VideoResourceType.hls, size: length ?? '未知');
       }
       if (contentType.startsWith('video/') || contentType.contains('mp4')) {
-        return _copyWith(resource, type: VideoResourceType.mp4, size: length == null ? '未知' : length);
+        return _copyWith(resource, type: VideoResourceType.mp4, size: length ?? '未知');
       }
       return null;
     } catch (_) {
