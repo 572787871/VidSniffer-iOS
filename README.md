@@ -1,27 +1,33 @@
 # VidSniffer Pro
 
-Flutter iOS video utility app for web video parsing, browser sniffing, m3u8 download tasks, and local video file management.
+Native iOS video utility app for web video parsing, browser sniffing, m3u8/mp4 download tasks, and local video file management.
 
 ## Features
 
-- Dark iOS-style interface with glass cards and blue-purple accent lighting.
-- Home parser with video result cards and one-tap download actions.
-- Built-in browser shell with address bar, navigation controls, and sniffed media download card.
-- Download task screen with speed, pause/resume/delete controls, progress bar, and progress ring.
-- Local file screen with play, share, delete, and export actions.
-- Settings screen for cache, download path, app info, and dark mode.
+- Native UIKit interface using system background colors and Dynamic Type fonts.
+- Home parser that scans page source for mp4, m4v, mov, m3u8, and ts media URLs.
+- Built-in WKWebView browser with DOM, fetch, XHR, performance, and navigation sniffing.
+- Download task screen for detected resources.
+- Local file screen for saved videos and manifests.
+- GitHub Actions workflow that builds an unsigned IPA for self-signing.
 
 ## Local Run
 
 ```bash
-flutter pub get
-flutter run
+open ios/Runner.xcodeproj
 ```
 
 ## iOS Build
 
 ```bash
-flutter build ios --release --no-codesign
+xcodebuild \
+  -project ios/Runner.xcodeproj \
+  -scheme Runner \
+  -configuration Release \
+  -sdk iphoneos \
+  -destination 'generic/platform=iOS' \
+  CODE_SIGNING_ALLOWED=NO \
+  build
 ```
 
-The existing Codemagic workflow can package `Runner.app` into an unsigned IPA artifact for later signing.
+The GitHub Actions workflow packages `Runner.app` into `VidSniffer-Pro-unsigned.ipa` for later signing.
