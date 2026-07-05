@@ -12,6 +12,7 @@ import 'package:path/path.dart' as p;
 
 import '../models/download_task.dart';
 import '../models/video_resource.dart';
+import 'download_task_store.dart';
 import 'file_utils.dart';
 import 'local_library.dart';
 
@@ -34,6 +35,56 @@ class DownloadManager extends ChangeNotifier {
   final Map<String, CancelToken> _cancelTokens = {};
   final Map<String, FFmpegSession> _ffmpegSessions = {};
   final Map<String, File> _partFiles = {};
+  final DownloadTaskStore _taskStore = DownloadTaskStore();
+  Timer? _persistTimer;
+  bool _restoring = false;
+
+  @override
+  void notifyListeners() {
+    if (!_restoring) {
+      _schedulePersist();
+    }
+    super.notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _persistTimer?.cancel();
+    unawaited(_persistNow());
+    super.dispose();
+  }
+
+  Future<void> restoreTasks() async {
+    _restoring = true;
+    try {
+      final restored = await _taskStore.load();
+      for (final task in restored) {
+        if (task.isActive) {
+          task.status = DownloadStatus.paused;
+          task.phase = DownloadPhase.preparing;
+          task.isIndeterminate = false;
+          task.message = '上次下载中断，可继续';
+          task.remaining = '剩余时间未知';
+        }
+        if (task.status == DownloadStatus.completed) {
+          final file = File(task.localPath);
+          if (task.localPath.isEmpty || !await file.exists()) {
+            task.status = DownloadStatus.missing;
+            task.phase = DownloadPhase.failed;
+            task.message = '文件已不存在';
+            task.errorMessage = '文件已不存在';
+            task.isIndeterminate = false;
+          }
+        }
+      }
+      tasks
+        ..clear()
+        ..addAll(restored);
+    } finally {
+      _restoring = false;
+    }
+    notifyListeners();
+  }
 
   DownloadTask createTask(VideoResource resource) {
     return DownloadTask(
@@ -99,6 +150,7 @@ class DownloadManager extends ChangeNotifier {
     task.outputDirectory = '';
     task.playlistDuration = Duration.zero;
     task.elapsed = Duration.zero;
+    task.completedAt = null;
     notifyListeners();
 
     final backgroundId = await _beginBackgroundTask();
@@ -134,6 +186,7 @@ class DownloadManager extends ChangeNotifier {
       task.remaining = '00:00';
       task.message = '下载完成';
       task.tempPath = '';
+      task.completedAt = DateTime.now();
       unawaited(
         LocalLibrary().writeDownloadMetadata(task.localPath, task.resource),
       );
@@ -176,7 +229,7 @@ class DownloadManager extends ChangeNotifier {
     task.receivedBytes = 0;
     task.totalBytes = 0;
     task.speed = '--';
-    task.remaining = '--';
+    task.remaining = '剩余时间未知';
     task.isIndeterminate = false;
     task.ffmpegLog = '';
     task.ffmpegTime = '--';
@@ -222,6 +275,12 @@ class DownloadManager extends ChangeNotifier {
     }
     tasks.removeWhere((item) => item.id == task.id);
     notifyListeners();
+  }
+
+  Future<void> clearHistory() async {
+    tasks.removeWhere((task) => !task.isActive);
+    notifyListeners();
+    await _persistNow();
   }
 
   Future<void> _downloadDirect(DownloadTask task) async {
@@ -455,10 +514,10 @@ class DownloadManager extends ChangeNotifier {
                 ? _formatDuration(
                     Duration(milliseconds: (remainingMs / speed).round()),
                   )
-                : '--';
+                : '剩余时间未知';
           } else {
             task.isIndeterminate = true;
-            task.remaining = '--';
+            task.remaining = '剩余时间未知';
           }
           final elapsed = _formatDuration(DateTime.now().difference(startedAt));
           task.message =
@@ -673,7 +732,7 @@ class DownloadManager extends ChangeNotifier {
         ? _formatDuration(
             Duration(seconds: ((total - received) / speedBytes).ceil()),
           )
-        : '--';
+        : '剩余时间未知';
     task.message = total > 0
         ? '${_formatBytes(received)} / ${_formatBytes(total)}'
         : _formatBytes(received);
@@ -707,11 +766,23 @@ class DownloadManager extends ChangeNotifier {
     if (task.outputDirectory.isEmpty) return;
     final file = File(p.join(task.outputDirectory, 'metadata.json'));
     final pageUri = Uri.tryParse(task.resource.pageUrl);
+    final pageUrl = task.resource.pageUrl.isNotEmpty
+        ? task.resource.pageUrl
+        : task.resource.url;
+    final collectionId = FileUtils.stableKey(pageUrl);
     final data = <String, dynamic>{
+      'collectionId': collectionId,
       'pageUrl': task.resource.pageUrl,
       'pageTitle': task.resource.title,
       'sourceSite':
           pageUri?.host ?? Uri.tryParse(task.resource.url)?.host ?? '',
+      'resourceId': task.resource.id,
+      'quality': task.resource.quality,
+      'format': task.resource.displayFormat,
+      'durationMs': task.resource.duration.inMilliseconds,
+      'downloadedAt': (task.completedAt ?? DateTime.now()).toIso8601String(),
+      'filePath': task.localPath,
+      'thumbnailPath': task.thumbnailPath,
       'selectedQuality': task.resource.quality,
       'downloadTime': DateTime.now().toIso8601String(),
       'files': [p.basename(task.localPath)],
@@ -808,5 +879,21 @@ class DownloadManager extends ChangeNotifier {
     try {
       await _backgroundChannel.invokeMethod<void>('end', id);
     } catch (_) {}
+  }
+
+  void _schedulePersist() {
+    _persistTimer?.cancel();
+    _persistTimer = Timer(
+      const Duration(milliseconds: 800),
+      () => unawaited(_persistNow()),
+    );
+  }
+
+  Future<void> _persistNow() async {
+    try {
+      await _taskStore.save(tasks);
+    } catch (error) {
+      debugPrint('[download] persist failed: $error');
+    }
   }
 }

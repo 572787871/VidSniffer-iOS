@@ -67,6 +67,13 @@ class _ResourcePreviewScreenState extends State<ResourcePreviewScreen> {
               ),
             ),
           ),
+          if (controller?.value.isInitialized == true) ...[
+            const SizedBox(height: 10),
+            _PreviewControls(
+              controller: controller!,
+              onTogglePlay: _togglePlay,
+            ),
+          ],
           const SizedBox(height: 16),
           _InfoLine('标题', title),
           if (resource != null) ...[
@@ -108,10 +115,32 @@ class _ResourcePreviewScreenState extends State<ResourcePreviewScreen> {
     if (player == null || !player.value.isInitialized) {
       return const CircularProgressIndicator(color: Colors.white);
     }
-    return AspectRatio(
-      aspectRatio:
-          player.value.aspectRatio <= 0 ? 16 / 9 : player.value.aspectRatio,
-      child: VideoPlayer(player),
+    return Stack(
+      children: [
+        Center(
+          child: AspectRatio(
+            aspectRatio: player.value.aspectRatio <= 0
+                ? 16 / 9
+                : player.value.aspectRatio,
+            child: VideoPlayer(player),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: VideoProgressIndicator(
+            player,
+            allowScrubbing: true,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            colors: const VideoProgressColors(
+              playedColor: Colors.white,
+              bufferedColor: Colors.white38,
+              backgroundColor: Colors.white24,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -138,10 +167,15 @@ class _ResourcePreviewScreenState extends State<ResourcePreviewScreen> {
       if (!mounted) return;
       setState(() {});
       await controller!.play();
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
+        final expired = widget.resource != null &&
+            (widget.resource!.cookie.isNotEmpty ||
+                '$error'.contains('401') ||
+                '$error'.contains('403'));
         setState(
-          () => error = '该资源不支持在线播放，请尝试下载后播放。',
+          () => this.error =
+              expired ? '资源已过期，请重新进入网页播放后嗅探。' : '该资源不支持在线播放，请尝试下载后播放。',
         );
       }
     }
@@ -174,6 +208,60 @@ class _ResourcePreviewScreenState extends State<ResourcePreviewScreen> {
 
   String _durationLabel(Duration duration) {
     if (duration == Duration.zero) return '未知';
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
+  }
+}
+
+class _PreviewControls extends StatelessWidget {
+  const _PreviewControls({
+    required this.controller,
+    required this.onTogglePlay,
+  });
+
+  final VideoPlayerController controller;
+  final VoidCallback onTogglePlay;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = controller.value;
+    final position = value.position;
+    final duration = value.duration;
+    return Row(
+      children: [
+        IconButton(
+          onPressed: onTogglePlay,
+          icon: Icon(
+            value.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+          ),
+        ),
+        Text(_durationLabel(position)),
+        Expanded(
+          child: Slider(
+            value: duration.inMilliseconds <= 0
+                ? 0
+                : position.inMilliseconds
+                    .clamp(0, duration.inMilliseconds)
+                    .toDouble(),
+            min: 0,
+            max: duration.inMilliseconds <= 0
+                ? 1
+                : duration.inMilliseconds.toDouble(),
+            onChanged: duration.inMilliseconds <= 0
+                ? null
+                : (value) => controller.seekTo(
+                      Duration(milliseconds: value.round()),
+                    ),
+          ),
+        ),
+        Text(_durationLabel(duration)),
+      ],
+    );
+  }
+
+  String _durationLabel(Duration duration) {
     final hours = duration.inHours;
     final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
     final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');

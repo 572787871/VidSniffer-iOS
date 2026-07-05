@@ -43,9 +43,8 @@ class _SnifferCandidate {
       source: _mergeSource(source, other.source),
       title: other.title.isNotEmpty ? other.title : title,
       duration: other.duration > Duration.zero ? other.duration : duration,
-      thumbnailUrl: other.thumbnailUrl.isNotEmpty
-          ? other.thumbnailUrl
-          : thumbnailUrl,
+      thumbnailUrl:
+          other.thumbnailUrl.isNotEmpty ? other.thumbnailUrl : thumbnailUrl,
       isCurrentPlayback: current,
       playerId: other.playerId.isNotEmpty ? other.playerId : playerId,
     );
@@ -80,6 +79,7 @@ class VideoSnifferController {
   final Map<String, _SnifferCandidate> _pending = {};
   final Map<String, VideoResource> _resources = {};
   Timer? _timer;
+  Timer? _emitTimer;
   bool _processing = false;
   String _lastPageUrl = '';
 
@@ -92,6 +92,7 @@ class VideoSnifferController {
 
   void reset({String pageUrl = ''}) {
     _timer?.cancel();
+    _emitTimer?.cancel();
     _pending.clear();
     _resources.clear();
     _processing = false;
@@ -139,26 +140,23 @@ class VideoSnifferController {
             )
             .source,
         title: title.isNotEmpty ? title : existingResource.title,
-        duration: duration > Duration.zero
-            ? duration
-            : existingResource.duration,
+        duration:
+            duration > Duration.zero ? duration : existingResource.duration,
         thumbnailUrl: thumbnailUrl.isNotEmpty
             ? thumbnailUrl
             : existingResource.thumbnailUrl,
-        isCurrentPlayback:
-            existingResource.isCurrentPlayback ||
+        isCurrentPlayback: existingResource.isCurrentPlayback ||
             isCurrentPlayback ||
             source.toLowerCase().contains('current') ||
             source.toLowerCase().contains('video-play'),
         playerId: playerId.isNotEmpty ? playerId : existingResource.playerId,
       );
-      onResourcesChanged(resources);
+      _scheduleEmit();
       return;
     }
     final existingPending = _pending[key];
-    _pending[key] = existingPending == null
-        ? next
-        : existingPending.merge(next);
+    _pending[key] =
+        existingPending == null ? next : existingPending.merge(next);
     _timer?.cancel();
     _timer = Timer(debounce, () => unawaited(flush()));
   }
@@ -177,9 +175,8 @@ class VideoSnifferController {
       for (final candidate in candidates) {
         final resource = sniffer.resourceFromUrl(
           candidate.url,
-          pageTitle: candidate.title.isNotEmpty
-              ? candidate.title
-              : context.pageTitle,
+          pageTitle:
+              candidate.title.isNotEmpty ? candidate.title : context.pageTitle,
           pageUrl: context.pageUrl,
           source: candidate.source,
           userAgent: context.userAgent,
@@ -198,7 +195,7 @@ class VideoSnifferController {
           _resources[sniffer.dedupeKey(item.url)] = item;
         }
       }
-      onResourcesChanged(resources);
+      _scheduleEmit();
     } finally {
       _processing = false;
       if (_pending.isNotEmpty) {
@@ -209,5 +206,11 @@ class VideoSnifferController {
 
   void dispose() {
     _timer?.cancel();
+    _emitTimer?.cancel();
+  }
+
+  void _scheduleEmit() {
+    _emitTimer?.cancel();
+    _emitTimer = Timer(debounce, () => onResourcesChanged(resources));
   }
 }

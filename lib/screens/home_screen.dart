@@ -314,15 +314,16 @@ class _SnifferStatusBar extends StatelessWidget {
 }
 
 class _ParseRecordCard extends StatelessWidget {
-  const _ParseRecordCard({
+  _ParseRecordCard({
     required this.record,
     required this.onRetry,
     required this.onOpenWeb,
-  });
+  }) : groups = _RecordGroups.from(record);
 
   final ParseRecord record;
   final VoidCallback onRetry;
   final VoidCallback onOpenWeb;
+  final _RecordGroups groups;
 
   @override
   Widget build(BuildContext context) {
@@ -363,6 +364,7 @@ class _ParseRecordCard extends StatelessWidget {
           if (record.status == ParseRecordStatus.found)
             _FoundRecordBody(
               record: record,
+              groups: groups,
               onOpenWeb: onOpenWeb,
             )
           else
@@ -383,10 +385,38 @@ class _ParseRecordCard extends StatelessWidget {
   }
 }
 
+class _RecordGroups {
+  _RecordGroups({
+    required this.recommended,
+    required this.other,
+    required this.ads,
+    required this.fragments,
+  });
+
+  final List<VideoResource> recommended;
+  final List<VideoResource> other;
+  final List<VideoResource> ads;
+  final List<VideoResource> fragments;
+
+  factory _RecordGroups.from(ParseRecord record) {
+    return _RecordGroups(
+      recommended: record.recommendedResources.take(5).toList(growable: false),
+      other: record.otherResources.take(20).toList(growable: false),
+      ads: record.adResources.take(20).toList(growable: false),
+      fragments: record.fragmentResources.take(50).toList(growable: false),
+    );
+  }
+}
+
 class _FoundRecordBody extends StatelessWidget {
-  const _FoundRecordBody({required this.record, required this.onOpenWeb});
+  const _FoundRecordBody({
+    required this.record,
+    required this.groups,
+    required this.onOpenWeb,
+  });
 
   final ParseRecord record;
+  final _RecordGroups groups;
   final VoidCallback onOpenWeb;
 
   @override
@@ -396,32 +426,32 @@ class _FoundRecordBody extends StatelessWidget {
       children: [
         _ResourceSection(
           title: '推荐资源',
-          resources: record.recommendedResources,
+          resources: groups.recommended,
           pageUrl: record.pageUrl,
           initiallyExpanded: true,
         ),
-        if (record.otherResources.isNotEmpty) ...[
+        if (groups.other.isNotEmpty) ...[
           const SizedBox(height: 8),
           _ResourceSection(
             title: '其它资源',
-            resources: record.otherResources,
+            resources: groups.other,
             pageUrl: record.pageUrl,
             initiallyExpanded: true,
           ),
         ],
-        if (record.adResources.isNotEmpty) ...[
+        if (groups.ads.isNotEmpty) ...[
           const SizedBox(height: 8),
           _ResourceSection(
             title: '广告嫌疑资源',
-            resources: record.adResources,
+            resources: groups.ads,
             pageUrl: record.pageUrl,
           ),
         ],
-        if (record.fragmentResources.isNotEmpty) ...[
+        if (groups.fragments.isNotEmpty) ...[
           const SizedBox(height: 8),
           _ResourceSection(
             title: 'TS/M4S 分片',
-            resources: record.fragmentResources,
+            resources: groups.fragments,
             pageUrl: record.pageUrl,
           ),
         ],
@@ -503,6 +533,7 @@ class _ResourceSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (resources.isEmpty) return const SizedBox.shrink();
+    final visibleCount = resources.length > 8 ? 8 : resources.length;
     return ExpansionTile(
       initiallyExpanded: initiallyExpanded,
       tilePadding: EdgeInsets.zero,
@@ -512,11 +543,23 @@ class _ResourceSection extends StatelessWidget {
         style: const TextStyle(fontWeight: FontWeight.w900),
       ),
       children: [
-        for (final resource in resources.take(8))
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: _ResourceRow(resource: resource, pageUrl: pageUrl),
+        SizedBox(
+          height: (visibleCount * 178).toDouble(),
+          child: ListView.builder(
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: visibleCount,
+            itemBuilder: (context, index) {
+              final resource = resources[index];
+              return RepaintBoundary(
+                key: ValueKey(resource.id),
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _ResourceRow(resource: resource, pageUrl: pageUrl),
+                ),
+              );
+            },
           ),
+        ),
       ],
     );
   }
@@ -568,7 +611,7 @@ class _ResourceRow extends StatelessWidget {
                   children: [
                     Text(
                       resource.title,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontWeight: FontWeight.w900),
                     ),

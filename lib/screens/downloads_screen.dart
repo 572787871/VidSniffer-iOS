@@ -15,7 +15,16 @@ class DownloadsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = UiStateScope.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('下载任务')),
+      appBar: AppBar(
+        title: const Text('下载任务'),
+        actions: [
+          IconButton(
+            tooltip: '清理记录',
+            onPressed: () => state.downloadManager.clearHistory(),
+            icon: const Icon(Icons.delete_sweep_rounded),
+          ),
+        ],
+      ),
       body: AnimatedBuilder(
         animation: state,
         builder: (context, _) {
@@ -50,6 +59,7 @@ class _DownloadCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final isCompleted = task.status == DownloadStatus.completed;
     final isFailed = task.status == DownloadStatus.failed;
+    final isMissing = task.status == DownloadStatus.missing;
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -62,7 +72,7 @@ class _DownloadCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: isCompleted
                       ? scheme.primaryContainer
-                      : (isFailed
+                      : (isFailed || isMissing
                           ? scheme.errorContainer
                           : scheme.secondaryContainer),
                   borderRadius: BorderRadius.circular(16),
@@ -70,12 +80,14 @@ class _DownloadCard extends StatelessWidget {
                 child: Icon(
                   isCompleted
                       ? Icons.check_rounded
-                      : (isFailed
+                      : (isFailed || isMissing
                           ? Icons.error_outline_rounded
                           : Icons.downloading_rounded),
                   color: isCompleted
                       ? scheme.primary
-                      : (isFailed ? scheme.error : scheme.secondary),
+                      : (isFailed || isMissing
+                          ? scheme.error
+                          : scheme.secondary),
                 ),
               ),
               const SizedBox(width: 12),
@@ -91,7 +103,7 @@ class _DownloadCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${task.resource.label} · ${_phaseLabel(task)} · ${_percent(task)} · ${task.speed} · 剩余 ${task.remaining}',
+                      '${task.resource.label} · ${_phaseLabel(task)} · ${_percent(task)} · ${task.speed} · ${_remainingLabel(task)}',
                       style: TextStyle(color: scheme.onSurfaceVariant),
                     ),
                   ],
@@ -144,7 +156,7 @@ class _DownloadCard extends StatelessWidget {
                     task.status == DownloadStatus.failed ? '重试' : '继续',
                   ),
                 ),
-              if (!isCompleted)
+              if (!isCompleted && !isMissing)
                 OutlinedButton.icon(
                   onPressed: () => state.downloadManager.cancel(task),
                   icon: const Icon(Icons.close_rounded),
@@ -202,6 +214,8 @@ class _DownloadCard extends StatelessWidget {
         return '失败';
       case DownloadStatus.canceled:
         return '已取消';
+      case DownloadStatus.missing:
+        return '文件缺失';
     }
   }
 
@@ -227,12 +241,20 @@ class _DownloadCard extends StatelessWidget {
   }
 
   String _percent(DownloadTask task) {
-    if (task.isIndeterminate) return '--';
+    if (task.isIndeterminate) return '未知';
     return '${(task.progress.clamp(0, 1) * 100).round()}%';
   }
 
+  String _remainingLabel(DownloadTask task) {
+    if (task.status == DownloadStatus.completed) return '剩余 00:00';
+    if (task.remaining.trim().isEmpty || task.remaining == '剩余时间未知') {
+      return '剩余时间未知';
+    }
+    return '剩余 ${task.remaining}';
+  }
+
   String _durationLabel(Duration value) {
-    if (value == Duration.zero) return '--';
+    if (value == Duration.zero) return '未知';
     final hours = value.inHours;
     final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
     final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');

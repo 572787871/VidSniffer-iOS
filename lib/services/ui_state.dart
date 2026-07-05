@@ -16,6 +16,7 @@ enum HomeSnifferState { idle, sniffing, found, notFound, failed }
 class UiState extends ChangeNotifier {
   UiState() {
     downloadManager.addListener(_onDownloadsChanged);
+    unawaited(downloadManager.restoreTasks());
     refreshLibrary();
     unawaited(_loadParseRecords());
   }
@@ -184,7 +185,7 @@ class UiState extends ChangeNotifier {
     final task = downloadManager.createTask(resource);
     downloadManager.addTask(task);
     unawaited(downloadManager.start(task.id));
-    selectedTab = 1;
+    selectedTab = 2;
     notifyListeners();
   }
 

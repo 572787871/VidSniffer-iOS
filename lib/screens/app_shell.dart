@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/ui_state.dart';
+import 'browser_screen.dart';
 import 'downloads_screen.dart';
 import 'home_screen.dart';
 import 'library_screen.dart';
@@ -16,6 +17,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   final pages = const [
     HomeScreen(),
+    BrowserScreen(),
     DownloadsScreen(),
     LibraryScreen(),
     SettingsScreen(),
@@ -40,6 +42,11 @@ class _AppShellState extends State<AppShell> {
               icon: Icon(Icons.home_outlined),
               selectedIcon: Icon(Icons.home_rounded),
               label: '首页',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.public_outlined),
+              selectedIcon: Icon(Icons.public_rounded),
+              label: '浏览器',
             ),
             NavigationDestination(
               icon: Icon(Icons.downloading_outlined),

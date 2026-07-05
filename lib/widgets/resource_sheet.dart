@@ -22,24 +22,13 @@ Future<void> showResourceSheet(
 
 class ResourceSheet extends StatelessWidget {
   ResourceSheet({required List<VideoResource> resources, super.key})
-      : resources = VideoSniffer().prioritizeResources(resources, limit: 50);
+      : _groups = _ResourceGroups.from(resources);
 
-  final List<VideoResource> resources;
+  final _ResourceGroups _groups;
 
   @override
   Widget build(BuildContext context) {
     final height = MediaQuery.sizeOf(context).height * 0.82;
-    final recommended = resources
-        .where(
-          (item) => item.isPlayable && !item.isAdSuspect && !item.isFragment,
-        )
-        .take(5)
-        .toList();
-    final all = resources
-        .where((item) => !item.isAdSuspect && !item.isFragment)
-        .toList();
-    final ads = resources.where((item) => item.isAdSuspect).toList();
-    final fragments = resources.where((item) => item.isFragment).toList();
 
     return SafeArea(
       child: SizedBox(
@@ -63,7 +52,7 @@ class ResourceSheet extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 14),
-              if (resources.isEmpty)
+              if (_groups.isEmpty)
                 _EmptyResources()
               else
                 Expanded(
@@ -74,10 +63,10 @@ class ResourceSheet extends StatelessWidget {
                         TabBar(
                           isScrollable: true,
                           tabs: [
-                            Tab(text: '推荐资源 ${recommended.length}'),
-                            Tab(text: '全部资源 ${all.length}'),
-                            Tab(text: '广告嫌疑 ${ads.length}'),
-                            Tab(text: '分片/高级 ${fragments.length}'),
+                            Tab(text: '推荐资源 ${_groups.recommended.length}'),
+                            Tab(text: '全部资源 ${_groups.all.length}'),
+                            Tab(text: '广告嫌疑 ${_groups.ads.length}'),
+                            Tab(text: '分片/高级 ${_groups.fragments.length}'),
                           ],
                         ),
                         const SizedBox(height: 12),
@@ -85,16 +74,16 @@ class ResourceSheet extends StatelessWidget {
                           child: TabBarView(
                             children: [
                               _ResourceList(
-                                resources: recommended,
+                                resources: _groups.recommended,
                                 emptyText: '没有足够可信的推荐资源，可到“全部资源”查看。',
                               ),
-                              _ResourceList(resources: all),
+                              _ResourceList(resources: _groups.all),
                               _ResourceList(
-                                resources: ads,
+                                resources: _groups.ads,
                                 emptyText: '没有广告嫌疑资源。',
                               ),
                               _ResourceList(
-                                resources: fragments,
+                                resources: _groups.fragments,
                                 emptyText: '没有捕获到 ts/m4s 分片。',
                               ),
                             ],
@@ -108,6 +97,45 @@ class ResourceSheet extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ResourceGroups {
+  _ResourceGroups({
+    required this.recommended,
+    required this.all,
+    required this.ads,
+    required this.fragments,
+  });
+
+  final List<VideoResource> recommended;
+  final List<VideoResource> all;
+  final List<VideoResource> ads;
+  final List<VideoResource> fragments;
+
+  bool get isEmpty =>
+      recommended.isEmpty && all.isEmpty && ads.isEmpty && fragments.isEmpty;
+
+  factory _ResourceGroups.from(List<VideoResource> resources) {
+    final sorted = VideoSniffer().prioritizeResources(resources, limit: 50);
+    return _ResourceGroups(
+      recommended: sorted
+          .where(
+            (item) => item.isPlayable && !item.isAdSuspect && !item.isFragment,
+          )
+          .take(5)
+          .toList(growable: false),
+      all: sorted
+          .where((item) => !item.isAdSuspect && !item.isFragment)
+          .take(20)
+          .toList(growable: false),
+      ads: sorted.where((item) => item.isAdSuspect).take(20).toList(
+            growable: false,
+          ),
+      fragments: sorted.where((item) => item.isFragment).take(50).toList(
+            growable: false,
+          ),
     );
   }
 }
@@ -146,8 +174,13 @@ class _ResourceList extends StatelessWidget {
     return ListView.separated(
       itemCount: resources.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (context, index) =>
-          _ResourceTile(resource: resources[index]),
+      itemBuilder: (context, index) {
+        final resource = resources[index];
+        return RepaintBoundary(
+          key: ValueKey(resource.id),
+          child: _ResourceTile(resource: resource),
+        );
+      },
     );
   }
 }
@@ -201,7 +234,7 @@ class _ResourceTile extends StatelessWidget {
                   children: [
                     Text(
                       resource.title,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
