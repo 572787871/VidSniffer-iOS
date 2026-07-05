@@ -146,6 +146,64 @@ class VideoResource {
     );
   }
 
+  Map<String, dynamic> toJson() {
+    return {
+      'url': url,
+      'title': title,
+      'type': type.name,
+      'source': source,
+      'pageUrl': pageUrl,
+      'referer': referer,
+      'userAgent': userAgent,
+      'cookie': cookie,
+      'origin': origin,
+      'size': size,
+      'quality': quality,
+      'bitrate': bitrate,
+      'codec': codec,
+      'container': container,
+      'contentType': contentType,
+      'acceptRanges': acceptRanges,
+      'isAdSuspect': isAdSuspect,
+      'recommendation': recommendation,
+      'detectedAtMs': detectedAtMs,
+      'durationMs': duration.inMilliseconds,
+      'thumbnailUrl': thumbnailUrl,
+      'isCurrentPlayback': isCurrentPlayback,
+      'playerId': playerId,
+    };
+  }
+
+  factory VideoResource.fromJson(Map<String, dynamic> json) {
+    return VideoResource(
+      url: json['url']?.toString() ?? '',
+      title: json['title']?.toString() ?? '网页视频',
+      type: _typeFromName(json['type']?.toString() ?? ''),
+      source: json['source']?.toString() ?? 'dom',
+      pageUrl: json['pageUrl']?.toString() ?? '',
+      referer: json['referer']?.toString() ?? '',
+      userAgent: json['userAgent']?.toString() ?? '',
+      cookie: json['cookie']?.toString() ?? '',
+      origin: json['origin']?.toString() ?? '',
+      size: json['size']?.toString() ?? '未知',
+      quality: json['quality']?.toString() ?? '未知',
+      bitrate: json['bitrate']?.toString() ?? '',
+      codec: json['codec']?.toString() ?? '',
+      container: json['container']?.toString() ?? '',
+      contentType: json['contentType']?.toString() ?? '',
+      acceptRanges: json['acceptRanges'] == true,
+      isAdSuspect: json['isAdSuspect'] == true,
+      recommendation: json['recommendation']?.toString() ?? '',
+      detectedAtMs: int.tryParse('${json['detectedAtMs'] ?? 0}') ?? 0,
+      duration: Duration(
+        milliseconds: int.tryParse('${json['durationMs'] ?? 0}') ?? 0,
+      ),
+      thumbnailUrl: json['thumbnailUrl']?.toString() ?? '',
+      isCurrentPlayback: json['isCurrentPlayback'] == true,
+      playerId: json['playerId']?.toString() ?? '',
+    );
+  }
+
   static VideoResourceType typeFromUrl(String url) {
     final lower = url.toLowerCase();
     if (lower.contains('.m3u8')) {
@@ -166,5 +224,12 @@ class VideoResource {
       return VideoResourceType.unknown;
     }
     return VideoResourceType.mp4;
+  }
+
+  static VideoResourceType _typeFromName(String value) {
+    for (final type in VideoResourceType.values) {
+      if (type.name == value) return type;
+    }
+    return VideoResourceType.unknown;
   }
 }

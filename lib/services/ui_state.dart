@@ -4,29 +4,39 @@ import 'package:flutter/widgets.dart';
 
 import '../models/download_task.dart';
 import '../models/local_video.dart';
+import '../models/parse_record.dart';
 import '../models/video_resource.dart';
 import 'download_manager.dart';
 import 'local_library.dart';
+import 'parse_history_store.dart';
 import 'video_sniffer.dart';
+
+enum HomeSnifferState { idle, sniffing, found, notFound, failed }
 
 class UiState extends ChangeNotifier {
   UiState() {
     downloadManager.addListener(_onDownloadsChanged);
     refreshLibrary();
+    unawaited(_loadParseRecords());
   }
 
   final DownloadManager downloadManager = DownloadManager();
   final VideoSniffer sniffer = VideoSniffer();
   final LocalLibrary library = LocalLibrary();
+  final ParseHistoryStore parseHistoryStore = ParseHistoryStore();
 
   final List<String> recentUrls = [];
   final List<VideoResource> resources = [];
+  final List<ParseRecord> recentParses = [];
   List<LocalVideo> videos = [];
   bool _enrichingLibrary = false;
 
   int selectedTab = 0;
   bool onlyWifi = false;
   bool parsing = false;
+  HomeSnifferState homeSnifferState = HomeSnifferState.idle;
+  String homeSnifferStatus = '准备就绪';
+  String activeSniffUrl = '';
   String status = '准备就绪';
 
   void addRecent(String url) {
@@ -35,6 +45,89 @@ class UiState extends ChangeNotifier {
     recentUrls.remove(value);
     recentUrls.insert(0, value);
     notifyListeners();
+  }
+
+  void startHomeSniff(String url) {
+    final value = url.trim();
+    if (value.isEmpty) return;
+    addRecent(value);
+    activeSniffUrl = value;
+    homeSnifferState = HomeSnifferState.sniffing;
+    homeSnifferStatus = '正在监听视频资源...';
+    status = '正在监听视频资源';
+    notifyListeners();
+  }
+
+  void updateHomeSniffProgress(int count) {
+    if (homeSnifferState != HomeSnifferState.sniffing) return;
+    homeSnifferStatus = count <= 0
+        ? '正在监听视频资源...'
+        : (count == 1 ? '已发现 1 个视频...' : '已发现 $count 个资源...');
+    status = homeSnifferStatus;
+    notifyListeners();
+  }
+
+  Future<void> finishHomeSniffFound(ParseRecord record) async {
+    final prioritized = sniffer.prioritizeResources(record.resources);
+    final recommended = _firstDownloadable(prioritized);
+    final next = record.copyWith(
+      status: ParseRecordStatus.found,
+      resources: prioritized,
+      recommendedUrl: recommended?.url ?? '',
+      sourceSite: record.sourceSite.isEmpty
+          ? _hostFromUrl(record.pageUrl)
+          : record.sourceSite,
+    );
+    _upsertParseRecord(next);
+    homeSnifferState = HomeSnifferState.found;
+    homeSnifferStatus = '已发现 ${prioritized.length} 个视频资源';
+    status = homeSnifferStatus;
+    activeSniffUrl = '';
+    notifyListeners();
+    await _saveParseRecords();
+  }
+
+  Future<void> finishHomeSniffNotFound({
+    required String pageUrl,
+    required String pageTitle,
+  }) async {
+    final record = ParseRecord(
+      pageUrl: pageUrl,
+      pageTitle: pageTitle.trim().isEmpty ? _hostFromUrl(pageUrl) : pageTitle,
+      parsedAt: DateTime.now(),
+      status: ParseRecordStatus.notFound,
+      sourceSite: _hostFromUrl(pageUrl),
+      message: '未自动发现视频。部分网站需要先播放视频。',
+    );
+    _upsertParseRecord(record);
+    homeSnifferState = HomeSnifferState.notFound;
+    homeSnifferStatus = '未发现视频，请进入网页播放后嗅探。';
+    status = homeSnifferStatus;
+    activeSniffUrl = '';
+    notifyListeners();
+    await _saveParseRecords();
+  }
+
+  Future<void> finishHomeSniffFailed({
+    required String pageUrl,
+    required String pageTitle,
+    required Object error,
+  }) async {
+    final record = ParseRecord(
+      pageUrl: pageUrl,
+      pageTitle: pageTitle.trim().isEmpty ? _hostFromUrl(pageUrl) : pageTitle,
+      parsedAt: DateTime.now(),
+      status: ParseRecordStatus.failed,
+      sourceSite: _hostFromUrl(pageUrl),
+      message: '解析失败：$error',
+    );
+    _upsertParseRecord(record);
+    homeSnifferState = HomeSnifferState.failed;
+    homeSnifferStatus = '解析失败，请重试或进入网页播放。';
+    status = homeSnifferStatus;
+    activeSniffUrl = '';
+    notifyListeners();
+    await _saveParseRecords();
   }
 
   Future<void> parseUrl(String url) async {
@@ -131,6 +224,45 @@ class UiState extends ChangeNotifier {
       );
   }
 
+  Future<void> _loadParseRecords() async {
+    final records = await parseHistoryStore.load();
+    recentParses
+      ..clear()
+      ..addAll(records.take(20));
+    recentUrls
+      ..clear()
+      ..addAll(recentParses.map((record) => record.pageUrl));
+    notifyListeners();
+  }
+
+  Future<void> _saveParseRecords() async {
+    await parseHistoryStore.save(recentParses.take(20).toList());
+  }
+
+  void _upsertParseRecord(ParseRecord record) {
+    recentParses.removeWhere((item) => item.pageUrl == record.pageUrl);
+    recentParses.insert(0, record);
+    if (recentParses.length > 20) {
+      recentParses.removeRange(20, recentParses.length);
+    }
+    recentUrls
+      ..remove(record.pageUrl)
+      ..insert(0, record.pageUrl);
+  }
+
+  String _hostFromUrl(String url) {
+    return Uri.tryParse(url)?.host ?? url;
+  }
+
+  VideoResource? _firstDownloadable(List<VideoResource> values) {
+    for (final item in values) {
+      if (item.isPlayable && !item.isAdSuspect && !item.isFragment) {
+        return item;
+      }
+    }
+    return null;
+  }
+
   List<VideoResource> _dedupe(Iterable<VideoResource> values) {
     final seen = <String>{};
     final out = <VideoResource>[];
@@ -192,7 +324,7 @@ class UiState extends ChangeNotifier {
 
 class UiStateScope extends InheritedNotifier<UiState> {
   const UiStateScope({required UiState state, required super.child, super.key})
-    : super(notifier: state);
+      : super(notifier: state);
 
   static UiState of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<UiStateScope>();
