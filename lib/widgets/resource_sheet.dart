@@ -3,9 +3,9 @@ import 'package:flutter/services.dart';
 
 import '../models/video_resource.dart';
 import '../screens/resource_preview_screen.dart';
-import '../services/file_utils.dart';
 import '../services/ui_state.dart';
 import '../services/video_sniffer.dart';
+import 'download_confirm_dialog.dart';
 
 Future<void> showResourceSheet(
   BuildContext context,
@@ -330,10 +330,8 @@ class _ResourceTile extends StatelessWidget {
                 onPressed: resource.isFragment
                     ? null
                     : () async {
-                        final selected = await _showDownloadConfirm(
-                          context,
-                          resource,
-                        );
+                        final selected =
+                            await showDownloadConfirmDialog(context, resource);
                         if (selected == null || !context.mounted) return;
                         state.downloadResource(selected);
                         Navigator.pop(context);
@@ -342,63 +340,6 @@ class _ResourceTile extends StatelessWidget {
                 label: const Text('下载'),
               ),
             ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<VideoResource?> _showDownloadConfirm(
-    BuildContext context,
-    VideoResource resource,
-  ) async {
-    final controller = TextEditingController(
-      text: FileUtils.safeFileName(resource.title, fallback: 'video'),
-    );
-    final uri = Uri.tryParse(
-      resource.pageUrl.isNotEmpty ? resource.pageUrl : resource.url,
-    );
-    final site = uri?.host ?? '未知来源';
-    return showDialog<VideoResource>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('确认下载'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _InfoLine('标题', resource.title),
-              _InfoLine('来源网站', site),
-              _InfoLine('格式', resource.displayFormat),
-              _InfoLine('清晰度', resource.quality),
-              if (resource.codec.isNotEmpty) _InfoLine('编码', resource.codec),
-              if (resource.bitrate.isNotEmpty)
-                _InfoLine('码率', resource.bitrate),
-              _InfoLine('大小', resource.size),
-              const _InfoLine('保存位置', 'Documents/videos/'),
-              const SizedBox(height: 10),
-              TextField(
-                controller: controller,
-                decoration: const InputDecoration(labelText: '文件名'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final name = FileUtils.safeFileName(
-                controller.text,
-                fallback: resource.title,
-              );
-              Navigator.pop(context, resource.copyWith(title: name));
-            },
-            child: const Text('下载'),
           ),
         ],
       ),
@@ -456,35 +397,6 @@ class _ResourceTile extends StatelessWidget {
       case VideoResourceType.unknown:
         return resource.url.toLowerCase().contains('.m4s') ? 'M4S' : '未知';
     }
-  }
-}
-
-class _InfoLine extends StatelessWidget {
-  const _InfoLine(this.label, this.value);
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 76,
-            child: Text(
-              label,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          Expanded(child: Text(value.isEmpty ? '未知' : value)),
-        ],
-      ),
-    );
   }
 }
 

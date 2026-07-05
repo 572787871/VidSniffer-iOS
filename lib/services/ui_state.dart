@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 
 import '../models/download_task.dart';
+import '../models/library_folder.dart';
 import '../models/local_video.dart';
 import '../models/parse_record.dart';
 import '../models/video_resource.dart';
 import 'download_manager.dart';
+import 'library_folder_store.dart';
 import 'local_library.dart';
 import 'parse_history_store.dart';
 import 'video_sniffer.dart';
@@ -18,17 +20,20 @@ class UiState extends ChangeNotifier {
     downloadManager.addListener(_onDownloadsChanged);
     unawaited(downloadManager.restoreTasks());
     refreshLibrary();
+    unawaited(_loadFolders());
     unawaited(_loadParseRecords());
   }
 
   final DownloadManager downloadManager = DownloadManager();
   final VideoSniffer sniffer = VideoSniffer();
   final LocalLibrary library = LocalLibrary();
+  final LibraryFolderStore folderStore = LibraryFolderStore();
   final ParseHistoryStore parseHistoryStore = ParseHistoryStore();
 
   final List<String> recentUrls = [];
   final List<VideoResource> resources = [];
   final List<ParseRecord> recentParses = [];
+  final List<LibraryFolder> folders = [];
   List<LocalVideo> videos = [];
   bool _enrichingLibrary = false;
 
@@ -38,6 +43,8 @@ class UiState extends ChangeNotifier {
   HomeSnifferState homeSnifferState = HomeSnifferState.idle;
   String homeSnifferStatus = '准备就绪';
   String activeSniffUrl = '';
+  String browserOpenUrl = '';
+  int browserOpenRequestId = 0;
   String status = '准备就绪';
 
   void addRecent(String url) {
@@ -220,6 +227,50 @@ class UiState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void openInBrowser(String url) {
+    final value = url.trim();
+    if (value.isEmpty) return;
+    browserOpenUrl = value;
+    browserOpenRequestId++;
+    selectedTab = 1;
+    notifyListeners();
+  }
+
+  Future<LibraryFolder> createFolder(String name) async {
+    final folder = folderStore.createManualFolder(name);
+    folders.insert(0, folder);
+    await _saveFolders();
+    notifyListeners();
+    return folder;
+  }
+
+  Future<void> renameFolder(LibraryFolder folder, String name) async {
+    final index =
+        folders.indexWhere((item) => item.folderId == folder.folderId);
+    if (index < 0) return;
+    folders[index] = folder.copyWith(
+      name: name.trim().isEmpty ? folder.name : name.trim(),
+      updatedAt: DateTime.now(),
+    );
+    await _saveFolders();
+    notifyListeners();
+  }
+
+  Future<void> deleteFolder(LibraryFolder folder) async {
+    folders.removeWhere((item) => item.folderId == folder.folderId);
+    await library.removeFolderMapping(folder.folderId);
+    await _saveFolders();
+    await refreshLibrary();
+  }
+
+  Future<void> moveVideoToFolder(
+    LocalVideo video,
+    LibraryFolder folder,
+  ) async {
+    await library.moveToFolder(video, folder.folderId);
+    await refreshLibrary();
+  }
+
   void _replaceResources(List<VideoResource> values) {
     resources
       ..clear()
@@ -243,6 +294,18 @@ class UiState extends ChangeNotifier {
 
   Future<void> _saveParseRecords() async {
     await parseHistoryStore.save(recentParses.take(20).toList());
+  }
+
+  Future<void> _loadFolders() async {
+    final stored = await folderStore.load();
+    folders
+      ..clear()
+      ..addAll(stored);
+    notifyListeners();
+  }
+
+  Future<void> _saveFolders() async {
+    await folderStore.save(folders);
   }
 
   void _upsertParseRecord(ParseRecord record) {

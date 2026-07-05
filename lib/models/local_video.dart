@@ -13,6 +13,8 @@ class LocalVideo {
     this.bitrate = '',
     this.codec = '',
     this.sourceSite = '',
+    this.pageUrlHash = '',
+    this.folderIds = const [],
     this.resumePosition = Duration.zero,
     this.isFavorite = false,
   });
@@ -30,6 +32,8 @@ class LocalVideo {
   final String bitrate;
   final String codec;
   final String sourceSite;
+  final String pageUrlHash;
+  final List<String> folderIds;
   final Duration resumePosition;
   final bool isFavorite;
 
@@ -59,6 +63,8 @@ class LocalVideo {
     String? bitrate,
     String? codec,
     String? sourceSite,
+    String? pageUrlHash,
+    List<String>? folderIds,
     Duration? resumePosition,
     bool? isFavorite,
   }) {
@@ -76,6 +82,8 @@ class LocalVideo {
       bitrate: bitrate ?? this.bitrate,
       codec: codec ?? this.codec,
       sourceSite: sourceSite ?? this.sourceSite,
+      pageUrlHash: pageUrlHash ?? this.pageUrlHash,
+      folderIds: folderIds ?? this.folderIds,
       resumePosition: resumePosition ?? this.resumePosition,
       isFavorite: isFavorite ?? this.isFavorite,
     );

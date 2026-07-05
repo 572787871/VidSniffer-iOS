@@ -56,6 +56,11 @@ class LocalLibrary {
           bitrate: cached['bitrate']?.toString() ?? '',
           codec: cached['codec']?.toString() ?? '',
           sourceSite: cached['sourceSite']?.toString() ?? '',
+          pageUrlHash: cached['pageUrlHash']?.toString() ?? '',
+          folderIds: ((cached['folderIds'] as List?) ?? const [])
+              .map((item) => item.toString())
+              .where((item) => item.isNotEmpty)
+              .toList(),
           isFavorite: cached['favorite'] == true,
           resumePosition: resume,
         ),
@@ -98,9 +103,22 @@ class LocalLibrary {
     final pageUri = Uri.tryParse(resource.pageUrl);
     metadata
       ..['title'] = resource.title
+      ..['pageUrl'] = resource.pageUrl
+      ..['pageUrlHash'] = FileUtils.stableKey(
+        resource.pageUrl.isNotEmpty ? resource.pageUrl : resource.url,
+      )
       ..['sourceSite'] = pageUri?.host ?? Uri.tryParse(resource.url)?.host ?? ''
       ..['codec'] = resource.codec
       ..['bitrate'] = resource.bitrate;
+    final folderIds = <String>{
+      ...(((metadata['folderIds'] as List?) ?? const [])
+          .map((item) => item.toString())),
+      if (resource.preferredFolderId.isNotEmpty) resource.preferredFolderId,
+      if (resource.pageUrl.isNotEmpty)
+        'page:${FileUtils.stableKey(resource.pageUrl)}',
+      if ((pageUri?.host ?? '').isNotEmpty) 'site:${pageUri!.host}',
+    }..removeWhere((item) => item.trim().isEmpty);
+    metadata['folderIds'] = folderIds.toList();
     await _writeMetadata(file, metadata);
     await ensureDetails(LocalVideo(
       path: file.path,
@@ -118,6 +136,45 @@ class LocalLibrary {
     metadata['favorite'] = favorite;
     metadata['title'] = video.title;
     await _writeMetadata(file, metadata);
+  }
+
+  Future<void> moveToFolder(LocalVideo video, String folderId) async {
+    if (folderId.trim().isEmpty) return;
+    final file = File(video.path);
+    final metadata = await _readMetadata(file);
+    final folderIds = <String>{
+      ...video.folderIds,
+      ...(((metadata['folderIds'] as List?) ?? const [])
+          .map((item) => item.toString())),
+      folderId,
+    }..removeWhere((item) => item.trim().isEmpty);
+    metadata
+      ..['title'] = video.title
+      ..['folderIds'] = folderIds.toList();
+    await _writeMetadata(file, metadata);
+  }
+
+  Future<void> removeFolderMapping(String folderId) async {
+    if (folderId.trim().isEmpty) return;
+    final dir = await FileUtils.thumbnailsDirectory();
+    if (!await dir.exists()) return;
+    final metadataFiles = await dir
+        .list(recursive: false)
+        .where((entity) => entity is File && entity.path.endsWith('.json'))
+        .cast<File>()
+        .toList();
+    for (final file in metadataFiles) {
+      try {
+        final decoded = jsonDecode(await file.readAsString());
+        if (decoded is! Map<String, dynamic>) continue;
+        final folderIds = ((decoded['folderIds'] as List?) ?? const [])
+            .map((item) => item.toString())
+            .where((item) => item != folderId)
+            .toList();
+        decoded['folderIds'] = folderIds;
+        await file.writeAsString(jsonEncode(decoded));
+      } catch (_) {}
+    }
   }
 
   Future<void> delete(LocalVideo video) async {

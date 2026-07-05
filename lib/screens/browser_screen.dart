@@ -9,6 +9,7 @@ import '../models/video_resource.dart';
 import '../services/ui_state.dart';
 import '../services/video_sniffer.dart';
 import '../services/video_sniffer_controller.dart';
+import '../widgets/download_confirm_dialog.dart';
 import '../widgets/resource_sheet.dart';
 
 class BrowserController {
@@ -100,6 +101,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   Timer? deepTimer;
   List<VideoResource> resources = const [];
   List<VideoResource> pendingResources = const [];
+  final List<_TimedBrowserCandidate> recentCandidates = [];
   String currentUrl = 'https://www.google.com';
   String pageTitle = '浏览器';
   String userAgent = '';
@@ -108,6 +110,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   bool canGoForward = false;
   bool deepSniffing = false;
   int progress = 0;
+  int handledBrowserRequestId = 0;
 
   @override
   bool get wantKeepAlive => true;
@@ -136,6 +139,15 @@ class _BrowserScreenState extends State<BrowserScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    final appState = UiStateScope.of(context);
+    if (appState.browserOpenRequestId != handledBrowserRequestId &&
+        appState.browserOpenUrl.isNotEmpty) {
+      handledBrowserRequestId = appState.browserOpenRequestId;
+      final url = appState.browserOpenUrl;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_loadUrl(url));
+      });
+    }
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       body: SafeArea(
@@ -331,7 +343,7 @@ class _BrowserScreenState extends State<BrowserScreen>
         for (final arg in args) {
           final candidate = _candidateFromDynamic(arg);
           if (candidate != null) {
-            browserSniffer.capture(candidate);
+            _captureCandidate(candidate);
           }
         }
       },
@@ -432,7 +444,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       final result =
           await controller.evaluateJavascript(source: _domScanScript);
       for (final candidate in _decodeCandidates(result)) {
-        browserSniffer.capture(candidate);
+        _captureCandidate(candidate);
       }
       await browserSniffer.flush();
     } catch (_) {}
@@ -472,7 +484,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   Future<void> _showVideoMenu(BrowserCandidate? candidate) async {
     if (!mounted) return;
     if (candidate != null) {
-      browserSniffer.capture(candidate);
+      _captureCandidate(candidate);
       await browserSniffer.flush();
     }
     if (!mounted) return;
@@ -489,8 +501,13 @@ class _BrowserScreenState extends State<BrowserScreen>
               title: const Text('解析此视频'),
               onTap: () async {
                 Navigator.pop(sheetContext);
-                await _scanCurrentVideos();
-                if (mounted) await _openResources();
+                final related = await _currentVideoResources(candidate);
+                if (!mounted) return;
+                if (related.isEmpty) {
+                  _showNeedPlaybackHint();
+                } else {
+                  await showResourceSheet(context, related);
+                }
               },
             ),
             ListTile(
@@ -498,33 +515,39 @@ class _BrowserScreenState extends State<BrowserScreen>
               title: const Text('下载此视频'),
               onTap: () async {
                 Navigator.pop(sheetContext);
-                await _scanCurrentVideos();
-                VideoResource? resource;
-                for (final item in resources) {
-                  if (item.isPlayable) {
-                    resource = item;
-                    break;
-                  }
-                }
+                final related = await _currentVideoResources(candidate);
+                final resource = _firstPlayable(related);
                 if (resource == null) {
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('未找到可下载的视频地址')),
-                    );
+                    _showNeedPlaybackHint();
                   }
                   return;
                 }
-                state.downloadResource(resource);
+                if (!mounted) return;
+                final selected =
+                    await showDownloadConfirmDialog(context, resource);
+                if (selected != null && mounted) {
+                  state.downloadResource(selected);
+                }
               },
             ),
             ListTile(
               leading: const Icon(Icons.copy_rounded),
               title: const Text('复制视频链接'),
-              onTap: () {
+              onTap: () async {
                 Navigator.pop(sheetContext);
-                final url = candidate?.url ?? _firstPlayableUrl();
-                if (url != null) {
-                  Clipboard.setData(ClipboardData(text: url));
+                final related = await _currentVideoResources(candidate);
+                final resource = _firstPlayable(related);
+                if (resource != null) {
+                  Clipboard.setData(ClipboardData(text: resource.url));
+                } else if (candidate?.url.startsWith('blob:') == true) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('blob 不是可下载地址')),
+                    );
+                  }
+                } else {
+                  if (mounted) _showNeedPlaybackHint();
                 }
               },
             ),
@@ -568,7 +591,24 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   void _capture(String url, String source) {
     if (!sniffer.isLikelyMediaCandidate(url)) return;
-    browserSniffer.capture(BrowserCandidate(url: url, source: source));
+    _captureCandidate(BrowserCandidate(url: url, source: source));
+  }
+
+  void _captureCandidate(BrowserCandidate candidate) {
+    _rememberRecent(candidate);
+    browserSniffer.capture(candidate);
+  }
+
+  void _rememberRecent(BrowserCandidate candidate) {
+    if (!sniffer.isLikelyMediaCandidate(candidate.url)) return;
+    final now = DateTime.now();
+    recentCandidates.add(_TimedBrowserCandidate(candidate, now));
+    recentCandidates.removeWhere(
+      (item) => now.difference(item.capturedAt) > const Duration(seconds: 10),
+    );
+    if (recentCandidates.length > 80) {
+      recentCandidates.removeRange(0, recentCandidates.length - 80);
+    }
   }
 
   void _queueResourceUpdate(List<VideoResource> values) {
@@ -580,11 +620,64 @@ class _BrowserScreenState extends State<BrowserScreen>
     });
   }
 
-  String? _firstPlayableUrl() {
-    for (final item in resources) {
-      if (item.isPlayable) return item.url;
+  Future<List<VideoResource>> _currentVideoResources(
+    BrowserCandidate? candidate,
+  ) async {
+    await _scanCurrentVideos();
+    final rawUrls = <String>{};
+    if (candidate != null) {
+      rawUrls.add(candidate.url);
+      rawUrls.addAll(candidate.relatedUrls);
+    }
+    final now = DateTime.now();
+    for (final item in recentCandidates) {
+      if (now.difference(item.capturedAt) <= const Duration(seconds: 10)) {
+        rawUrls.add(item.candidate.url);
+        rawUrls.addAll(item.candidate.relatedUrls);
+      }
+    }
+    rawUrls.removeWhere(
+      (url) =>
+          url.trim().isEmpty ||
+          url.startsWith('blob:') ||
+          url.startsWith('data:') ||
+          url.startsWith('about:'),
+    );
+    for (final url in rawUrls) {
+      _captureCandidate(
+        BrowserCandidate(
+          url: url,
+          source: candidate?.source ?? 'video-longpress',
+          title: candidate?.title ?? pageTitle,
+          duration: candidate?.duration ?? Duration.zero,
+          thumbnailUrl: candidate?.thumbnailUrl ?? '',
+          isCurrentPlayback: true,
+          playerId: candidate?.playerId ?? '',
+        ),
+      );
+    }
+    await browserSniffer.flush();
+    final keys = rawUrls.map((url) => sniffer.dedupeKey(url)).toSet();
+    final related = browserSniffer.resources
+        .where((resource) => keys.contains(sniffer.dedupeKey(resource.url)))
+        .where((resource) => resource.isPlayable && !resource.isAdSuspect)
+        .toList();
+    return sniffer.prioritizeResources(related, limit: 20);
+  }
+
+  VideoResource? _firstPlayable(List<VideoResource> values) {
+    for (final item in values) {
+      if (item.isPlayable && !item.isFragment && !item.isAdSuspect) {
+        return item;
+      }
     }
     return null;
+  }
+
+  void _showNeedPlaybackHint() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('请先播放视频几秒后再长按解析')),
+    );
   }
 
   List<BrowserCandidate> _decodeCandidates(Object? value) {
@@ -630,6 +723,10 @@ class _BrowserScreenState extends State<BrowserScreen>
           '',
       isCurrentPlayback: value['current'] == true,
       playerId: value['playerId']?.toString() ?? '',
+      relatedUrls: ((value['sources'] as List?) ?? const [])
+          .map((item) => item.toString())
+          .where((item) => item.isNotEmpty)
+          .toList(),
     );
   }
 
@@ -654,6 +751,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       if (!url || typeof url !== 'string') return;
       const absolute = new URL(url, location.href).href;
       const media = node && (node.tagName === 'VIDEO' || node.tagName === 'AUDIO' ? node : node.closest && node.closest('video,audio'));
+      const sources = media ? [media.currentSrc, media.src, ...Array.from(media.querySelectorAll('source')).map((item) => item.src || item.getAttribute('src') || '')].filter(Boolean) : [absolute];
       out.set(absolute, {
         url: absolute,
         source,
@@ -661,7 +759,8 @@ class _BrowserScreenState extends State<BrowserScreen>
         duration: media && isFinite(media.duration) && media.duration > 0 ? media.duration : 0,
         poster: (media && (media.poster || media.getAttribute('poster'))) || '',
         current: !!(media && (!media.paused || media.currentTime > 0)),
-        playerId: (media && (media.id || media.getAttribute('data-player') || media.getAttribute('data-video-id'))) || ''
+        playerId: (media && (media.id || media.getAttribute('data-player') || media.getAttribute('data-video-id'))) || '',
+        sources
       });
     } catch (_) {}
   };
@@ -689,8 +788,10 @@ class _BrowserScreenState extends State<BrowserScreen>
     duration: media && isFinite(media.duration) && media.duration > 0 ? media.duration : 0,
     poster: (media && (media.poster || media.getAttribute('poster'))) || '',
     current: /current|play/i.test(source) || !!(media && (!media.paused || media.currentTime > 0)),
-    playerId: (media && (media.id || media.getAttribute('data-player') || media.getAttribute('data-video-id'))) || ''
+    playerId: (media && (media.id || media.getAttribute('data-player') || media.getAttribute('data-video-id'))) || '',
+    sources: media ? [media.currentSrc, media.src, ...Array.from(media.querySelectorAll('source')).map((item) => item.src || item.getAttribute('src') || '')].filter(Boolean) : []
   });
+  const likely = (url) => typeof url === 'string' && /\.(mp4|m4v|mov|m3u8|ts|m4s|aac)(\?|#|$)/i.test(url);
   const post = (url, source, media) => {
     try {
       if (!url || typeof url !== 'string') return;
@@ -700,7 +801,9 @@ class _BrowserScreenState extends State<BrowserScreen>
   };
   const longPress = (media) => {
     post(media.currentSrc || media.src, 'video-current', media);
-    window.flutter_inappwebview.callHandler('VideoLongPress', {url: media.currentSrc || media.src || '', source: 'video-longpress', ...mediaMeta(media, 'video-longpress')});
+    const meta = mediaMeta(media, 'video-longpress');
+    const urls = meta.sources || [];
+    window.flutter_inappwebview.callHandler('VideoLongPress', {url: urls[0] || media.currentSrc || media.src || '', source: 'video-longpress', ...meta});
   };
   const bind = (node) => {
     if (!node || node.__vidSnifferLightBound) return;
@@ -715,6 +818,29 @@ class _BrowserScreenState extends State<BrowserScreen>
     node.addEventListener('contextmenu', (event) => { event.preventDefault(); longPress(node); }, true);
   };
   document.querySelectorAll('video,audio').forEach(bind);
+  const originalFetch = window.fetch;
+  if (originalFetch && !window.__vidSnifferLightFetchHooked) {
+    window.__vidSnifferLightFetchHooked = true;
+    window.fetch = function() {
+      try {
+        const input = arguments[0];
+        const url = typeof input === 'string' ? input : input && input.url;
+        if (likely(url)) post(url, 'fetch', null);
+      } catch (_) {}
+      return originalFetch.apply(this, arguments).then((response) => {
+        try { if (likely(response.url)) post(response.url, 'fetch-response', null); } catch (_) {}
+        return response;
+      });
+    };
+  }
+  if (!XMLHttpRequest.prototype.__vidSnifferLightXhrHooked) {
+    const originalOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.__vidSnifferLightXhrHooked = true;
+    XMLHttpRequest.prototype.open = function(method, url) {
+      try { if (likely(url)) post(url, 'xhr', null); } catch (_) {}
+      return originalOpen.apply(this, arguments);
+    };
+  }
   new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
       mutation.addedNodes && mutation.addedNodes.forEach((node) => {
@@ -769,6 +895,7 @@ class BrowserCandidate {
     this.thumbnailUrl = '',
     this.isCurrentPlayback = false,
     this.playerId = '',
+    this.relatedUrls = const [],
   });
 
   final String url;
@@ -778,4 +905,12 @@ class BrowserCandidate {
   final String thumbnailUrl;
   final bool isCurrentPlayback;
   final String playerId;
+  final List<String> relatedUrls;
+}
+
+class _TimedBrowserCandidate {
+  const _TimedBrowserCandidate(this.candidate, this.capturedAt);
+
+  final BrowserCandidate candidate;
+  final DateTime capturedAt;
 }

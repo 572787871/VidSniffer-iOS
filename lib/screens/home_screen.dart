@@ -9,10 +9,10 @@ import '../services/ui_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_card.dart';
 import '../widgets/app_text_field.dart';
+import '../widgets/download_confirm_dialog.dart';
 import '../widgets/gradient_button.dart';
 import '../widgets/home_sniffer.dart';
 import 'resource_preview_screen.dart';
-import 'webview_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -96,16 +96,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(height: 12),
                         _SnifferStatusBar(state: state),
                       ],
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        width: double.infinity,
-                        child: TextButton.icon(
-                          onPressed: () =>
-                              _openWebView(context, controller.text.trim()),
-                          icon: const Icon(Icons.language_rounded),
-                          label: const Text('用内置 WebView 打开网页'),
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -199,14 +189,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _openWebView(BuildContext context, String url) {
     final value = url.trim();
     if (value.isEmpty) return;
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => WebViewScreen(
-          initialUrl: value,
-          autoDiscover: true,
-        ),
-      ),
-    );
+    UiStateScope.of(context).openInBrowser(value);
   }
 
   int _todayCount(UiState state) {
@@ -543,22 +526,18 @@ class _ResourceSection extends StatelessWidget {
         style: const TextStyle(fontWeight: FontWeight.w900),
       ),
       children: [
-        SizedBox(
-          height: (visibleCount * 178).toDouble(),
-          child: ListView.builder(
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: visibleCount,
-            itemBuilder: (context, index) {
-              final resource = resources[index];
-              return RepaintBoundary(
-                key: ValueKey(resource.id),
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: _ResourceRow(resource: resource, pageUrl: pageUrl),
-                ),
-              );
-            },
-          ),
+        ListView.separated(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: visibleCount,
+          separatorBuilder: (_, __) => const SizedBox(height: 8),
+          itemBuilder: (context, index) {
+            final resource = resources[index];
+            return RepaintBoundary(
+              key: ValueKey(resource.id),
+              child: _ResourceRow(resource: resource, pageUrl: pageUrl),
+            );
+          },
         ),
       ],
     );
@@ -654,7 +633,12 @@ class _ResourceRow extends StatelessWidget {
               FilledButton.icon(
                 onPressed: resource.isFragment
                     ? null
-                    : () => state.downloadResource(resource),
+                    : () async {
+                        final selected =
+                            await showDownloadConfirmDialog(context, resource);
+                        if (selected == null || !context.mounted) return;
+                        state.downloadResource(selected);
+                      },
                 icon: const Icon(Icons.download_rounded),
                 label: const Text('下载'),
               ),
@@ -681,11 +665,8 @@ class _ResourceRow extends StatelessWidget {
                 label: const Text('复制链接'),
               ),
               OutlinedButton.icon(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) =>
-                        WebViewScreen(initialUrl: pageUrl, autoDiscover: true),
-                  ),
+                onPressed: () => state.openInBrowser(
+                  pageUrl.isNotEmpty ? pageUrl : resource.pageUrl,
                 ),
                 icon: const Icon(Icons.language_rounded),
                 label: const Text('进入网页'),

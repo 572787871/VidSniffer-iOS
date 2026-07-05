@@ -824,6 +824,8 @@ class DownloadManager extends ChangeNotifier {
       'codec': resource.codec,
       'source': resource.source,
       'isCurrentPlayback': resource.isCurrentPlayback,
+      'preferredFolderId': resource.preferredFolderId,
+      'preferredFolderName': resource.preferredFolderName,
     };
   }
 

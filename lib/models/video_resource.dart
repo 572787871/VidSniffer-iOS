@@ -25,6 +25,8 @@ class VideoResource {
     this.thumbnailUrl = '',
     this.isCurrentPlayback = false,
     this.playerId = '',
+    this.preferredFolderId = '',
+    this.preferredFolderName = '',
   });
 
   final String url;
@@ -50,6 +52,8 @@ class VideoResource {
   final String thumbnailUrl;
   final bool isCurrentPlayback;
   final String playerId;
+  final String preferredFolderId;
+  final String preferredFolderName;
 
   String get id => normalizedUrl;
   String get normalizedUrl =>
@@ -118,6 +122,8 @@ class VideoResource {
     String? thumbnailUrl,
     bool? isCurrentPlayback,
     String? playerId,
+    String? preferredFolderId,
+    String? preferredFolderName,
   }) {
     return VideoResource(
       url: url ?? this.url,
@@ -143,6 +149,8 @@ class VideoResource {
       thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
       isCurrentPlayback: isCurrentPlayback ?? this.isCurrentPlayback,
       playerId: playerId ?? this.playerId,
+      preferredFolderId: preferredFolderId ?? this.preferredFolderId,
+      preferredFolderName: preferredFolderName ?? this.preferredFolderName,
     );
   }
 
@@ -171,6 +179,8 @@ class VideoResource {
       'thumbnailUrl': thumbnailUrl,
       'isCurrentPlayback': isCurrentPlayback,
       'playerId': playerId,
+      'preferredFolderId': preferredFolderId,
+      'preferredFolderName': preferredFolderName,
     };
   }
 
@@ -201,6 +211,8 @@ class VideoResource {
       thumbnailUrl: json['thumbnailUrl']?.toString() ?? '',
       isCurrentPlayback: json['isCurrentPlayback'] == true,
       playerId: json['playerId']?.toString() ?? '',
+      preferredFolderId: json['preferredFolderId']?.toString() ?? '',
+      preferredFolderName: json['preferredFolderName']?.toString() ?? '',
     );
   }
 
