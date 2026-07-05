@@ -199,6 +199,11 @@ class UiState extends ChangeNotifier {
     await refreshLibrary();
   }
 
+  Future<void> deleteCollection(String directoryPath) async {
+    await library.deleteCollection(directoryPath);
+    await refreshLibrary();
+  }
+
   Future<void> toggleFavorite(LocalVideo video) async {
     await library.setFavorite(video, !video.isFavorite);
     await refreshLibrary();

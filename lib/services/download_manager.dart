@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -61,6 +62,22 @@ class DownloadManager extends ChangeNotifier {
     return task;
   }
 
+  String previewPathFor(DownloadTask task) {
+    final file = _partFiles[task.id];
+    if (file != null) return file.path;
+    return task.tempPath;
+  }
+
+  Future<bool> canPreviewPartial(DownloadTask task) async {
+    final path = previewPathFor(task);
+    if (path.isEmpty) return false;
+    final file = File(path);
+    if (!await file.exists()) return false;
+    if (await file.length() < 256 * 1024) return false;
+    if (await FileUtils.looksLikeHtml(file)) return false;
+    return true;
+  }
+
   Future<void> start(String taskId) async {
     final task = _taskById(taskId);
     if (task == null) {
@@ -78,6 +95,10 @@ class DownloadManager extends ChangeNotifier {
     task.ffmpegSpeed = '--';
     task.downloadedSegments = 0;
     task.totalSegments = 0;
+    task.tempPath = '';
+    task.outputDirectory = '';
+    task.playlistDuration = Duration.zero;
+    task.elapsed = Duration.zero;
     notifyListeners();
 
     final backgroundId = await _beginBackgroundTask();
@@ -112,9 +133,11 @@ class DownloadManager extends ChangeNotifier {
       task.speed = '完成';
       task.remaining = '00:00';
       task.message = '下载完成';
+      task.tempPath = '';
       unawaited(
         LocalLibrary().writeDownloadMetadata(task.localPath, task.resource),
       );
+      unawaited(_writePageMetadata(task));
       notifyListeners();
     } catch (error) {
       debugPrint('[download] failed error=$error');
@@ -191,12 +214,19 @@ class DownloadManager extends ChangeNotifier {
     if (partFile != null && await partFile.exists()) {
       await partFile.delete().catchError((_) => partFile);
     }
+    if (task.tempPath.isNotEmpty) {
+      final file = File(task.tempPath);
+      if (await file.exists()) {
+        await file.delete().catchError((_) => file);
+      }
+    }
     tasks.removeWhere((item) => item.id == task.id);
     notifyListeners();
   }
 
   Future<void> _downloadDirect(DownloadTask task) async {
-    final dir = await FileUtils.videosDirectory();
+    final dir = await FileUtils.videoPageDirectory(task.resource);
+    task.outputDirectory = dir.path;
     final extension = FileUtils.extensionFromUrl(task.resource.url);
     final finalFile = File(
       p.join(
@@ -206,6 +236,7 @@ class DownloadManager extends ChangeNotifier {
     );
     final partFile = File('${finalFile.path}.part');
     _partFiles[task.id] = partFile;
+    task.tempPath = partFile.path;
 
     if (!await partFile.parent.exists()) {
       await partFile.parent.create(recursive: true);
@@ -292,14 +323,16 @@ class DownloadManager extends ChangeNotifier {
   }
 
   Future<void> _downloadWithFFmpeg(DownloadTask task) async {
-    final dir = await FileUtils.videosDirectory();
+    final dir = await FileUtils.videoPageDirectory(task.resource);
+    task.outputDirectory = dir.path;
     final output = File(p.join(dir.path, _targetName(task.resource, 'mp4')));
-    final tempDir = Directory(p.join(dir.path, '.tmp'));
+    final tempDir = Directory(p.join(dir.path, 'segments_tmp'));
     if (!await tempDir.exists()) {
       await tempDir.create(recursive: true);
     }
     final tempOutput = File(p.join(tempDir.path, '${task.id}.mp4'));
     _partFiles[task.id] = tempOutput;
+    task.tempPath = tempOutput.path;
     if (await output.exists()) {
       await output.delete();
     }
@@ -347,6 +380,9 @@ class DownloadManager extends ChangeNotifier {
     task.phase = DownloadPhase.merging;
     task.message = '正在写入视频文件';
     task.isIndeterminate = true;
+    if (task.progress < 0.96) {
+      task.progress = 0.96;
+    }
     notifyListeners();
     if (!await tempOutput.exists() || await tempOutput.length() <= 0) {
       throw StateError('m3u8 没有合并出有效 mp4 文件');
@@ -385,6 +421,12 @@ class DownloadManager extends ChangeNotifier {
             0,
             task.totalSegments,
           );
+          task.progress = task.totalSegments > 0
+              ? (task.downloadedSegments / task.totalSegments)
+                  .clamp(0, 0.95)
+                  .toDouble()
+              : task.progress;
+          task.isIndeterminate = task.totalSegments <= 0;
           task.phase = DownloadPhase.downloadingSegments;
           task.status = DownloadStatus.downloading;
           task.message =
@@ -395,15 +437,32 @@ class DownloadManager extends ChangeNotifier {
       (statistics) {
         if (_isTerminalOrPaused(task)) return;
         final timeMs = statistics.getTime();
+        task.elapsed = DateTime.now().difference(startedAt);
         if (timeMs > 0) {
-          task.status = DownloadStatus.merging;
-          task.phase = DownloadPhase.merging;
-          task.isIndeterminate = true;
+          task.status = DownloadStatus.downloading;
+          task.phase = DownloadPhase.downloadingSegments;
           task.ffmpegTime = _formatDuration(Duration(milliseconds: timeMs));
           task.ffmpegSpeed = statistics.getSpeed().toStringAsFixed(2);
+          if (task.playlistDuration > Duration.zero) {
+            task.progress = (timeMs / task.playlistDuration.inMilliseconds)
+                .clamp(0, 0.95)
+                .toDouble();
+            task.isIndeterminate = false;
+            final speed = statistics.getSpeed();
+            final remainingMs = (task.playlistDuration.inMilliseconds - timeMs)
+                .clamp(0, 1 << 31);
+            task.remaining = speed > 0
+                ? _formatDuration(
+                    Duration(milliseconds: (remainingMs / speed).round()),
+                  )
+                : '--';
+          } else {
+            task.isIndeterminate = true;
+            task.remaining = '--';
+          }
           final elapsed = _formatDuration(DateTime.now().difference(startedAt));
           task.message =
-              '合并中 time=${task.ffmpegTime} speed=${task.ffmpegSpeed}x 已用 $elapsed';
+              '下载/合并中 time=${task.ffmpegTime} speed=${task.ffmpegSpeed}x 已用 $elapsed';
           notifyListeners();
         }
       },
@@ -447,26 +506,24 @@ class DownloadManager extends ChangeNotifier {
             .length;
         task.totalSegments = count;
         task.downloadedSegments = 0;
+        task.playlistDuration = _playlistDuration(body);
       }
     } catch (error) {
       _appendFfmpegLog(task, 'playlist prefetch failed: $error');
     }
     task.phase = DownloadPhase.downloadingSegments;
     task.status = DownloadStatus.downloading;
-    task.message = task.totalSegments > 0
-        ? '正在下载分片 0/${task.totalSegments}'
-        : '正在下载分片';
+    task.message =
+        task.totalSegments > 0 ? '正在下载分片 0/${task.totalSegments}' : '正在下载分片';
     notifyListeners();
   }
 
   void _appendFfmpegLog(DownloadTask task, String message) {
-    final next = task.ffmpegLog.isEmpty
-        ? message
-        : '${task.ffmpegLog}\n$message';
+    final next =
+        task.ffmpegLog.isEmpty ? message : '${task.ffmpegLog}\n$message';
     final lines = next.split('\n');
-    task.ffmpegLog = lines.length > 20
-        ? lines.sublist(lines.length - 20).join('\n')
-        : next;
+    task.ffmpegLog =
+        lines.length > 20 ? lines.sublist(lines.length - 20).join('\n') : next;
   }
 
   String _errorSummary(Object error) {
@@ -511,6 +568,18 @@ class DownloadManager extends ChangeNotifier {
     return lower.contains('.ts') || lower.contains('.m4s');
   }
 
+  Duration _playlistDuration(String body) {
+    var total = 0.0;
+    final matches = RegExp(
+      r'#EXTINF:([\d.]+)',
+      caseSensitive: false,
+    ).allMatches(body);
+    for (final match in matches) {
+      total += double.tryParse(match.group(1) ?? '') ?? 0;
+    }
+    return Duration(milliseconds: (total * 1000).round());
+  }
+
   bool _isTerminalOrPaused(DownloadTask task) {
     return task.status == DownloadStatus.completed ||
         task.status == DownloadStatus.failed ||
@@ -541,9 +610,8 @@ class DownloadManager extends ChangeNotifier {
       if (response.statusCode >= 500) {
         throw HttpException('HTTP ${response.statusCode}', uri: uri);
       }
-      final total = response.contentLength > 0
-          ? response.contentLength + resumeFrom
-          : 0;
+      final total =
+          response.contentLength > 0 ? response.contentLength + resumeFrom : 0;
       var received = resumeFrom;
       final sink = partFile.openWrite(
         mode: resumeFrom > 0 ? FileMode.append : FileMode.write,
@@ -592,15 +660,15 @@ class DownloadManager extends ChangeNotifier {
     DateTime startedAt,
   ) {
     final elapsed = DateTime.now().difference(startedAt).inMilliseconds / 1000;
+    task.elapsed = DateTime.now().difference(startedAt);
     final speedBytes = elapsed <= 0 ? 0 : received / elapsed;
     task.receivedBytes = received;
     task.totalBytes = total;
     task.progress = total > 0 ? (received / total).clamp(0, 1).toDouble() : 0;
     task.phase = DownloadPhase.downloadingFile;
     task.isIndeterminate = total <= 0;
-    task.speed = speedBytes <= 0
-        ? '--'
-        : '${_formatBytes(speedBytes.round())}/s';
+    task.speed =
+        speedBytes <= 0 ? '--' : '${_formatBytes(speedBytes.round())}/s';
     task.remaining = total > 0 && speedBytes > 0
         ? _formatDuration(
             Duration(seconds: ((total - received) / speedBytes).ceil()),
@@ -629,7 +697,63 @@ class DownloadManager extends ChangeNotifier {
 
   String _targetName(VideoResource resource, String extension) {
     final base = FileUtils.safeFileName(resource.title, fallback: 'video');
-    return '$base-${DateTime.now().millisecondsSinceEpoch}.$extension';
+    final quality = resource.quality == '未知'
+        ? ''
+        : '-${FileUtils.safeFileName(resource.quality, fallback: '')}';
+    return '$base$quality-${DateTime.now().millisecondsSinceEpoch}.$extension';
+  }
+
+  Future<void> _writePageMetadata(DownloadTask task) async {
+    if (task.outputDirectory.isEmpty) return;
+    final file = File(p.join(task.outputDirectory, 'metadata.json'));
+    final pageUri = Uri.tryParse(task.resource.pageUrl);
+    final data = <String, dynamic>{
+      'pageUrl': task.resource.pageUrl,
+      'pageTitle': task.resource.title,
+      'sourceSite':
+          pageUri?.host ?? Uri.tryParse(task.resource.url)?.host ?? '',
+      'selectedQuality': task.resource.quality,
+      'downloadTime': DateTime.now().toIso8601String(),
+      'files': [p.basename(task.localPath)],
+      'resources': [_resourceMetadata(task.resource)],
+      'headersSummary': {
+        'hasUserAgent': task.resource.userAgent.isNotEmpty,
+        'hasReferer': task.resource.referer.isNotEmpty,
+        'hasCookie': task.resource.cookie.isNotEmpty,
+        'hasOrigin': task.resource.origin.isNotEmpty,
+      },
+    };
+    if (await file.exists()) {
+      try {
+        final existing = jsonDecode(await file.readAsString());
+        if (existing is Map<String, dynamic>) {
+          final files = [
+            ...((existing['files'] as List?) ?? const []),
+            p.basename(task.localPath),
+          ].map((item) => item.toString()).toSet().toList();
+          final resources = [
+            ...((existing['resources'] as List?) ?? const []),
+            _resourceMetadata(task.resource),
+          ];
+          data['files'] = files;
+          data['resources'] = resources;
+        }
+      } catch (_) {}
+    }
+    await file.writeAsString(jsonEncode(data));
+  }
+
+  Map<String, dynamic> _resourceMetadata(VideoResource resource) {
+    return {
+      'url': resource.url,
+      'type': resource.displayFormat,
+      'quality': resource.quality,
+      'size': resource.size,
+      'bitrate': resource.bitrate,
+      'codec': resource.codec,
+      'source': resource.source,
+      'isCurrentPlayback': resource.isCurrentPlayback,
+    };
   }
 
   Map<String, String> _headersFor(VideoResource resource) {
@@ -637,9 +761,8 @@ class DownloadManager extends ChangeNotifier {
       'User-Agent': resource.userAgent.isNotEmpty
           ? resource.userAgent
           : 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
-      'Referer': resource.referer.isNotEmpty
-          ? resource.referer
-          : resource.pageUrl,
+      'Referer':
+          resource.referer.isNotEmpty ? resource.referer : resource.pageUrl,
       if (resource.origin.isNotEmpty) 'Origin': resource.origin,
       if (resource.cookie.isNotEmpty) 'Cookie': resource.cookie,
       'Accept': '*/*',

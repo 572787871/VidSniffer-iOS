@@ -16,10 +16,17 @@ class LocalLibrary {
   Future<List<LocalVideo>> scan() async {
     final dir = await FileUtils.videosDirectory();
     final files = await dir
-        .list()
+        .list(recursive: true)
         .where((entity) => entity is File)
         .cast<File>()
         .where((file) {
+      final lowerPath = file.path.toLowerCase();
+      if (lowerPath.contains('/segments_tmp/') ||
+          lowerPath.contains('/thumbnails/') ||
+          lowerPath.contains('/.tmp/') ||
+          lowerPath.endsWith('.part')) {
+        return false;
+      }
       final ext = p.extension(file.path).toLowerCase();
       return ['.mp4', '.m4v', '.mov'].contains(ext);
     }).toList();
@@ -126,6 +133,32 @@ class LocalLibrary {
     if (await metadata.exists()) {
       await metadata.delete();
     }
+  }
+
+  Future<void> deleteCollection(String directoryPath) async {
+    final root = await FileUtils.videosDirectory();
+    final target = Directory(directoryPath);
+    if (!target.path.startsWith(root.path) || !await target.exists()) {
+      return;
+    }
+    final files = await target
+        .list(recursive: true)
+        .where((entity) => entity is File)
+        .cast<File>()
+        .toList();
+    for (final file in files) {
+      final ext = p.extension(file.path).toLowerCase();
+      if (!['.mp4', '.m4v', '.mov'].contains(ext)) continue;
+      final thumb = await _thumbnailFile(file);
+      if (await thumb.exists()) {
+        await thumb.delete();
+      }
+      final metadata = await _metadataFile(file);
+      if (await metadata.exists()) {
+        await metadata.delete();
+      }
+    }
+    await target.delete(recursive: true);
   }
 
   Future<Map<String, dynamic>> _readMetadata(File file) async {

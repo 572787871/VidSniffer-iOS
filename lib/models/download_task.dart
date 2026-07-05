@@ -29,6 +29,8 @@ class DownloadTask {
     this.progress = 0,
     this.status = DownloadStatus.preparing,
     this.localPath = '',
+    this.tempPath = '',
+    this.outputDirectory = '',
     this.message = '准备中',
     this.errorMessage = '',
     this.errorDetails = '',
@@ -43,6 +45,8 @@ class DownloadTask {
     this.ffmpegTime = '--',
     this.ffmpegSpeed = '--',
     this.ffmpegLog = '',
+    this.playlistDuration = Duration.zero,
+    this.elapsed = Duration.zero,
   });
 
   final String id;
@@ -50,6 +54,8 @@ class DownloadTask {
   double progress;
   DownloadStatus status;
   String localPath;
+  String tempPath;
+  String outputDirectory;
   String message;
   String errorMessage;
   String errorDetails;
@@ -64,6 +70,8 @@ class DownloadTask {
   String ffmpegTime;
   String ffmpegSpeed;
   String ffmpegLog;
+  Duration playlistDuration;
+  Duration elapsed;
 
   bool get canRetry =>
       status == DownloadStatus.failed ||

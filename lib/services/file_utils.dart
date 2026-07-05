@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../models/video_resource.dart';
+
 class FileUtils {
   static Future<Directory> videosDirectory() async {
     final docs = await getApplicationDocumentsDirectory();
@@ -18,6 +20,26 @@ class FileUtils {
     final dir = Directory(p.join(docs.path, 'thumbnails'));
     if (!await dir.exists()) {
       await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
+  static Future<Directory> videoPageDirectory(VideoResource resource) async {
+    final root = await videosDirectory();
+    final pageUrl =
+        resource.pageUrl.isNotEmpty ? resource.pageUrl : resource.url;
+    final uri = Uri.tryParse(pageUrl);
+    final host = uri?.host ?? 'video';
+    final baseTitle = resource.title.trim().isEmpty ? host : resource.title;
+    final safeTitle = safeFileName(baseTitle, fallback: host);
+    final key = stableKey(pageUrl).substring(0, 8);
+    final dir = Directory(p.join(root.path, '$safeTitle-$key'));
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    final thumbs = Directory(p.join(dir.path, 'thumbnails'));
+    if (!await thumbs.exists()) {
+      await thumbs.create(recursive: true);
     }
     return dir;
   }

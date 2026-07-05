@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/video_resource.dart';
+import '../screens/resource_preview_screen.dart';
 import '../services/file_utils.dart';
 import '../services/ui_state.dart';
 import '../services/video_sniffer.dart';
@@ -21,7 +22,7 @@ Future<void> showResourceSheet(
 
 class ResourceSheet extends StatelessWidget {
   ResourceSheet({required List<VideoResource> resources, super.key})
-    : resources = VideoSniffer().prioritizeResources(resources, limit: 50);
+      : resources = VideoSniffer().prioritizeResources(resources, limit: 50);
 
   final List<VideoResource> resources;
 
@@ -51,8 +52,8 @@ class ResourceSheet extends StatelessWidget {
               Text(
                 '可下载视频',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w900,
-                ),
+                      fontWeight: FontWeight.w900,
+                    ),
               ),
               const SizedBox(height: 6),
               Text(
@@ -265,8 +266,23 @@ class _ResourceTile extends StatelessWidget {
             style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
           ),
           const SizedBox(height: 10),
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.spaceBetween,
             children: [
+              OutlinedButton.icon(
+                onPressed: resource.isPlayable
+                    ? () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => ResourcePreviewScreen.network(
+                                resource: resource),
+                          ),
+                        )
+                    : null,
+                icon: const Icon(Icons.play_circle_outline_rounded),
+                label: const Text('预览'),
+              ),
               OutlinedButton.icon(
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: resource.url));
@@ -277,7 +293,6 @@ class _ResourceTile extends StatelessWidget {
                 icon: const Icon(Icons.copy_rounded),
                 label: const Text('复制链接'),
               ),
-              const Spacer(),
               FilledButton.icon(
                 onPressed: resource.isFragment
                     ? null
@@ -460,8 +475,8 @@ class _Badge extends StatelessWidget {
         color: danger
             ? scheme.errorContainer
             : (highlighted
-                  ? scheme.tertiaryContainer
-                  : scheme.primaryContainer),
+                ? scheme.tertiaryContainer
+                : scheme.primaryContainer),
         borderRadius: BorderRadius.circular(99),
       ),
       child: Text(
@@ -470,8 +485,8 @@ class _Badge extends StatelessWidget {
           color: danger
               ? scheme.onErrorContainer
               : (highlighted
-                    ? scheme.onTertiaryContainer
-                    : scheme.onPrimaryContainer),
+                  ? scheme.onTertiaryContainer
+                  : scheme.onPrimaryContainer),
           fontSize: 11,
           fontWeight: FontWeight.w800,
         ),

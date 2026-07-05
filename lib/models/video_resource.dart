@@ -155,7 +155,7 @@ class VideoResource {
       'pageUrl': pageUrl,
       'referer': referer,
       'userAgent': userAgent,
-      'cookie': cookie,
+      'cookie': '',
       'origin': origin,
       'size': size,
       'quality': quality,

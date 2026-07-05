@@ -117,7 +117,7 @@ class _DownloadCard extends StatelessWidget {
           if (task.resource.isMergeRequired && task.totalSegments > 0) ...[
             const SizedBox(height: 6),
             Text(
-              '分片 ${task.downloadedSegments}/${task.totalSegments} · ffmpeg time ${task.ffmpegTime} · speed ${task.ffmpegSpeed}',
+              '分片 ${task.downloadedSegments}/${task.totalSegments} · ffmpeg ${task.ffmpegTime} / ${_durationLabel(task.playlistDuration)} · speed ${task.ffmpegSpeed}x · 已用 ${_durationLabel(task.elapsed)}',
               style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
             ),
           ],
@@ -229,6 +229,14 @@ class _DownloadCard extends StatelessWidget {
   String _percent(DownloadTask task) {
     if (task.isIndeterminate) return '--';
     return '${(task.progress.clamp(0, 1) * 100).round()}%';
+  }
+
+  String _durationLabel(Duration value) {
+    if (value == Duration.zero) return '--';
+    final hours = value.inHours;
+    final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
   }
 
   void _showDetails(BuildContext context, DownloadTask task) {

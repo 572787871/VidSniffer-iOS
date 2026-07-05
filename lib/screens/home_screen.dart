@@ -11,6 +11,7 @@ import '../widgets/app_card.dart';
 import '../widgets/app_text_field.dart';
 import '../widgets/gradient_button.dart';
 import '../widgets/home_sniffer.dart';
+import 'resource_preview_screen.dart';
 import 'webview_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -613,6 +614,18 @@ class _ResourceRow extends StatelessWidget {
                     : () => state.downloadResource(resource),
                 icon: const Icon(Icons.download_rounded),
                 label: const Text('下载'),
+              ),
+              OutlinedButton.icon(
+                onPressed: resource.isPlayable
+                    ? () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => ResourcePreviewScreen.network(
+                                resource: resource),
+                          ),
+                        )
+                    : null,
+                icon: const Icon(Icons.play_circle_outline_rounded),
+                label: const Text('预览'),
               ),
               OutlinedButton.icon(
                 onPressed: () {
