@@ -40,7 +40,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final state = UiStateScope.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('本地视频库'),
+        title: const Text('已下载'),
         actions: [
           PopupMenuButton<_LibrarySort>(
             initialValue: sort,
@@ -138,9 +138,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   sites: siteEntries,
                 )
                     ? const EmptyState(
-                        icon: Icons.video_library_outlined,
-                        title: '还没有本地视频',
-                        message: '下载中和下载完成的视频都会显示在这里。',
+                        icon: Icons.folder_outlined,
+                        title: '还没有已下载视频',
+                        message: '下载完成的视频会在这里显示和播放。',
                       )
                     : _buildListForView(
                         activeTasks,

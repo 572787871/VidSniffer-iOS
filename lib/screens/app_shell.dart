@@ -3,9 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/ui_state.dart';
 import 'browser_screen.dart';
 import 'downloads_screen.dart';
-import 'home_screen.dart';
 import 'library_screen.dart';
-import 'settings_screen.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -16,11 +14,9 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   final pages = const [
-    HomeScreen(),
     BrowserScreen(),
     DownloadsScreen(),
     LibraryScreen(),
-    SettingsScreen(),
   ];
 
   @override
@@ -39,29 +35,19 @@ class _AppShellState extends State<AppShell> {
           onDestinationSelected: state.selectTab,
           destinations: const [
             NavigationDestination(
-              icon: Icon(Icons.home_outlined),
-              selectedIcon: Icon(Icons.home_rounded),
-              label: '首页',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.public_outlined),
-              selectedIcon: Icon(Icons.public_rounded),
-              label: '浏览器',
+              icon: Icon(Icons.web_asset_outlined),
+              selectedIcon: Icon(Icons.web_asset_rounded),
+              label: '窗口',
             ),
             NavigationDestination(
               icon: Icon(Icons.downloading_outlined),
               selectedIcon: Icon(Icons.downloading_rounded),
-              label: '下载 / 库',
+              label: '下载中',
             ),
             NavigationDestination(
-              icon: Icon(Icons.video_library_outlined),
-              selectedIcon: Icon(Icons.video_library_rounded),
-              label: '播放器',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.person_outline_rounded),
-              selectedIcon: Icon(Icons.person_rounded),
-              label: '我的',
+              icon: Icon(Icons.folder_outlined),
+              selectedIcon: Icon(Icons.folder_rounded),
+              label: '已下载',
             ),
           ],
         ),

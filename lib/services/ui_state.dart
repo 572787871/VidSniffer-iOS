@@ -192,7 +192,7 @@ class UiState extends ChangeNotifier {
     final task = downloadManager.createTask(resource);
     downloadManager.addTask(task);
     unawaited(downloadManager.start(task.id));
-    selectedTab = 2;
+    selectedTab = 1;
     notifyListeners();
   }
 
@@ -232,7 +232,7 @@ class UiState extends ChangeNotifier {
     if (value.isEmpty) return;
     browserOpenUrl = value;
     browserOpenRequestId++;
-    selectedTab = 1;
+    selectedTab = 0;
     notifyListeners();
   }
 

@@ -28,19 +28,19 @@ class ResourceSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final height = MediaQuery.sizeOf(context).height * 0.78;
+    final height = MediaQuery.sizeOf(context).height * 0.82;
 
     return SafeArea(
       child: SizedBox(
         height: height,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 22),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 '可下载视频',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.w900,
                     ),
               ),
@@ -51,7 +51,7 @@ class ResourceSheet extends StatelessWidget {
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               if (_groups.isEmpty)
                 _EmptyResources()
               else
@@ -69,7 +69,7 @@ class ResourceSheet extends StatelessWidget {
                             Tab(text: '分片/高级 ${_groups.fragments.length}'),
                           ],
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 12),
                         Expanded(
                           child: TabBarView(
                             children: [
@@ -173,7 +173,7 @@ class _ResourceList extends StatelessWidget {
     }
     return ListView.separated(
       itemCount: resources.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final resource = resources[index];
         return RepaintBoundary(
@@ -198,7 +198,6 @@ class _ResourceTile extends StatelessWidget {
     final host = uri?.host ?? '未知域名';
     final path = _pathLabel(uri);
     final meta = [
-      resource.displayFormat,
       resource.quality,
       if (resource.duration > Duration.zero) _durationLabel(resource.duration),
       if (resource.bitrate.isNotEmpty) resource.bitrate,
@@ -218,9 +217,9 @@ class _ResourceTile extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
       ),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -228,7 +227,7 @@ class _ResourceTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _ResourceThumb(resource: resource, label: _typeLabel(resource)),
-              const SizedBox(width: 10),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -239,7 +238,7 @@ class _ResourceTile extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 5),
                     Row(
                       children: [
                         Expanded(
@@ -260,12 +259,20 @@ class _ResourceTile extends StatelessWidget {
                         ],
                       ],
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 5),
                     Text(
-                      '${_siteLabel(host)} · ${_sourceLabel(resource.source)}',
+                      '来源网站：${_siteLabel(host)}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(color: scheme.onSurfaceVariant),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '来源方式：${_sourceLabel(resource.source)}${resource.playerId.isEmpty ? '' : ' · 播放器 ${resource.playerId}'}',
+                      style: TextStyle(
+                        color: scheme.onSurfaceVariant,
+                        fontSize: 12,
+                      ),
                     ),
                     if (resource.codec.isNotEmpty) ...[
                       const SizedBox(height: 3),
@@ -284,20 +291,20 @@ class _ResourceTile extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           Text(
             path,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Wrap(
-            spacing: 7,
-            runSpacing: 7,
+            spacing: 8,
+            runSpacing: 8,
             alignment: WrapAlignment.spaceBetween,
             children: [
-              _SheetActionButton(
+              OutlinedButton.icon(
                 onPressed: resource.isPlayable
                     ? () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
@@ -307,9 +314,9 @@ class _ResourceTile extends StatelessWidget {
                         )
                     : null,
                 icon: const Icon(Icons.play_circle_outline_rounded),
-                label: '预览',
+                label: const Text('预览'),
               ),
-              _SheetActionButton(
+              OutlinedButton.icon(
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: resource.url));
                   ScaffoldMessenger.of(
@@ -317,10 +324,9 @@ class _ResourceTile extends StatelessWidget {
                   ).showSnackBar(const SnackBar(content: Text('已复制真实资源链接')));
                 },
                 icon: const Icon(Icons.copy_rounded),
-                label: '复制',
+                label: const Text('复制链接'),
               ),
-              _SheetActionButton(
-                filled: true,
+              FilledButton.icon(
                 onPressed: resource.isFragment
                     ? null
                     : () async {
@@ -331,7 +337,7 @@ class _ResourceTile extends StatelessWidget {
                         Navigator.pop(context);
                       },
                 icon: const Icon(Icons.download_rounded),
-                label: '下载',
+                label: const Text('下载'),
               ),
             ],
           ),
@@ -454,8 +460,8 @@ class _ResourceThumb extends StatelessWidget {
         children: [
           Image.network(
             thumb,
-            width: 68,
-            height: 50,
+            width: 76,
+            height: 54,
             fit: BoxFit.cover,
             errorBuilder: (_, __, ___) => _TypePill(label: label),
           ),
@@ -489,10 +495,8 @@ class _TypePill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 62,
-      height: 48,
-      alignment: Alignment.center,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      width: 64,
+      padding: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [Color(0xff2563eb), Color(0xff7c3aed)],
@@ -509,47 +513,5 @@ class _TypePill extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _SheetActionButton extends StatelessWidget {
-  const _SheetActionButton({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-    this.filled = false,
-  });
-
-  final Widget icon;
-  final String label;
-  final VoidCallback? onPressed;
-  final bool filled;
-
-  @override
-  Widget build(BuildContext context) {
-    final baseStyle =
-        filled ? FilledButton.styleFrom() : OutlinedButton.styleFrom();
-    final style = baseStyle.copyWith(
-      minimumSize: const WidgetStatePropertyAll(Size(0, 34)),
-      padding: const WidgetStatePropertyAll(
-        EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      ),
-      textStyle: const WidgetStatePropertyAll(
-        TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
-      ),
-      visualDensity: VisualDensity.compact,
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    );
-    final child = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconTheme.merge(data: const IconThemeData(size: 16), child: icon),
-        const SizedBox(width: 4),
-        Text(label),
-      ],
-    );
-    return filled
-        ? FilledButton(onPressed: onPressed, style: style, child: child)
-        : OutlinedButton(onPressed: onPressed, style: style, child: child);
   }
 }

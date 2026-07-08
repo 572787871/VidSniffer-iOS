@@ -34,7 +34,7 @@ class _VideoDownloaderAppState extends State<VideoDownloaderApp> {
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light(),
         darkTheme: AppTheme.dark(),
-        themeMode: ThemeMode.system,
+        themeMode: ThemeMode.light,
         home: const AppShell(),
       ),
     );
