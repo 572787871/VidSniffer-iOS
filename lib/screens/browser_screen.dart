@@ -148,210 +148,370 @@ class _BrowserScreenState extends State<BrowserScreen>
         if (mounted) unawaited(_loadUrl(url));
       });
     }
-    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
-            Container(
-              padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
-              color: scheme.surface,
-              child: Column(
+            _BrowserTopBar(
+              controller: addressController,
+              canGoBack: canGoBack,
+              canGoForward: canGoForward,
+              loading: loading,
+              tabCount: browser.history.length.clamp(1, 99).toInt(),
+              onHome: () => _loadUrl(browser.homeUrl),
+              onBack: _goBack,
+              onForward: _goForward,
+              onSubmit: _loadUrl,
+              onStopOrReload: loading ? _stopLoading : _reload,
+              onMenu: _showBrowserMenu,
+            ),
+            if (loading || deepSniffing)
+              LinearProgressIndicator(
+                value: deepSniffing ? null : (progress <= 0 ? null : progress / 100),
+                minHeight: 2,
+              ),
+            Expanded(
+              child: Stack(
                 children: [
-                  Row(
-                    children: [
-                      IconButton(
-                        tooltip: '返回',
-                        onPressed: canGoBack ? _goBack : null,
-                        icon: const Icon(Icons.chevron_left_rounded),
-                      ),
-                      IconButton(
-                        tooltip: '前进',
-                        onPressed: canGoForward ? _goForward : null,
-                        icon: const Icon(Icons.chevron_right_rounded),
-                      ),
-                      Expanded(
-                        child: TextField(
-                          controller: addressController,
-                          minLines: 1,
-                          maxLines: 1,
-                          textInputAction: TextInputAction.go,
-                          decoration: InputDecoration(
-                            isDense: true,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                            prefixIcon: const Icon(Icons.language_rounded),
-                            prefixIconConstraints: const BoxConstraints(
-                              minWidth: 38,
-                              minHeight: 38,
-                            ),
-                            hintText: '输入网址',
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(18),
-                              borderSide: BorderSide.none,
-                            ),
-                            filled: true,
-                            fillColor: scheme.surfaceContainerHighest
-                                .withValues(alpha: 0.65),
-                          ),
-                          onSubmitted: _loadUrl,
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: loading ? '停止加载' : '刷新',
-                        onPressed: loading ? _stopLoading : _reload,
-                        icon: Icon(
-                          loading ? Icons.close_rounded : Icons.refresh_rounded,
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: '主页',
-                        onPressed: () => _loadUrl(browser.homeUrl),
-                        icon: const Icon(Icons.home_rounded),
-                      ),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          pageTitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: scheme.onSurfaceVariant,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                      TextButton.icon(
-                        onPressed:
-                            resources.isEmpty ? null : () => _openResources(),
-                        icon: const Icon(Icons.playlist_play_rounded),
-                        label: Text('发现 ${resources.length}'),
-                      ),
-                      IconButton(
-                        tooltip: browser.bookmarks.contains(currentUrl)
-                            ? '取消收藏'
-                            : '收藏书签',
-                        onPressed: () {
-                          setState(() => browser.toggleBookmark(currentUrl));
-                        },
-                        icon: Icon(
-                          browser.bookmarks.contains(currentUrl)
-                              ? Icons.star_rounded
-                              : Icons.star_border_rounded,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (loading || deepSniffing)
-                    LinearProgressIndicator(
-                      value: deepSniffing
-                          ? null
-                          : (progress <= 0 ? null : progress / 100),
-                      minHeight: 2,
+                  Positioned.fill(
+                    child: InAppWebView(
+                      key: const PageStorageKey('browser-webview'),
+                      initialUrlRequest: URLRequest(url: WebUri(currentUrl)),
+                      initialSettings: _settings(deep: false),
+                      onWebViewCreated: _onWebViewCreated,
+                      onLoadStart: (controller, url) {
+                        final next = url?.toString() ?? currentUrl;
+                        setState(() {
+                          currentUrl = next;
+                          addressController.text = next;
+                          loading = true;
+                          progress = 0;
+                          resources = const [];
+                        });
+                        browser.remember(next);
+                        browserSniffer.reset(next);
+                      },
+                      onLoadStop: (controller, url) async {
+                        currentUrl = url?.toString() ?? currentUrl;
+                        await _syncBrowserState();
+                        await _injectLightHooks();
+                        await _scanCurrentVideos();
+                      },
+                      onProgressChanged: (controller, value) {
+                        if (!mounted) return;
+                        setState(() {
+                          progress = value;
+                          loading = value < 100;
+                        });
+                      },
+                      onTitleChanged: (controller, title) {
+                        if (!mounted) return;
+                        final nextTitle = title?.trim() ?? '';
+                        if (nextTitle.isNotEmpty) {
+                          setState(() => pageTitle = nextTitle);
+                        }
+                      },
+                      onUpdateVisitedHistory: (controller, url, _) {
+                        final next = url?.toString();
+                        if (next == null) return;
+                        setState(() {
+                          currentUrl = next;
+                          addressController.text = next;
+                        });
+                        browser.remember(next);
+                        browserSniffer.updatePageUrl(next);
+                      },
+                      onLoadResource: (controller, resource) {
+                        if (!deepSniffing) return;
+                        _capture(resource.url.toString(), 'resource');
+                      },
+                      shouldInterceptRequest: (controller, request) async {
+                        if (deepSniffing) {
+                          _capture(request.url.toString(), 'resource');
+                        }
+                        return null;
+                      },
+                      shouldInterceptFetchRequest: (controller, request) async {
+                        if (deepSniffing) {
+                          final url = request.url?.toString();
+                          if (url != null) _capture(url, 'fetch');
+                        }
+                        return request;
+                      },
+                      shouldInterceptAjaxRequest: (controller, request) async {
+                        if (deepSniffing) {
+                          final url = request.url?.toString();
+                          if (url != null) _capture(url, 'xhr');
+                        }
+                        return request;
+                      },
                     ),
+                  ),
+                  Positioned(
+                    left: 14,
+                    right: 14,
+                    bottom: 12,
+                    child: _BrowserFoundBar(
+                      count: resources.length,
+                      deepSniffing: deepSniffing,
+                      onOpenResources:
+                          resources.isEmpty ? null : _openResources,
+                      onParse: deepSniffing ? null : _autoParsePage,
+                    ),
+                  ),
                 ],
               ),
             ),
-            Expanded(
-              child: InAppWebView(
-                key: const PageStorageKey('browser-webview'),
-                initialUrlRequest: URLRequest(url: WebUri(currentUrl)),
-                initialSettings: _settings(deep: false),
-                onWebViewCreated: _onWebViewCreated,
-                onLoadStart: (controller, url) {
-                  final next = url?.toString() ?? currentUrl;
-                  setState(() {
-                    currentUrl = next;
-                    addressController.text = next;
-                    loading = true;
-                    progress = 0;
-                    resources = const [];
-                  });
-                  browser.remember(next);
-                  browserSniffer.reset(next);
-                },
-                onLoadStop: (controller, url) async {
-                  currentUrl = url?.toString() ?? currentUrl;
-                  await _syncBrowserState();
-                  await _injectLightHooks();
-                  await _scanCurrentVideos();
-                },
-                onProgressChanged: (controller, value) {
-                  if (!mounted) return;
-                  setState(() {
-                    progress = value;
-                    loading = value < 100;
-                  });
-                },
-                onTitleChanged: (controller, title) {
-                  if (!mounted) return;
-                  final nextTitle = title?.trim() ?? '';
-                  if (nextTitle.isNotEmpty) {
-                    setState(() => pageTitle = nextTitle);
-                  }
-                },
-                onUpdateVisitedHistory: (controller, url, _) {
-                  final next = url?.toString();
-                  if (next == null) return;
-                  setState(() {
-                    currentUrl = next;
-                    addressController.text = next;
-                  });
-                  browser.remember(next);
-                  browserSniffer.updatePageUrl(next);
-                },
-                onLoadResource: (controller, resource) {
-                  if (!deepSniffing) return;
-                  _capture(resource.url.toString(), 'resource');
-                },
-                shouldInterceptRequest: (controller, request) async {
-                  if (deepSniffing) {
-                    _capture(request.url.toString(), 'resource');
-                  }
-                  return null;
-                },
-                shouldInterceptFetchRequest: (controller, request) async {
-                  if (deepSniffing) {
-                    final url = request.url?.toString();
-                    if (url != null) _capture(url, 'fetch');
-                  }
-                  return request;
-                },
-                shouldInterceptAjaxRequest: (controller, request) async {
-                  if (deepSniffing) {
-                    final url = request.url?.toString();
-                    if (url != null) _capture(url, 'xhr');
-                  }
-                  return request;
-                },
-              ),
+            _BrowserBottomBar(
+              canGoBack: canGoBack,
+              canGoForward: canGoForward,
+              bookmarked: browser.bookmarks.contains(currentUrl),
+              loading: loading,
+              onBack: _goBack,
+              onForward: _goForward,
+              onReload: loading ? _stopLoading : _reload,
+              onTabs: _showHistory,
+              onBookmark: () {
+                setState(() => browser.toggleBookmark(currentUrl));
+              },
             ),
           ],
         ),
       ),
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          if (resources.isNotEmpty)
-            _FoundVideoChip(
-              count: resources.length,
-              onTap: _openResources,
+    );
+  }
+
+  Future<void> _showBrowserMenu() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.tune_rounded),
+              title: const Text('解析设置'),
+              subtitle: const Text('智能模式、全量模式和资源类型过滤'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _showParseSettings();
+              },
             ),
-          if (resources.isNotEmpty) const SizedBox(height: 8),
-          FloatingActionButton.extended(
-            onPressed: deepSniffing ? null : _autoParsePage,
-            icon:
-                Icon(deepSniffing ? Icons.radar_rounded : Icons.search_rounded),
-            label: Text(deepSniffing ? '解析中' : '自动解析'),
-          ),
-        ],
+            ListTile(
+              leading: const Icon(Icons.radar_rounded),
+              title: const Text('自动解析整页'),
+              subtitle: const Text('开启深度嗅探 5 秒后展示资源'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                unawaited(_autoParsePage());
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.history_rounded),
+              title: const Text('历史记录'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _showHistory();
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                browser.bookmarks.contains(currentUrl)
+                    ? Icons.star_rounded
+                    : Icons.star_border_rounded,
+              ),
+              title: Text(
+                browser.bookmarks.contains(currentUrl) ? '取消收藏' : '收藏书签',
+              ),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                setState(() => browser.toggleBookmark(currentUrl));
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showHistory() async {
+    final history = browser.history.take(20).toList(growable: false);
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(
+              title: Text(
+                '历史记录',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ),
+            if (history.isEmpty)
+              const ListTile(title: Text('暂无历史记录'))
+            else
+              for (final url in history)
+                ListTile(
+                  leading: const Icon(Icons.public_rounded),
+                  title: Text(
+                    Uri.tryParse(url)?.host ?? url,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    url,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    unawaited(_loadUrl(url));
+                  },
+                ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showParseSettings() async {
+    var smartMode = true;
+    var video = true;
+    var audio = true;
+    var images = false;
+    var live = true;
+    var xhr = true;
+    var mediaSource = true;
+    var mergeM3u8 = true;
+    var filterAds = true;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => Navigator.pop(sheetContext),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                      const Expanded(
+                        child: Text(
+                          '解析设置',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 48),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  const _SettingsLabel('解析模式'),
+                  _ModeOption(
+                    title: '智能模式（推荐）',
+                    subtitle: '自动检测视频，性能更好',
+                    selected: smartMode,
+                    onTap: () => setSheetState(() => smartMode = true),
+                  ),
+                  const SizedBox(height: 8),
+                  _ModeOption(
+                    title: '全量模式',
+                    subtitle: '深度扫描页面资源',
+                    selected: !smartMode,
+                    onTap: () => setSheetState(() => smartMode = false),
+                  ),
+                  const SizedBox(height: 18),
+                  const _SettingsLabel('资源类型'),
+                  _SwitchRow(
+                    title: '视频（mp4, m3u8, webm）',
+                    value: video,
+                    onChanged: (value) => setSheetState(() => video = value),
+                  ),
+                  _SwitchRow(
+                    title: '音频（mp3, m4a, aac）',
+                    value: audio,
+                    onChanged: (value) => setSheetState(() => audio = value),
+                  ),
+                  _SwitchRow(
+                    title: '图片',
+                    value: images,
+                    onChanged: (value) => setSheetState(() => images = value),
+                  ),
+                  _SwitchRow(
+                    title: '直播流（m3u8, flv）',
+                    value: live,
+                    onChanged: (value) => setSheetState(() => live = value),
+                  ),
+                  const SizedBox(height: 18),
+                  const _SettingsLabel('高级选项'),
+                  _SwitchRow(
+                    title: '捕获 XHR / Fetch',
+                    value: xhr,
+                    onChanged: (value) => setSheetState(() => xhr = value),
+                  ),
+                  _SwitchRow(
+                    title: '捕获 Media Source',
+                    value: mediaSource,
+                    onChanged: (value) =>
+                        setSheetState(() => mediaSource = value),
+                  ),
+                  _SwitchRow(
+                    title: '自动合并 m3u8',
+                    value: mergeM3u8,
+                    onChanged: (value) => setSheetState(() => mergeM3u8 = value),
+                  ),
+                  _SwitchRow(
+                    title: '过滤广告和跟踪',
+                    value: filterAds,
+                    onChanged: (value) => setSheetState(() => filterAds = value),
+                  ),
+                  const SizedBox(height: 18),
+                  _SettingsActionRow(
+                    title: '最大捕获时间',
+                    value: '5 秒',
+                    onTap: () {},
+                  ),
+                  _SettingsActionRow(
+                    title: '清除缓存',
+                    value: '',
+                    onTap: () {
+                      setState(() => resources = const []);
+                      Navigator.pop(sheetContext);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('已清除当前页面资源缓存')),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () {
+                        Navigator.pop(sheetContext);
+                        if (!smartMode) unawaited(_autoParsePage());
+                      },
+                      child: const Text('保存设置'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -940,42 +1100,355 @@ class BrowserCandidate {
   final List<String> relatedUrls;
 }
 
-class _FoundVideoChip extends StatelessWidget {
-  const _FoundVideoChip({required this.count, required this.onTap});
+class _BrowserTopBar extends StatelessWidget {
+  const _BrowserTopBar({
+    required this.controller,
+    required this.canGoBack,
+    required this.canGoForward,
+    required this.loading,
+    required this.tabCount,
+    required this.onHome,
+    required this.onBack,
+    required this.onForward,
+    required this.onSubmit,
+    required this.onStopOrReload,
+    required this.onMenu,
+  });
+
+  final TextEditingController controller;
+  final bool canGoBack;
+  final bool canGoForward;
+  final bool loading;
+  final int tabCount;
+  final VoidCallback onHome;
+  final VoidCallback onBack;
+  final VoidCallback onForward;
+  final ValueChanged<String> onSubmit;
+  final VoidCallback onStopOrReload;
+  final VoidCallback onMenu;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: '主页',
+            onPressed: onHome,
+            icon: const Icon(Icons.home_outlined),
+            visualDensity: VisualDensity.compact,
+          ),
+          IconButton(
+            tooltip: '返回',
+            onPressed: canGoBack ? onBack : null,
+            icon: const Icon(Icons.arrow_back_ios_new_rounded),
+            visualDensity: VisualDensity.compact,
+          ),
+          IconButton(
+            tooltip: '前进',
+            onPressed: canGoForward ? onForward : null,
+            icon: const Icon(Icons.arrow_forward_ios_rounded),
+            visualDensity: VisualDensity.compact,
+          ),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              minLines: 1,
+              maxLines: 1,
+              textInputAction: TextInputAction.go,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+              decoration: InputDecoration(
+                isDense: true,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                prefixIcon: const Icon(Icons.lock_outline_rounded, size: 18),
+                prefixIconConstraints: const BoxConstraints(
+                  minWidth: 34,
+                  minHeight: 34,
+                ),
+                hintText: '输入网址',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  borderSide: BorderSide.none,
+                ),
+                filled: true,
+                fillColor:
+                    scheme.surfaceContainerHighest.withValues(alpha: 0.66),
+              ),
+              onSubmitted: onSubmit,
+            ),
+          ),
+          const SizedBox(width: 4),
+          InkWell(
+            onTap: () {},
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              width: 28,
+              height: 28,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: scheme.outlineVariant),
+              ),
+              child: Text(
+                '$tabCount',
+                style: TextStyle(
+                  color: scheme.primary,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: loading ? '停止加载' : '刷新',
+            onPressed: onStopOrReload,
+            icon: Icon(loading ? Icons.close_rounded : Icons.refresh_rounded),
+            visualDensity: VisualDensity.compact,
+          ),
+          IconButton(
+            tooltip: '更多',
+            onPressed: onMenu,
+            icon: const Icon(Icons.more_vert_rounded),
+            visualDensity: VisualDensity.compact,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BrowserFoundBar extends StatelessWidget {
+  const _BrowserFoundBar({
+    required this.count,
+    required this.deepSniffing,
+    required this.onOpenResources,
+    required this.onParse,
+  });
 
   final int count;
+  final bool deepSniffing;
+  final VoidCallback? onOpenResources;
+  final VoidCallback? onParse;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      elevation: 8,
+      color: scheme.surface.withValues(alpha: 0.92),
+      borderRadius: BorderRadius.circular(18),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+        child: Row(
+          children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: count > 0 ? Colors.greenAccent.shade400 : scheme.outline,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: InkWell(
+                onTap: onOpenResources,
+                child: Text(
+                  count > 0 ? '发现 $count 个视频' : '播放视频后可长按解析',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: onParse,
+              child: Text(deepSniffing ? '解析中' : '解析页面'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BrowserBottomBar extends StatelessWidget {
+  const _BrowserBottomBar({
+    required this.canGoBack,
+    required this.canGoForward,
+    required this.bookmarked,
+    required this.loading,
+    required this.onBack,
+    required this.onForward,
+    required this.onReload,
+    required this.onTabs,
+    required this.onBookmark,
+  });
+
+  final bool canGoBack;
+  final bool canGoForward;
+  final bool bookmarked;
+  final bool loading;
+  final VoidCallback onBack;
+  final VoidCallback onForward;
+  final VoidCallback onReload;
+  final VoidCallback onTabs;
+  final VoidCallback onBookmark;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 6, 18, 8),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        border: Border(top: BorderSide(color: scheme.outlineVariant)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          IconButton(
+            tooltip: '返回',
+            onPressed: canGoBack ? onBack : null,
+            icon: const Icon(Icons.chevron_left_rounded),
+          ),
+          IconButton(
+            tooltip: '前进',
+            onPressed: canGoForward ? onForward : null,
+            icon: const Icon(Icons.chevron_right_rounded),
+          ),
+          IconButton(
+            tooltip: loading ? '停止加载' : '刷新',
+            onPressed: onReload,
+            icon: Icon(loading ? Icons.stop_rounded : Icons.refresh_rounded),
+          ),
+          IconButton(
+            tooltip: '历史记录',
+            onPressed: onTabs,
+            icon: const Icon(Icons.crop_square_rounded),
+          ),
+          IconButton(
+            tooltip: bookmarked ? '取消收藏' : '收藏',
+            onPressed: onBookmark,
+            icon: Icon(bookmarked ? Icons.star_rounded : Icons.star_border_rounded),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsLabel extends StatelessWidget {
+  const _SettingsLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        text,
+        style: const TextStyle(fontWeight: FontWeight.w900),
+      ),
+    );
+  }
+}
+
+class _ModeOption extends StatelessWidget {
+  const _ModeOption({
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: scheme.primaryContainer,
-      borderRadius: BorderRadius.circular(999),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(999),
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+      borderRadius: BorderRadius.circular(16),
+      child: ListTile(
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.play_circle_outline_rounded,
-                size: 18,
-                color: scheme.onPrimaryContainer,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '已发现 $count 个视频',
-                style: TextStyle(
-                  color: scheme.onPrimaryContainer,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ],
-          ),
+        leading: Icon(
+          selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+          color: selected ? scheme.primary : scheme.onSurfaceVariant,
         ),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: Text(subtitle),
+      ),
+    );
+  }
+}
+
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({
+    required this.title,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String title;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 1),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.42),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: SwitchListTile(
+        dense: true,
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        value: value,
+        onChanged: onChanged,
+      ),
+    );
+  }
+}
+
+class _SettingsActionRow extends StatelessWidget {
+  const _SettingsActionRow({
+    required this.title,
+    required this.value,
+    required this.onTap,
+  });
+
+  final String title;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.42),
+      borderRadius: BorderRadius.circular(12),
+      child: ListTile(
+        dense: true,
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (value.isNotEmpty)
+              Text(value, style: TextStyle(color: scheme.onSurfaceVariant)),
+            const Icon(Icons.chevron_right_rounded),
+          ],
+        ),
+        onTap: onTap,
       ),
     );
   }

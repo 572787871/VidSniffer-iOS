@@ -51,17 +51,17 @@ class _AppShellState extends State<AppShell> {
             NavigationDestination(
               icon: Icon(Icons.downloading_outlined),
               selectedIcon: Icon(Icons.downloading_rounded),
-              label: '下载',
+              label: '下载 / 库',
             ),
             NavigationDestination(
               icon: Icon(Icons.video_library_outlined),
               selectedIcon: Icon(Icons.video_library_rounded),
-              label: '视频库',
+              label: '播放器',
             ),
             NavigationDestination(
-              icon: Icon(Icons.settings_outlined),
-              selectedIcon: Icon(Icons.settings_rounded),
-              label: '设置',
+              icon: Icon(Icons.person_outline_rounded),
+              selectedIcon: Icon(Icons.person_rounded),
+              label: '我的',
             ),
           ],
         ),

@@ -23,11 +23,14 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final controller = TextEditingController();
+  final scrollController = ScrollController();
+  final recentKey = GlobalKey();
   String? sniffUrl;
   int sniffRequestId = 0;
 
   @override
   void dispose() {
+    scrollController.dispose();
     controller.dispose();
     super.dispose();
   }
@@ -36,34 +39,15 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final state = UiStateScope.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('视频解析下载')),
       body: Stack(
         children: [
           AnimatedBuilder(
             animation: state,
             builder: (context, _) => ListView(
-              padding: const EdgeInsets.fromLTRB(18, 10, 18, 96),
+              controller: scrollController,
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 96),
               children: [
-                _HeroPanel(),
-                const SizedBox(height: 14),
-                AppCard(
-                  padding: const EdgeInsets.all(14),
-                  child: Row(
-                    children: [
-                      _StatItem(label: '视频数量', value: '${state.videos.length}'),
-                      _StatItem(
-                        label: '总容量',
-                        value: _formatBytes(
-                          state.videos.fold<int>(
-                            0,
-                            (sum, item) => sum + item.size,
-                          ),
-                        ),
-                      ),
-                      _StatItem(label: '今日下载', value: '${_todayCount(state)}'),
-                    ],
-                  ),
-                ),
+                const _HomeHeader(),
                 const SizedBox(height: 14),
                 AppCard(
                   padding: const EdgeInsets.all(14),
@@ -98,15 +82,40 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(height: 12),
                         _SnifferStatusBar(state: state),
                       ],
+                      const SizedBox(height: 14),
+                      _QuickEntryGrid(
+                        onBrowser: () {
+                          final url = controller.text.trim();
+                          state.openInBrowser(
+                            url.isEmpty ? 'https://www.google.com' : url,
+                          );
+                        },
+                        onDownloads: () => state.selectTab(2),
+                        onLibrary: () => state.selectTab(3),
+                        onHistory: _scrollToRecent,
+                      ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 20),
-                Text(
-                  '最近解析',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
+                Row(
+                  key: recentKey,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '最近解析',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w900,
+                            ),
                       ),
+                    ),
+                    TextButton(
+                      onPressed: state.recentParses.isEmpty
+                          ? null
+                          : () => state.selectTab(1),
+                      child: const Text('更多'),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
                 if (state.recentParses.isEmpty)
@@ -194,60 +203,174 @@ class _HomeScreenState extends State<HomeScreen> {
     UiStateScope.of(context).openInBrowser(value);
   }
 
-  int _todayCount(UiState state) {
-    final now = DateTime.now();
-    return state.videos.where((item) {
-      final value = item.modifiedAt;
-      return value.year == now.year &&
-          value.month == now.month &&
-          value.day == now.day;
-    }).length;
-  }
-
-  String _formatBytes(int value) {
-    if (value < 1024) return '$value B';
-    if (value < 1024 * 1024) return '${(value / 1024).toStringAsFixed(1)} KB';
-    if (value < 1024 * 1024 * 1024) {
-      return '${(value / 1024 / 1024).toStringAsFixed(1)} MB';
-    }
-    return '${(value / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';
+  void _scrollToRecent() {
+    final context = recentKey.currentContext;
+    if (context == null) return;
+    Scrollable.ensureVisible(
+      context,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
   }
 }
 
-class _HeroPanel extends StatelessWidget {
+class _HomeHeader extends StatelessWidget {
+  const _HomeHeader();
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: AppTheme.primaryGradient,
-        borderRadius: BorderRadius.circular(28),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    final scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      bottom: false,
+      child: Row(
         children: [
-          const Icon(
-            Icons.play_circle_fill_rounded,
-            color: Colors.white,
-            size: 42,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            '解析网页视频，保存到本地',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              gradient: AppTheme.primaryGradient,
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: scheme.primary.withValues(alpha: 0.22),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
                 ),
+              ],
+            ),
+            child: const Icon(Icons.travel_explore_rounded, color: Colors.white),
           ),
-          const SizedBox(height: 8),
-          Text(
-            '在首页后台嗅探资源。发现 mp4/m3u8 后可直接下载。',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.86),
-              height: 1.35,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'VidSniffer Pro',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                  ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: scheme.primaryContainer.withValues(alpha: 0.64),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: scheme.primary.withValues(alpha: 0.32)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.workspace_premium_rounded,
+                    size: 15, color: scheme.primary),
+                const SizedBox(width: 4),
+                Text(
+                  'PRO',
+                  style: TextStyle(
+                    color: scheme.primary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _QuickEntryGrid extends StatelessWidget {
+  const _QuickEntryGrid({
+    required this.onBrowser,
+    required this.onDownloads,
+    required this.onLibrary,
+    required this.onHistory,
+  });
+
+  final VoidCallback onBrowser;
+  final VoidCallback onDownloads;
+  final VoidCallback onLibrary;
+  final VoidCallback onHistory;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _QuickEntryTile(
+            icon: Icons.explore_rounded,
+            label: '浏览器',
+            onTap: onBrowser,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _QuickEntryTile(
+            icon: Icons.download_rounded,
+            label: '下载',
+            onTap: onDownloads,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _QuickEntryTile(
+            icon: Icons.video_library_rounded,
+            label: '视频库',
+            onTap: onLibrary,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _QuickEntryTile(
+            icon: Icons.history_rounded,
+            label: '解析记录',
+            onTap: onHistory,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _QuickEntryTile extends StatelessWidget {
+  const _QuickEntryTile({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.46),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+          child: Column(
+            children: [
+              Icon(icon, color: scheme.primary, size: 22),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -506,7 +629,8 @@ class _ResourceSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (resources.isEmpty) return const SizedBox.shrink();
-    final visibleCount = resources.length > 8 ? 8 : resources.length;
+    final visibleCount = resources.length > 5 ? 5 : resources.length;
+    final scheme = Theme.of(context).colorScheme;
     return Theme(
       data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
       child: ExpansionTile(
@@ -515,9 +639,30 @@ class _ResourceSection extends StatelessWidget {
         childrenPadding: EdgeInsets.zero,
         shape: const Border(),
         collapsedShape: const Border(),
-        title: Text(
-          '$title ${resources.length}',
-          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: scheme.primaryContainer.withValues(alpha: 0.68),
+                borderRadius: BorderRadius.circular(99),
+              ),
+              child: Text(
+                '${resources.length} 个资源',
+                style: TextStyle(
+                  color: scheme.onPrimaryContainer,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
         ),
         children: [
           ListView.separated(
@@ -556,118 +701,115 @@ class _ResourceRow extends StatelessWidget {
       if (resource.duration > Duration.zero) _durationLabel(resource.duration),
       resource.size,
     ].where((item) => item.isNotEmpty && item != '未知').join(' · ');
-    final badges = [
-      if (resource.isCurrentPlayback) '当前播放',
-      if (resource.isAdSuspect)
-        '广告嫌疑'
-      else if (resource.recommendation.isNotEmpty)
-        resource.recommendation
-      else
-        '可能的视频资源',
-    ];
+    final flag = resource.isCurrentPlayback
+        ? '当前播放'
+        : (resource.isAdSuspect
+            ? '广告嫌疑'
+            : (resource.recommendation.isNotEmpty ? '推荐' : ''));
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.48),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _ResourceThumb(resource: resource),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          _ResourceThumb(resource: resource),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Text(
-                      resource.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      meta.isEmpty ? resource.displayFormat : meta,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: scheme.onSurfaceVariant),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '$host · ${_sourceLabel(resource.source)}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: scheme.onSurfaceVariant,
-                        fontSize: 12,
+                    Expanded(
+                      child: Text(
+                        resource.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
                       ),
                     ),
+                    if (flag.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        flag,
+                        style: TextStyle(
+                          color: resource.isAdSuspect
+                              ? scheme.error
+                              : scheme.primary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (final badge in badges.take(2))
-                _Badge(label: badge, danger: badge == '广告嫌疑'),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 7,
-            runSpacing: 7,
-            children: [
-              _MiniActionButton(
-                filled: true,
-                onPressed: resource.isFragment
-                    ? null
-                    : () async {
-                        final selected =
-                            await showDownloadConfirmDialog(context, resource);
-                        if (selected == null || !context.mounted) return;
-                        state.downloadResource(selected);
-                      },
-                icon: const Icon(Icons.download_rounded),
-                label: '下载',
-              ),
-              _MiniActionButton(
-                onPressed: resource.isPlayable
-                    ? () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => ResourcePreviewScreen.network(
-                                resource: resource),
-                          ),
-                        )
-                    : null,
-                icon: const Icon(Icons.play_circle_outline_rounded),
-                label: '预览',
-              ),
-              _MiniActionButton(
-                onPressed: () {
-                  Clipboard.setData(ClipboardData(text: resource.url));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('已复制真实资源链接')),
-                  );
-                },
-                icon: const Icon(Icons.copy_rounded),
-                label: '复制',
-              ),
-              _MiniActionButton(
-                onPressed: () => state.openInBrowser(
-                  pageUrl.isNotEmpty ? pageUrl : resource.pageUrl,
+                const SizedBox(height: 4),
+                Text(
+                  meta.isEmpty ? resource.displayFormat : meta,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
                 ),
-                icon: const Icon(Icons.language_rounded),
-                label: '浏览器',
-              ),
+                const SizedBox(height: 3),
+                Text(
+                  '$host · ${_sourceLabel(resource.source)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          _CompactIconButton(
+            tooltip: '预览',
+            icon: Icons.play_arrow_rounded,
+            onPressed: resource.isPlayable
+                ? () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            ResourcePreviewScreen.network(resource: resource),
+                      ),
+                    )
+                : null,
+          ),
+          const SizedBox(width: 6),
+          _CompactIconButton(
+            tooltip: '下载',
+            icon: Icons.download_rounded,
+            filled: true,
+            onPressed: resource.isFragment
+                ? null
+                : () async {
+                    final selected =
+                        await showDownloadConfirmDialog(context, resource);
+                    if (selected == null || !context.mounted) return;
+                    state.downloadResource(selected);
+                  },
+          ),
+          PopupMenuButton<String>(
+            tooltip: '更多',
+            iconSize: 20,
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'copy', child: Text('复制链接')),
+              PopupMenuItem(value: 'browser', child: Text('进入浏览器')),
             ],
+            onSelected: (value) {
+              if (value == 'copy') {
+                Clipboard.setData(ClipboardData(text: resource.url));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('已复制真实资源链接')),
+                );
+              } else {
+                state.openInBrowser(pageUrl.isNotEmpty ? pageUrl : resource.pageUrl);
+              }
+            },
           ),
         ],
       ),
@@ -688,6 +830,48 @@ class _ResourceRow extends StatelessWidget {
     final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
     final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
     return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
+  }
+}
+
+class _CompactIconButton extends StatelessWidget {
+  const _CompactIconButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+    this.filled = false,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: 38,
+      height: 38,
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        icon: Icon(icon, size: 19),
+        style: IconButton.styleFrom(
+          backgroundColor: filled
+              ? scheme.primary
+              : scheme.surfaceContainerHighest.withValues(alpha: 0.72),
+          foregroundColor: filled ? scheme.onPrimary : scheme.primary,
+          disabledBackgroundColor:
+              scheme.surfaceContainerHighest.withValues(alpha: 0.42),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(13),
+            side: filled
+                ? BorderSide.none
+                : BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+              ),
+        ),
+      ),
+    );
   }
 }
 
@@ -742,105 +926,6 @@ class _TypeBox extends StatelessWidget {
           fontWeight: FontWeight.w900,
           fontSize: 11,
         ),
-      ),
-    );
-  }
-}
-
-class _MiniActionButton extends StatelessWidget {
-  const _MiniActionButton({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-    this.filled = false,
-  });
-
-  final Widget icon;
-  final String label;
-  final VoidCallback? onPressed;
-  final bool filled;
-
-  @override
-  Widget build(BuildContext context) {
-    final baseStyle =
-        filled ? FilledButton.styleFrom() : OutlinedButton.styleFrom();
-    final style = baseStyle.copyWith(
-      minimumSize: const WidgetStatePropertyAll(Size(0, 34)),
-      padding: const WidgetStatePropertyAll(
-        EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      ),
-      textStyle: const WidgetStatePropertyAll(
-        TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
-      ),
-      visualDensity: VisualDensity.compact,
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    );
-    final child = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconTheme.merge(data: const IconThemeData(size: 16), child: icon),
-        const SizedBox(width: 4),
-        Text(label),
-      ],
-    );
-    return filled
-        ? FilledButton(onPressed: onPressed, style: style, child: child)
-        : OutlinedButton(onPressed: onPressed, style: style, child: child);
-  }
-}
-
-class _Badge extends StatelessWidget {
-  const _Badge({required this.label, required this.danger});
-
-  final String label;
-  final bool danger;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: danger ? scheme.errorContainer : scheme.primaryContainer,
-        borderRadius: BorderRadius.circular(99),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: danger ? scheme.onErrorContainer : scheme.onPrimaryContainer,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-  }
-}
-
-class _StatItem extends StatelessWidget {
-  const _StatItem({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            value,
-            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontSize: 12,
-            ),
-          ),
-        ],
       ),
     );
   }
