@@ -42,11 +42,12 @@ class _HomeScreenState extends State<HomeScreen> {
           AnimatedBuilder(
             animation: state,
             builder: (context, _) => ListView(
-              padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
+              padding: const EdgeInsets.fromLTRB(18, 10, 18, 96),
               children: [
                 _HeroPanel(),
-                const SizedBox(height: 18),
+                const SizedBox(height: 14),
                 AppCard(
+                  padding: const EdgeInsets.all(14),
                   child: Row(
                     children: [
                       _StatItem(label: '视频数量', value: '${state.videos.length}'),
@@ -63,8 +64,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 14),
                 AppCard(
+                  padding: const EdgeInsets.all(14),
                   child: Column(
                     children: [
                       AppTextField(
@@ -216,7 +218,7 @@ class _HeroPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         gradient: AppTheme.primaryGradient,
         borderRadius: BorderRadius.circular(28),
@@ -229,7 +231,7 @@ class _HeroPanel extends StatelessWidget {
             color: Colors.white,
             size: 42,
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 12),
           Text(
             '解析网页视频，保存到本地',
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
@@ -268,7 +270,7 @@ class _SnifferStatusBar extends StatelessWidget {
     };
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.62),
         borderRadius: BorderRadius.circular(16),
@@ -348,7 +350,6 @@ class _ParseRecordCard extends StatelessWidget {
             _FoundRecordBody(
               record: record,
               groups: groups,
-              onOpenWeb: onOpenWeb,
             )
           else
             _EmptyParseBody(
@@ -395,12 +396,10 @@ class _FoundRecordBody extends StatelessWidget {
   const _FoundRecordBody({
     required this.record,
     required this.groups,
-    required this.onOpenWeb,
   });
 
   final ParseRecord record;
   final _RecordGroups groups;
-  final VoidCallback onOpenWeb;
 
   @override
   Widget build(BuildContext context) {
@@ -438,15 +437,6 @@ class _FoundRecordBody extends StatelessWidget {
             pageUrl: record.pageUrl,
           ),
         ],
-        const SizedBox(height: 10),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: OutlinedButton.icon(
-            onPressed: onOpenWeb,
-            icon: const Icon(Icons.language_rounded),
-            label: const Text('进入网页'),
-          ),
-        ),
       ],
     );
   }
@@ -517,29 +507,34 @@ class _ResourceSection extends StatelessWidget {
   Widget build(BuildContext context) {
     if (resources.isEmpty) return const SizedBox.shrink();
     final visibleCount = resources.length > 8 ? 8 : resources.length;
-    return ExpansionTile(
-      initiallyExpanded: initiallyExpanded,
-      tilePadding: EdgeInsets.zero,
-      childrenPadding: EdgeInsets.zero,
-      title: Text(
-        '$title ${resources.length}',
-        style: const TextStyle(fontWeight: FontWeight.w900),
-      ),
-      children: [
-        ListView.separated(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: visibleCount,
-          separatorBuilder: (_, __) => const SizedBox(height: 8),
-          itemBuilder: (context, index) {
-            final resource = resources[index];
-            return RepaintBoundary(
-              key: ValueKey(resource.id),
-              child: _ResourceRow(resource: resource, pageUrl: pageUrl),
-            );
-          },
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        initiallyExpanded: initiallyExpanded,
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: EdgeInsets.zero,
+        shape: const Border(),
+        collapsedShape: const Border(),
+        title: Text(
+          '$title ${resources.length}',
+          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
         ),
-      ],
+        children: [
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: visibleCount,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (context, index) {
+              final resource = resources[index];
+              return RepaintBoundary(
+                key: ValueKey(resource.id),
+                child: _ResourceRow(resource: resource, pageUrl: pageUrl),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 }
@@ -583,21 +578,21 @@ class _ResourceRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _ResourceThumb(resource: resource),
-              const SizedBox(width: 10),
+              const SizedBox(width: 9),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       resource.title,
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       meta.isEmpty ? resource.displayFormat : meta,
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(color: scheme.onSurfaceVariant),
                     ),
@@ -616,7 +611,7 @@ class _ResourceRow extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Wrap(
             spacing: 6,
             runSpacing: 6,
@@ -625,12 +620,13 @@ class _ResourceRow extends StatelessWidget {
                 _Badge(label: badge, danger: badge == '广告嫌疑'),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 7,
+            runSpacing: 7,
             children: [
-              FilledButton.icon(
+              _MiniActionButton(
+                filled: true,
                 onPressed: resource.isFragment
                     ? null
                     : () async {
@@ -640,9 +636,9 @@ class _ResourceRow extends StatelessWidget {
                         state.downloadResource(selected);
                       },
                 icon: const Icon(Icons.download_rounded),
-                label: const Text('下载'),
+                label: '下载',
               ),
-              OutlinedButton.icon(
+              _MiniActionButton(
                 onPressed: resource.isPlayable
                     ? () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
@@ -652,9 +648,9 @@ class _ResourceRow extends StatelessWidget {
                         )
                     : null,
                 icon: const Icon(Icons.play_circle_outline_rounded),
-                label: const Text('预览'),
+                label: '预览',
               ),
-              OutlinedButton.icon(
+              _MiniActionButton(
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: resource.url));
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -662,14 +658,14 @@ class _ResourceRow extends StatelessWidget {
                   );
                 },
                 icon: const Icon(Icons.copy_rounded),
-                label: const Text('复制链接'),
+                label: '复制',
               ),
-              OutlinedButton.icon(
+              _MiniActionButton(
                 onPressed: () => state.openInBrowser(
                   pageUrl.isNotEmpty ? pageUrl : resource.pageUrl,
                 ),
                 icon: const Icon(Icons.language_rounded),
-                label: const Text('进入网页'),
+                label: '浏览器',
               ),
             ],
           ),
@@ -709,7 +705,7 @@ class _ResourceThumb extends StatelessWidget {
         child: Image.network(
           thumb,
           width: 72,
-          height: 50,
+          height: 44,
           fit: BoxFit.cover,
           errorBuilder: (_, __, ___) => _TypeBox(label: resource.displayFormat),
         ),
@@ -728,7 +724,7 @@ class _TypeBox extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: 72,
-      height: 50,
+      height: 44,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         gradient: const LinearGradient(
@@ -748,6 +744,48 @@ class _TypeBox extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _MiniActionButton extends StatelessWidget {
+  const _MiniActionButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.filled = false,
+  });
+
+  final Widget icon;
+  final String label;
+  final VoidCallback? onPressed;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) {
+    final baseStyle =
+        filled ? FilledButton.styleFrom() : OutlinedButton.styleFrom();
+    final style = baseStyle.copyWith(
+      minimumSize: const WidgetStatePropertyAll(Size(0, 34)),
+      padding: const WidgetStatePropertyAll(
+        EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      ),
+      textStyle: const WidgetStatePropertyAll(
+        TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+      ),
+      visualDensity: VisualDensity.compact,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+    final child = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconTheme.merge(data: const IconThemeData(size: 16), child: icon),
+        const SizedBox(width: 4),
+        Text(label),
+      ],
+    );
+    return filled
+        ? FilledButton(onPressed: onPressed, style: style, child: child)
+        : OutlinedButton(onPressed: onPressed, style: style, child: child);
   }
 }
 

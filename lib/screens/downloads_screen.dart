@@ -37,7 +37,7 @@ class DownloadsScreen extends StatelessWidget {
             );
           }
           return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 96),
             itemBuilder: (context, index) => _DownloadCard(task: tasks[index]),
             separatorBuilder: (_, __) => const SizedBox(height: 12),
             itemCount: tasks.length,
@@ -60,6 +60,9 @@ class _DownloadCard extends StatelessWidget {
     final isCompleted = task.status == DownloadStatus.completed;
     final isFailed = task.status == DownloadStatus.failed;
     final isMissing = task.status == DownloadStatus.missing;
+    if (isCompleted) {
+      return _CompletedDownloadCard(task: task);
+    }
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -290,4 +293,121 @@ class _DownloadCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CompletedDownloadCard extends StatelessWidget {
+  const _CompletedDownloadCard({required this.task});
+
+  final DownloadTask task;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return AppCard(
+      padding: EdgeInsets.zero,
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.fromLTRB(14, 8, 12, 8),
+          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+          shape: const Border(),
+          collapsedShape: const Border(),
+          leading: Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: scheme.primaryContainer,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(Icons.check_rounded, color: scheme.primary),
+          ),
+          title: Text(
+            task.resource.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+          subtitle: Text(
+            '${task.resource.label} · 已完成 · ${_formatBytes(task.receivedBytes)}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          children: [
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => PlayerScreen(
+                        title: task.resource.title,
+                        filePath: task.localPath,
+                      ),
+                    ),
+                  ),
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: const Text('播放'),
+                ),
+                if (task.localPath.isNotEmpty)
+                  OutlinedButton.icon(
+                    onPressed: () => Share.shareXFiles([
+                      XFile(task.localPath),
+                    ], text: task.resource.title),
+                    icon: const Icon(Icons.ios_share_rounded),
+                    label: const Text('分享'),
+                  ),
+                if (task.ffmpegLog.isNotEmpty || task.errorDetails.isNotEmpty)
+                  OutlinedButton.icon(
+                    onPressed: () => _showTaskDetails(context, task),
+                    icon: const Icon(Icons.article_outlined),
+                    label: const Text('查看详情'),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+void _showTaskDetails(BuildContext context, DownloadTask task) {
+  final details =
+      task.errorDetails.isNotEmpty ? task.errorDetails : task.ffmpegLog;
+  showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('任务详情'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: SingleChildScrollView(child: SelectableText(details)),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            Clipboard.setData(ClipboardData(text: details));
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('已复制详情日志')));
+          },
+          child: const Text('复制'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('关闭'),
+        ),
+      ],
+    ),
+  );
+}
+
+String _formatBytes(int value) {
+  if (value <= 0) return '未知大小';
+  if (value < 1024) return '$value B';
+  if (value < 1024 * 1024) return '${(value / 1024).toStringAsFixed(1)} KB';
+  if (value < 1024 * 1024 * 1024) {
+    return '${(value / 1024 / 1024).toStringAsFixed(1)} MB';
+  }
+  return '${(value / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';
 }

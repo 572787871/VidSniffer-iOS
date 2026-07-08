@@ -154,7 +154,7 @@ class _BrowserScreenState extends State<BrowserScreen>
         child: Column(
           children: [
             Container(
-              padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+              padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
               color: scheme.surface,
               child: Column(
                 children: [
@@ -178,7 +178,15 @@ class _BrowserScreenState extends State<BrowserScreen>
                           textInputAction: TextInputAction.go,
                           decoration: InputDecoration(
                             isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
                             prefixIcon: const Icon(Icons.language_rounded),
+                            prefixIconConstraints: const BoxConstraints(
+                              minWidth: 38,
+                              minHeight: 38,
+                            ),
                             hintText: '输入网址',
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(18),
@@ -223,7 +231,7 @@ class _BrowserScreenState extends State<BrowserScreen>
                         onPressed:
                             resources.isEmpty ? null : () => _openResources(),
                         icon: const Icon(Icons.playlist_play_rounded),
-                        label: Text('资源 ${resources.length}'),
+                        label: Text('发现 ${resources.length}'),
                       ),
                       IconButton(
                         tooltip: browser.bookmarks.contains(currentUrl)
@@ -327,10 +335,23 @@ class _BrowserScreenState extends State<BrowserScreen>
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: deepSniffing ? null : _autoParsePage,
-        icon: Icon(deepSniffing ? Icons.radar_rounded : Icons.search_rounded),
-        label: Text(deepSniffing ? '解析中' : '自动解析整页'),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (resources.isNotEmpty)
+            _FoundVideoChip(
+              count: resources.length,
+              onTap: _openResources,
+            ),
+          if (resources.isNotEmpty) const SizedBox(height: 8),
+          FloatingActionButton.extended(
+            onPressed: deepSniffing ? null : _autoParsePage,
+            icon:
+                Icon(deepSniffing ? Icons.radar_rounded : Icons.search_rounded),
+            label: Text(deepSniffing ? '解析中' : '自动解析'),
+          ),
+        ],
       ),
     );
   }
@@ -496,6 +517,17 @@ class _BrowserScreenState extends State<BrowserScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            ListTile(
+              title: const Text(
+                '视频操作',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+              subtitle: Text(
+                candidate == null || candidate.url.startsWith('blob:')
+                    ? '未拿到直链时，请先播放视频几秒后再长按。'
+                    : '已定位当前视频资源。',
+              ),
+            ),
             ListTile(
               leading: const Icon(Icons.search_rounded),
               title: const Text('解析此视频'),
@@ -906,6 +938,47 @@ class BrowserCandidate {
   final bool isCurrentPlayback;
   final String playerId;
   final List<String> relatedUrls;
+}
+
+class _FoundVideoChip extends StatelessWidget {
+  const _FoundVideoChip({required this.count, required this.onTap});
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.primaryContainer,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.play_circle_outline_rounded,
+                size: 18,
+                color: scheme.onPrimaryContainer,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '已发现 $count 个视频',
+                style: TextStyle(
+                  color: scheme.onPrimaryContainer,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _TimedBrowserCandidate {
