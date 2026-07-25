@@ -228,6 +228,7 @@ class VideoSniffer {
       if (contentType.startsWith('video/') || contentType.contains('mp4')) {
         final mp4 = await _probeMp4(
           resource.copyWith(
+            url: response.realUri.toString(),
             type: VideoResourceType.mp4,
             size: length == null
                 ? '未知'
@@ -237,10 +238,71 @@ class VideoSniffer {
         );
         return mp4 == null ? const [] : [mp4];
       }
-      return const [];
+      if (contentType.contains('octet-stream') ||
+          contentType.contains('application/mp4')) {
+        return [
+          resource.copyWith(
+            url: response.realUri.toString(),
+            type: VideoResourceType.mp4,
+            size: length == null
+                ? '未知'
+                : _formatBytes(int.tryParse(length) ?? 0),
+            contentType: contentType,
+            container: 'direct mp4',
+            recommendation: '检测到的媒体响应',
+          ),
+        ];
+      }
+      return _probeUnknownWithRange(resource);
     } catch (_) {
-      return const [];
+      return _probeUnknownWithRange(resource);
     }
+  }
+
+  Future<List<VideoResource>> _probeUnknownWithRange(
+    VideoResource resource,
+  ) async {
+    try {
+      final response = await _dio.get<ResponseBody>(
+        resource.url,
+        options: Options(
+          responseType: ResponseType.stream,
+          followRedirects: true,
+          headers: {..._headersFor(resource), 'Range': 'bytes=0-1'},
+          validateStatus: (status) => status != null && status < 500,
+        ),
+      );
+      final contentType =
+          response.headers.value(Headers.contentTypeHeader)?.toLowerCase() ??
+          '';
+      await response.data?.stream.first;
+      final resolved = resource.copyWith(url: response.realUri.toString());
+      if (contentType.contains('mpegurl')) {
+        return _probeHls(
+          resolved.copyWith(
+            type: VideoResourceType.hls,
+            contentType: contentType,
+          ),
+        );
+      }
+      if (contentType.startsWith('video/') ||
+          contentType.contains('mp4') ||
+          contentType.contains('octet-stream')) {
+        final length = response.headers.value(Headers.contentLengthHeader);
+        return [
+          resolved.copyWith(
+            type: VideoResourceType.mp4,
+            contentType: contentType,
+            size: length == null
+                ? '未知'
+                : _formatBytes(int.tryParse(length) ?? 0),
+            container: 'direct mp4',
+            recommendation: '检测到的媒体响应',
+          ),
+        ];
+      }
+    } catch (_) {}
+    return const [];
   }
 
   bool isLikelyMediaCandidate(String value) {
@@ -273,6 +335,19 @@ class VideoSniffer {
         lower.contains('/video') ||
         lower.contains('media') ||
         lower.contains('playurl');
+  }
+
+  bool isNetworkProbeCandidate(String value) {
+    final uri = Uri.tryParse(value.trim());
+    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+      return false;
+    }
+    final lower = value.toLowerCase();
+    if (isLikelyMediaCandidate(value)) return true;
+    return !RegExp(
+      r'\.(?:png|jpe?g|gif|webp|svg|ico|css|js|mjs|json|xml|woff2?|ttf|otf|map|txt|html?)(?:[?#]|$)',
+      caseSensitive: false,
+    ).hasMatch(lower);
   }
 
   bool isFragmentResource(VideoResource resource) {

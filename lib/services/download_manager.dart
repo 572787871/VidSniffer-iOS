@@ -340,6 +340,12 @@ class DownloadManager extends ChangeNotifier {
       rethrow;
     }
     final statusCode = response.statusCode ?? 0;
+    if (statusCode >= 400) {
+      throw HttpException(
+        'HTTP $statusCode，资源地址已过期或站点拒绝下载',
+        uri: Uri.tryParse(task.resource.url),
+      );
+    }
     if (resumeFrom > 0 && statusCode != 206) {
       await partFile.delete().catchError((_) => partFile);
       return _downloadDirect(task);
@@ -548,7 +554,9 @@ class DownloadManager extends ChangeNotifier {
       final statusCode = response.statusCode ?? 0;
       final body = response.data ?? '';
       if (statusCode >= 400) {
-        _appendFfmpegLog(task, 'playlist HTTP $statusCode');
+        throw StateError(
+          'm3u8 HTTP $statusCode，播放地址已过期或站点拒绝下载',
+        );
       } else if (_looksLikeHtmlText(body)) {
         throw StateError('m3u8 返回了网页 HTML');
       } else {
@@ -567,7 +575,11 @@ class DownloadManager extends ChangeNotifier {
         task.downloadedSegments = 0;
         task.playlistDuration = _playlistDuration(body);
       }
+    } on StateError catch (error) {
+      _appendFfmpegLog(task, 'playlist prefetch failed: $error');
+      rethrow;
     } catch (error) {
+      // Keep FFmpeg as a fallback for transient preflight failures.
       _appendFfmpegLog(task, 'playlist prefetch failed: $error');
     }
     task.phase = DownloadPhase.downloadingSegments;
@@ -666,7 +678,7 @@ class DownloadManager extends ChangeNotifier {
         request.headers.set(HttpHeaders.rangeHeader, 'bytes=$resumeFrom-');
       }
       final response = await request.close();
-      if (response.statusCode >= 500) {
+      if (response.statusCode >= 400) {
         throw HttpException('HTTP ${response.statusCode}', uri: uri);
       }
       final total =

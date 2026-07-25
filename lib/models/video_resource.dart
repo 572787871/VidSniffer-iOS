@@ -232,10 +232,7 @@ class VideoResource {
     if (lower.contains('.m4s')) {
       return VideoResourceType.unknown;
     }
-    if (!lower.contains('.')) {
-      return VideoResourceType.unknown;
-    }
-    return VideoResourceType.mp4;
+    return VideoResourceType.unknown;
   }
 
   static VideoResourceType _typeFromName(String value) {

@@ -82,6 +82,7 @@ class VideoSnifferController {
   Timer? _emitTimer;
   bool _processing = false;
   String _lastPageUrl = '';
+  int _generation = 0;
 
   List<VideoResource> get resources =>
       sniffer.prioritizeResources(_resources.values, limit: maxResources);
@@ -91,6 +92,7 @@ class VideoSnifferController {
   }
 
   void reset({String pageUrl = ''}) {
+    _generation++;
     _timer?.cancel();
     _emitTimer?.cancel();
     _pending.clear();
@@ -161,6 +163,39 @@ class VideoSnifferController {
     _timer = Timer(debounce, () => unawaited(flush()));
   }
 
+  /// Queues a WebView network request for response-header probing. VBrowser
+  /// follows this model instead of relying only on file extensions because many
+  /// players use opaque API/CDN URLs.
+  void captureNetwork(String rawUrl, String source) {
+    if (!sniffer.isNetworkProbeCandidate(rawUrl)) {
+      return;
+    }
+    _queue(
+      _SnifferCandidate(url: rawUrl, source: source),
+      requireMediaHint: false,
+    );
+  }
+
+  void _queue(
+    _SnifferCandidate next, {
+    required bool requireMediaHint,
+  }) {
+    if (requireMediaHint && !sniffer.isLikelyMediaCandidate(next.url)) {
+      return;
+    }
+    final base = Uri.tryParse(_lastPageUrl);
+    final key = sniffer.dedupeKey(next.url, base: base);
+    final existingPending = _pending[key];
+    _pending[key] =
+        existingPending == null ? next : existingPending.merge(next);
+    // Bound noisy pages without dropping the newest playback requests.
+    while (_pending.length > 200) {
+      _pending.remove(_pending.keys.first);
+    }
+    _timer?.cancel();
+    _timer = Timer(debounce, () => unawaited(flush()));
+  }
+
   Future<void> flush() async {
     _timer?.cancel();
     if (_processing || _pending.isEmpty) {
@@ -168,31 +203,24 @@ class VideoSnifferController {
     }
     _processing = true;
     final candidates = List<_SnifferCandidate>.from(_pending.values);
+    final generation = _generation;
     _pending.clear();
     try {
       final context = await loadContext();
+      if (generation != _generation) return;
       _lastPageUrl = context.pageUrl;
-      for (final candidate in candidates) {
-        final resource = sniffer.resourceFromUrl(
-          candidate.url,
-          pageTitle:
-              candidate.title.isNotEmpty ? candidate.title : context.pageTitle,
-          pageUrl: context.pageUrl,
-          source: candidate.source,
-          userAgent: context.userAgent,
-          cookie: context.cookie,
-          duration: candidate.duration,
-          thumbnailUrl: candidate.thumbnailUrl,
-          isCurrentPlayback: candidate.isCurrentPlayback,
-          playerId: candidate.playerId,
-          allowUnknown: true,
+      for (var offset = 0; offset < candidates.length; offset += 4) {
+        final end =
+            offset + 4 < candidates.length ? offset + 4 : candidates.length;
+        final batch = candidates.sublist(offset, end);
+        final detected = await Future.wait(
+          batch.map((candidate) => _probeCandidate(candidate, context)),
         );
-        if (resource == null) {
-          continue;
-        }
-        final resolved = await sniffer.probeResource(resource);
-        for (final item in resolved) {
-          _resources[sniffer.dedupeKey(item.url)] = item;
+        if (generation != _generation) return;
+        for (final resolved in detected) {
+          for (final item in resolved) {
+            _resources[sniffer.dedupeKey(item.url)] = item;
+          }
         }
       }
       _scheduleEmit();
@@ -202,6 +230,40 @@ class VideoSnifferController {
         _timer = Timer(debounce, () => unawaited(flush()));
       }
     }
+  }
+
+  Future<List<VideoResource>> _probeCandidate(
+    _SnifferCandidate candidate,
+    SnifferPageContext context,
+  ) async {
+    try {
+      final resource = sniffer.resourceFromUrl(
+        candidate.url,
+        pageTitle:
+            candidate.title.isNotEmpty ? candidate.title : context.pageTitle,
+        pageUrl: context.pageUrl,
+        source: candidate.source,
+        userAgent: context.userAgent,
+        cookie: context.cookie,
+        duration: candidate.duration,
+        thumbnailUrl: candidate.thumbnailUrl,
+        isCurrentPlayback: candidate.isCurrentPlayback,
+        playerId: candidate.playerId,
+        allowUnknown: true,
+      );
+      if (resource == null) {
+        return const [];
+      }
+      for (var attempt = 0; attempt < 2; attempt++) {
+        final resolved = await sniffer.probeResource(resource);
+        if (resolved.isNotEmpty) {
+          return resolved;
+        }
+      }
+    } catch (_) {
+      // A single expired/ad request must not abort the rest of the queue.
+    }
+    return const [];
   }
 
   void dispose() {

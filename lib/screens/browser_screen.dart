@@ -8,6 +8,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../models/video_resource.dart';
 import '../services/ui_state.dart';
 import '../services/video_sniffer.dart';
+import '../services/video_sniffer_controller.dart';
 
 class BrowserScreen extends StatefulWidget {
   const BrowserScreen({super.key});
@@ -21,8 +22,8 @@ class _BrowserScreenState extends State<BrowserScreen>
   final addressController = TextEditingController();
   final sniffer = VideoSniffer();
   final List<String> history = [];
-  final Set<String> dedupe = {};
   final Map<String, VideoResource> captured = {};
+  late final VideoSnifferController snifferController;
 
   InAppWebViewController? controller;
   Timer? deepTimer;
@@ -45,12 +46,31 @@ class _BrowserScreenState extends State<BrowserScreen>
   void initState() {
     super.initState();
     addressController.text = '';
+    snifferController = VideoSnifferController(
+      sniffer: sniffer,
+      loadContext: _snifferContext,
+      onResourcesChanged: (resources) {
+        if (!mounted) return;
+        setState(() {
+          captured
+            ..clear()
+            ..addEntries(
+              resources.map(
+                (resource) =>
+                    MapEntry(sniffer.dedupeKey(resource.url), resource),
+              ),
+            );
+        });
+      },
+      debounce: const Duration(milliseconds: 350),
+    );
   }
 
   @override
   void dispose() {
     deepTimer?.cancel();
     flushTimer?.cancel();
+    snifferController.dispose();
     addressController.dispose();
     super.dispose();
   }
@@ -178,17 +198,17 @@ class _BrowserScreenState extends State<BrowserScreen>
                   initialUrlRequest: currentUrl.startsWith('about:')
                       ? null
                       : URLRequest(url: WebUri(currentUrl)),
-                  initialSettings: _settings(deep: false),
+                  initialSettings: _settings(),
                   onWebViewCreated: _onWebViewCreated,
                   onLoadStart: (_, url) {
                     final next = url?.toString() ?? currentUrl;
+                    snifferController.reset(pageUrl: next);
                     setState(() {
                       currentUrl = next;
                       addressController.text = next;
                       loading = true;
                       progress = 0;
                       captured.clear();
-                      dedupe.clear();
                     });
                     _remember(next);
                   },
@@ -221,25 +241,29 @@ class _BrowserScreenState extends State<BrowserScreen>
                     _remember(next);
                   },
                   onLoadResource: (_, resource) {
-                    if (deepCapture) {
-                      _captureUrl(resource.url.toString(), 'resource');
-                    }
+                    snifferController.captureNetwork(
+                      resource.url.toString(),
+                      'resource',
+                    );
                   },
                   shouldInterceptRequest: (_, request) async {
-                    if (deepCapture) _captureUrl(request.url.toString(), 'net');
+                    snifferController.captureNetwork(
+                      request.url.toString(),
+                      'net',
+                    );
                     return null;
                   },
                   shouldInterceptFetchRequest: (_, request) async {
-                    if (deepCapture) {
-                      final url = request.url?.toString();
-                      if (url != null) _captureUrl(url, 'fetch');
+                    final url = request.url?.toString();
+                    if (url != null) {
+                      snifferController.captureNetwork(url, 'fetch');
                     }
                     return request;
                   },
                   shouldInterceptAjaxRequest: (_, request) async {
-                    if (deepCapture) {
-                      final url = request.url?.toString();
-                      if (url != null) _captureUrl(url, 'xhr');
+                    final url = request.url?.toString();
+                    if (url != null) {
+                      snifferController.captureNetwork(url, 'xhr');
                     }
                     return request;
                   },
@@ -283,14 +307,14 @@ class _BrowserScreenState extends State<BrowserScreen>
     await _syncBrowserState();
   }
 
-  InAppWebViewSettings _settings({required bool deep}) {
+  InAppWebViewSettings _settings() {
     return InAppWebViewSettings(
       javaScriptEnabled: true,
       mediaPlaybackRequiresUserGesture: false,
       allowsInlineMediaPlayback: true,
-      useShouldInterceptRequest: deep,
-      useShouldInterceptAjaxRequest: deep,
-      useShouldInterceptFetchRequest: deep,
+      useShouldInterceptRequest: true,
+      useShouldInterceptAjaxRequest: true,
+      useShouldInterceptFetchRequest: true,
       supportZoom: true,
     );
   }
@@ -356,7 +380,6 @@ class _BrowserScreenState extends State<BrowserScreen>
       currentUrl = 'about:blank';
       pageTitle = '新窗口';
       captured.clear();
-      dedupe.clear();
       addressController.clear();
     });
   }
@@ -403,12 +426,12 @@ class _BrowserScreenState extends State<BrowserScreen>
     final web = controller;
     if (web == null) return;
     setState(() => deepCapture = true);
-    await web.setSettings(settings: _settings(deep: true));
+    await web.setSettings(settings: _settings());
     await _injectHooks();
     await _scanDom();
     deepTimer?.cancel();
     deepTimer = Timer(const Duration(seconds: 6), () async {
-      await web.setSettings(settings: _settings(deep: false));
+      await web.setSettings(settings: _settings());
       if (!mounted) return;
       setState(() => deepCapture = false);
       if (openPicker) {
@@ -424,15 +447,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   void _captureUrl(String url, String source) {
-    if (!sniffer.isLikelyMediaCandidate(url)) return;
-    _capture(
-      url: url,
-      source: source,
-      title: pageTitle,
-      current: false,
-      duration: Duration.zero,
-      poster: '',
-    );
+    snifferController.captureNetwork(url, source);
   }
 
   void _captureCandidate(Object? value) {
@@ -483,37 +498,14 @@ class _BrowserScreenState extends State<BrowserScreen>
     required Duration duration,
     required String poster,
   }) {
-    final absolute = _absoluteUrl(url);
-    if (absolute.isEmpty ||
-        absolute.startsWith('blob:') ||
-        absolute.startsWith('data:') ||
-        absolute.startsWith('about:') ||
-        !sniffer.isLikelyMediaCandidate(absolute)) {
-      return;
-    }
-    final key = sniffer.dedupeKey(absolute);
-    if (!dedupe.add(key) && captured.containsKey(key)) return;
-    final type = VideoResource.typeFromUrl(absolute);
-    if (type == VideoResourceType.ts || type == VideoResourceType.unknown) {
-      return;
-    }
-    final resource = VideoResource(
-      url: absolute,
-      title: title.trim().isEmpty ? _host(currentUrl) : title.trim(),
-      type: type,
-      source: source,
-      pageUrl: currentUrl,
-      referer: currentUrl,
-      userAgent: userAgent,
-      origin: _origin(currentUrl),
-      quality: _qualityFromUrl(absolute),
+    snifferController.capture(
+      _absoluteUrl(url),
+      source,
+      title: title,
       duration: duration,
       thumbnailUrl: poster,
       isCurrentPlayback: current,
-      recommendation: current ? '当前播放' : '检测到的视频',
     );
-    captured[key] = resource;
-    _scheduleFlush();
   }
 
   void _scheduleFlush() {
@@ -539,12 +531,69 @@ class _BrowserScreenState extends State<BrowserScreen>
       builder: (context) => _DownloadPicker(
         title: pageTitle,
         resources: resources,
-        onDownload: (resource) {
+        onDownload: (resource) async {
           Navigator.pop(context);
-          appState.downloadResource(resource);
+          appState.downloadResource(await _withCurrentCredentials(resource));
         },
       ),
     );
+  }
+
+  Future<SnifferPageContext> _snifferContext() async {
+    await _syncBrowserState();
+    return SnifferPageContext(
+      pageUrl: currentUrl,
+      pageTitle: pageTitle,
+      userAgent: userAgent,
+      cookie: await _cookiesFor(currentUrl),
+    );
+  }
+
+  Future<VideoResource> _withCurrentCredentials(
+    VideoResource resource,
+  ) async {
+    final cookieValues = <String>[
+      await _cookiesFor(resource.url),
+      await _cookiesFor(resource.pageUrl),
+      resource.cookie,
+    ];
+    final cookieMap = <String, String>{};
+    for (final value in cookieValues.reversed) {
+      for (final part in value.split(';')) {
+        final separator = part.indexOf('=');
+        if (separator <= 0) continue;
+        cookieMap[part.substring(0, separator).trim()] =
+            part.substring(separator + 1).trim();
+      }
+    }
+    final cookies = cookieMap.entries
+        .map((entry) => '${entry.key}=${entry.value}')
+        .join('; ');
+    return resource.copyWith(
+      referer: resource.referer.isNotEmpty ? resource.referer : currentUrl,
+      pageUrl: resource.pageUrl.isNotEmpty ? resource.pageUrl : currentUrl,
+      userAgent: userAgent.isNotEmpty ? userAgent : resource.userAgent,
+      cookie: cookies.isNotEmpty ? cookies : resource.cookie,
+      origin: resource.origin.isNotEmpty
+          ? resource.origin
+          : _origin(currentUrl),
+    );
+  }
+
+  Future<String> _cookiesFor(String value) async {
+    if (value.trim().isEmpty) return '';
+    try {
+      final uri = WebUri(value);
+      final cookies = await CookieManager.instance().getCookies(url: uri);
+      final unique = <String, String>{
+        for (final cookie in cookies) cookie.name: cookie.value,
+      };
+      return unique.entries
+          .map((entry) => '${entry.key}=${entry.value}')
+          .join('; ');
+    } catch (_) {
+      return '';
+    }
   }
 
   Future<void> _handleMenu(String value) async {
@@ -611,22 +660,10 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
   }
 
-  String _host(String url) => Uri.tryParse(url)?.host ?? '网页视频';
-
   String _origin(String url) {
     final uri = Uri.tryParse(url);
     if (uri == null || uri.scheme.isEmpty || uri.host.isEmpty) return '';
     return '${uri.scheme}://${uri.host}';
-  }
-
-  String _qualityFromUrl(String url) {
-    final lower = url.toLowerCase();
-    final match = RegExp(r'([1-9][0-9]{2,3})p').firstMatch(lower);
-    if (match != null) return '${match.group(1)}P';
-    if (lower.contains('1080')) return '1080P';
-    if (lower.contains('720')) return '720P';
-    if (lower.contains('480')) return '480P';
-    return '未知';
   }
 
   static const _scanScript = r'''
@@ -945,7 +982,7 @@ class _DownloadPicker extends StatefulWidget {
 
   final String title;
   final List<VideoResource> resources;
-  final ValueChanged<VideoResource> onDownload;
+  final FutureOr<void> Function(VideoResource) onDownload;
 
   @override
   State<_DownloadPicker> createState() => _DownloadPickerState();
@@ -1034,7 +1071,7 @@ class _DownloadPickerState extends State<_DownloadPicker> {
               width: double.infinity,
               height: 52,
               child: FilledButton.icon(
-                onPressed: () => widget.onDownload(selected),
+                onPressed: () async => widget.onDownload(selected),
                 icon: const Icon(Icons.file_download_rounded),
                 label: const Text('下载'),
               ),
