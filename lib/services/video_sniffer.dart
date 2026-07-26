@@ -534,7 +534,7 @@ class VideoSniffer {
               : 0;
       return resource.copyWith(
         quality: width > 0 && height > 0
-            ? '${width}×$height'
+            ? '$width×$height'
             : height > 0
                 ? '${height}p'
                 : resource.quality,
