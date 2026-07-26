@@ -939,28 +939,6 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
   }
 
-  Future<List<VideoResource>> _probeDirectCandidates(
-    Iterable<VideoResource> candidates,
-  ) async {
-    final probedGroups = await Future.wait(
-      candidates.map((candidate) async {
-        try {
-          return await sniffer.probeResource(candidate);
-        } catch (_) {
-          return const <VideoResource>[];
-        }
-      }),
-    );
-    return sniffer.prioritizeResources(
-      probedGroups.expand((group) => group).where(
-        (resource) =>
-            resource.isPlayable &&
-            !resource.isFragment &&
-            !resource.isAdSuspect,
-      ),
-    );
-  }
-
   Future<List<VideoResource>> _parseWithHeadlessWebView(String url) async {
     final completer = Completer<List<VideoResource>>();
     late final HeadlessInAppWebView headless;
