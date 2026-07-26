@@ -383,7 +383,8 @@ class _DownloadCard extends StatelessWidget {
                     if (task.tempPath.isNotEmpty)
                       FutureBuilder<bool>(
                         future: manager.canPreviewPartial(task),
-                        builder: (context, snapshot) => OutlinedButton.icon(
+                        builder: (context, snapshot) => IconButton.outlined(
+                          tooltip: '边下边播',
                           onPressed: snapshot.data == true
                               ? () => Navigator.of(context).push(
                                     MaterialPageRoute<void>(
@@ -397,19 +398,9 @@ class _DownloadCard extends StatelessWidget {
                                     ),
                                   )
                               : null,
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size(0, 40),
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 10),
-                            visualDensity: VisualDensity.compact,
-                          ),
                           icon: const Icon(
                             Icons.play_circle_outline_rounded,
-                            size: 18,
-                          ),
-                          label: const Text(
-                            '边下边播',
-                            style: TextStyle(fontSize: 12),
+                            size: 21,
                           ),
                         ),
                       ),
