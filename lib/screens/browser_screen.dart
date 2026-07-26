@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../models/video_resource.dart';
+import '../services/browser_data_store.dart';
 import '../services/ui_state.dart';
 import '../services/video_sniffer.dart';
 import '../services/video_sniffer_controller.dart';
@@ -21,7 +22,9 @@ class _BrowserScreenState extends State<BrowserScreen>
     with AutomaticKeepAliveClientMixin {
   final addressController = TextEditingController();
   final sniffer = VideoSniffer();
-  final List<String> history = [];
+  final BrowserDataStore browserDataStore = BrowserDataStore();
+  final List<BrowserPageRecord> history = [];
+  final List<BrowserPageRecord> bookmarks = [];
   final Map<String, VideoResource> captured = {};
   late final VideoSnifferController snifferController;
 
@@ -46,6 +49,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   void initState() {
     super.initState();
     addressController.text = '';
+    unawaited(_loadBrowserData());
     snifferController = VideoSnifferController(
       sniffer: sniffer,
       loadContext: _snifferContext,
@@ -91,14 +95,18 @@ class _BrowserScreenState extends State<BrowserScreen>
       appBar: showStartPage ? _startAppBar() : _browserAppBar(),
       drawer: _TabsDrawer(
         history: history,
+        bookmarks: bookmarks,
         onOpen: (url) {
           Navigator.pop(context);
           unawaited(_loadUrl(url));
         },
-        onClear: () {
-          setState(history.clear);
+        onClearHistory: () {
+          setState(() => history.clear());
+          unawaited(_saveBrowserData());
           Navigator.pop(context);
         },
+        onRemoveHistory: _removeHistory,
+        onRemoveBookmark: _removeBookmark,
       ),
       body: SafeArea(
         child: showStartPage ? _StartPage(onOpen: _loadUrl) : _browserBody(),
@@ -163,6 +171,15 @@ class _BrowserScreenState extends State<BrowserScreen>
         onSubmitted: _loadUrl,
       ),
       actions: [
+        IconButton(
+          tooltip: _isCurrentPageBookmarked ? '取消收藏' : '收藏当前网页',
+          onPressed: currentUrl.startsWith('http') ? _toggleBookmark : null,
+          icon: Icon(
+            _isCurrentPageBookmarked
+                ? Icons.bookmark_rounded
+                : Icons.bookmark_border_rounded,
+          ),
+        ),
         IconButton(
           tooltip: loading ? '停止' : '刷新',
           onPressed: loading ? _stopLoading : _reload,
@@ -229,6 +246,7 @@ class _BrowserScreenState extends State<BrowserScreen>
                     final value = title?.trim() ?? '';
                     if (value.isNotEmpty && mounted) {
                       setState(() => pageTitle = value);
+                      _updateSavedTitle(value);
                     }
                   },
                   onUpdateVisitedHistory: (_, url, __) {
@@ -639,10 +657,95 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   void _remember(String url) {
     if (url.startsWith('about:')) return;
-    history.remove(url);
-    history.insert(0, url);
-    if (history.length > 20) history.removeRange(20, history.length);
+    final host = Uri.tryParse(url)?.host ?? '';
+    setState(() {
+      history.removeWhere((item) => item.url == url);
+      history.insert(
+        0,
+        BrowserPageRecord(
+          url: url,
+          title: host,
+          updatedAt: DateTime.now(),
+        ),
+      );
+      if (history.length > 200) history.removeRange(200, history.length);
+    });
+    unawaited(_saveBrowserData());
   }
+
+  bool get _isCurrentPageBookmarked =>
+      bookmarks.any((item) => item.url == currentUrl);
+
+  void _toggleBookmark() {
+    final index = bookmarks.indexWhere((item) => item.url == currentUrl);
+    setState(() {
+      if (index >= 0) {
+        bookmarks.removeAt(index);
+      } else {
+        bookmarks.insert(
+          0,
+          BrowserPageRecord(
+            url: currentUrl,
+            title: pageTitle,
+            updatedAt: DateTime.now(),
+          ),
+        );
+      }
+    });
+    unawaited(_saveBrowserData());
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(index >= 0 ? '已取消收藏' : '已加入收藏')),
+    );
+  }
+
+  void _removeHistory(String url) {
+    setState(() => history.removeWhere((item) => item.url == url));
+    unawaited(_saveBrowserData());
+  }
+
+  void _removeBookmark(String url) {
+    setState(() => bookmarks.removeWhere((item) => item.url == url));
+    unawaited(_saveBrowserData());
+  }
+
+  void _updateSavedTitle(String title) {
+    final historyIndex = history.indexWhere((item) => item.url == currentUrl);
+    final bookmarkIndex =
+        bookmarks.indexWhere((item) => item.url == currentUrl);
+    if (historyIndex < 0 && bookmarkIndex < 0) return;
+    setState(() {
+      if (historyIndex >= 0) {
+        history[historyIndex] = history[historyIndex].copyWith(title: title);
+      }
+      if (bookmarkIndex >= 0) {
+        bookmarks[bookmarkIndex] =
+            bookmarks[bookmarkIndex].copyWith(title: title);
+      }
+    });
+    unawaited(_saveBrowserData());
+  }
+
+  Future<void> _loadBrowserData() async {
+    final data = await browserDataStore.load();
+    if (!mounted) return;
+    setState(() {
+      for (final item in data.history) {
+        if (!history.any((current) => current.url == item.url)) {
+          history.add(item);
+        }
+      }
+      for (final item in data.bookmarks) {
+        if (!bookmarks.any((current) => current.url == item.url)) {
+          bookmarks.add(item);
+        }
+      }
+    });
+  }
+
+  Future<void> _saveBrowserData() => browserDataStore.save(
+        history: history,
+        bookmarks: bookmarks,
+      );
 
   String _normalize(String value) {
     final text = value.trim();
@@ -1120,55 +1223,122 @@ class _BrowserBottomControls extends StatelessWidget {
 class _TabsDrawer extends StatelessWidget {
   const _TabsDrawer({
     required this.history,
+    required this.bookmarks,
     required this.onOpen,
-    required this.onClear,
+    required this.onClearHistory,
+    required this.onRemoveHistory,
+    required this.onRemoveBookmark,
   });
 
-  final List<String> history;
+  final List<BrowserPageRecord> history;
+  final List<BrowserPageRecord> bookmarks;
   final ValueChanged<String> onOpen;
-  final VoidCallback onClear;
+  final VoidCallback onClearHistory;
+  final ValueChanged<String> onRemoveHistory;
+  final ValueChanged<String> onRemoveBookmark;
 
   @override
   Widget build(BuildContext context) {
     return Drawer(
-      child: SafeArea(
-        child: Column(
-          children: [
-            ListTile(
-              title: const Text('标签', style: TextStyle(fontSize: 22)),
-              trailing: IconButton(
-                onPressed: onClear,
-                icon: const Icon(Icons.more_vert_rounded),
+      child: DefaultTabController(
+        length: 2,
+        child: SafeArea(
+          child: Column(
+            children: [
+              ListTile(
+                title: const Text(
+                  '浏览器',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                ),
+                trailing: IconButton(
+                  tooltip: '清空历史记录',
+                  onPressed: history.isEmpty ? null : onClearHistory,
+                  icon: const Icon(Icons.delete_sweep_rounded),
+                ),
               ),
-            ),
-            Expanded(
-              child: history.isEmpty
-                  ? const Center(child: Text('暂无标签'))
-                  : ListView.builder(
-                      itemCount: history.length,
-                      itemBuilder: (context, index) {
-                        final url = history[index];
-                        return ListTile(
-                          leading: const Text('🏠'),
-                          title: Text(
-                            Uri.tryParse(url)?.host ?? url,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: Text(
-                            url,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          trailing: const Icon(Icons.close_rounded),
-                          onTap: () => onOpen(url),
-                        );
-                      },
+              const TabBar(
+                tabs: [
+                  Tab(icon: Icon(Icons.bookmark_rounded), text: '收藏'),
+                  Tab(icon: Icon(Icons.history_rounded), text: '历史'),
+                ],
+              ),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    _BrowserRecordList(
+                      records: bookmarks,
+                      emptyText: '暂无收藏',
+                      onOpen: onOpen,
+                      onRemove: onRemoveBookmark,
                     ),
-            ),
-          ],
+                    _BrowserRecordList(
+                      records: history,
+                      emptyText: '暂无历史记录',
+                      onOpen: onOpen,
+                      onRemove: onRemoveHistory,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+class _BrowserRecordList extends StatelessWidget {
+  const _BrowserRecordList({
+    required this.records,
+    required this.emptyText,
+    required this.onOpen,
+    required this.onRemove,
+  });
+
+  final List<BrowserPageRecord> records;
+  final String emptyText;
+  final ValueChanged<String> onOpen;
+  final ValueChanged<String> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    if (records.isEmpty) return Center(child: Text(emptyText));
+    return ListView.builder(
+      itemCount: records.length,
+      itemBuilder: (context, index) {
+        final record = records[index];
+        final host = Uri.tryParse(record.url)?.host ?? record.url;
+        return Dismissible(
+          key: ValueKey('${record.url}-${record.updatedAt.microsecondsSinceEpoch}'),
+          direction: DismissDirection.endToStart,
+          background: const ColoredBox(
+            color: Colors.redAccent,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Padding(
+                padding: EdgeInsets.only(right: 22),
+                child: Icon(Icons.delete_rounded, color: Colors.white),
+              ),
+            ),
+          ),
+          onDismissed: (_) => onRemove(record.url),
+          child: ListTile(
+            leading: const Icon(Icons.language_rounded),
+            title: Text(
+              record.title.trim().isEmpty ? host : record.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              record.url,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () => onOpen(record.url),
+          ),
+        );
+      },
     );
   }
 }

@@ -273,8 +273,18 @@ class DownloadManager extends ChangeNotifier {
         await file.delete().catchError((_) => file);
       }
     }
+    notifyListeners();
+  }
+
+  Future<void> removeTask(DownloadTask task) async {
+    final shouldCancel =
+        task.isActive || task.status == DownloadStatus.paused;
     tasks.removeWhere((item) => item.id == task.id);
     notifyListeners();
+    if (shouldCancel) {
+      await cancel(task);
+    }
+    await _persistNow();
   }
 
   Future<void> clearHistory() async {
@@ -505,6 +515,7 @@ class DownloadManager extends ChangeNotifier {
       },
       (statistics) {
         if (_isTerminalOrPaused(task)) return;
+        unawaited(_refreshPartialSize(task));
         final timeMs = statistics.getTime();
         task.elapsed = DateTime.now().difference(startedAt);
         if (timeMs > 0) {
@@ -878,6 +889,17 @@ class DownloadManager extends ChangeNotifier {
   }
 
   String _shellQuote(String value) => "'${value.replaceAll("'", "'\\''")}'";
+
+  Future<void> _refreshPartialSize(DownloadTask task) async {
+    final path = task.tempPath;
+    if (path.isEmpty) return;
+    final file = File(path);
+    if (!await file.exists()) return;
+    final size = await file.length();
+    if (size <= task.receivedBytes) return;
+    task.receivedBytes = size;
+    notifyListeners();
+  }
 
   String _ffmpegDurationSeconds(Duration value) =>
       (value.inMilliseconds / 1000).toStringAsFixed(3);

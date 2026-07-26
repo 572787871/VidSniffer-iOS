@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../models/download_task.dart';
 import '../services/ui_state.dart';
@@ -19,9 +17,13 @@ class DownloadsScreen extends StatelessWidget {
         title: const Text('下载中'),
         actions: [
           IconButton(
-            tooltip: '清理记录',
-            onPressed: () => state.downloadManager.clearHistory(),
-            icon: const Icon(Icons.delete_sweep_rounded),
+            tooltip: '历史下载记录',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const DownloadHistoryScreen(),
+              ),
+            ),
+            icon: const Icon(Icons.history_rounded),
           ),
         ],
       ),
@@ -31,8 +33,7 @@ class DownloadsScreen extends StatelessWidget {
           final tasks = state.downloadManager.tasks
               .where(
                 (task) =>
-                    task.status != DownloadStatus.completed &&
-                    task.status != DownloadStatus.canceled,
+                    task.isActive || task.status == DownloadStatus.paused,
               )
               .toList(growable: false);
           if (tasks.isEmpty) {
@@ -44,12 +45,81 @@ class DownloadsScreen extends StatelessWidget {
           }
           return ListView.separated(
             padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
-            itemBuilder: (context, index) => _DownloadCard(task: tasks[index]),
+            itemBuilder: (context, index) => _SwipeToDelete(
+              task: tasks[index],
+              child: _DownloadCard(task: tasks[index]),
+            ),
             separatorBuilder: (_, __) => const SizedBox(height: 12),
             itemCount: tasks.length,
           );
         },
       ),
+    );
+  }
+}
+
+class DownloadHistoryScreen extends StatelessWidget {
+  const DownloadHistoryScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = UiStateScope.of(context);
+    return Scaffold(
+      appBar: AppBar(title: const Text('历史下载记录')),
+      body: AnimatedBuilder(
+        animation: state,
+        builder: (context, _) {
+          final tasks = state.downloadManager.tasks
+              .where(
+                (task) =>
+                    !task.isActive && task.status != DownloadStatus.paused,
+              )
+              .toList(growable: false);
+          if (tasks.isEmpty) {
+            return const EmptyState(
+              icon: Icons.history_rounded,
+              title: '暂无历史下载记录',
+              message: '完成、失败或缺失的下载任务会显示在这里。',
+            );
+          }
+          return ListView.separated(
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
+            itemBuilder: (context, index) => _SwipeToDelete(
+              task: tasks[index],
+              child: _HistoryCard(task: tasks[index]),
+            ),
+            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            itemCount: tasks.length,
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _SwipeToDelete extends StatelessWidget {
+  const _SwipeToDelete({required this.task, required this.child});
+
+  final DownloadTask task;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final manager = UiStateScope.of(context).downloadManager;
+    return Dismissible(
+      key: ValueKey(task.id),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 24),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.error,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: const Icon(Icons.delete_rounded, color: Colors.white),
+      ),
+      onDismissed: (_) => manager.removeTask(task),
+      child: child,
     );
   }
 }
@@ -61,11 +131,8 @@ class _DownloadCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = UiStateScope.of(context);
+    final manager = UiStateScope.of(context).downloadManager;
     final scheme = Theme.of(context).colorScheme;
-    final isCompleted = task.status == DownloadStatus.completed;
-    final isFailed = task.status == DownloadStatus.failed;
-    final isMissing = task.status == DownloadStatus.missing;
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -76,43 +143,18 @@ class _DownloadCard extends StatelessWidget {
                 width: 46,
                 height: 46,
                 decoration: BoxDecoration(
-                  color: isCompleted
-                      ? scheme.primaryContainer
-                      : (isFailed || isMissing
-                          ? scheme.errorContainer
-                          : scheme.secondaryContainer),
+                  color: scheme.secondaryContainer,
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(
-                  isCompleted
-                      ? Icons.check_rounded
-                      : (isFailed || isMissing
-                          ? Icons.error_outline_rounded
-                          : Icons.downloading_rounded),
-                  color: isCompleted
-                      ? scheme.primary
-                      : (isFailed || isMissing
-                          ? scheme.error
-                          : scheme.secondary),
-                ),
+                child: Icon(Icons.downloading_rounded, color: scheme.secondary),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      task.resource.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${task.resource.label} · ${_phaseLabel(task)} · ${_percent(task)} · ${task.speed} · ${_remainingLabel(task)}',
-                      style: TextStyle(color: scheme.onSurfaceVariant),
-                    ),
-                  ],
+                child: Text(
+                  task.resource.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
               ),
             ],
@@ -126,55 +168,47 @@ class _DownloadCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(99),
           ),
           const SizedBox(height: 8),
-          Text(
-            task.errorMessage.isNotEmpty ? task.errorMessage : task.message,
-            style: TextStyle(
-              color: isFailed ? scheme.error : scheme.onSurfaceVariant,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${_formatBytes(task.receivedBytes)} / ${task.totalBytes > 0 ? _formatBytes(task.totalBytes) : '未知'}',
+                  style: TextStyle(color: scheme.onSurfaceVariant),
+                ),
+              ),
+              Text(
+                _remaining(task),
+                style: TextStyle(color: scheme.onSurfaceVariant),
+              ),
+            ],
           ),
-          if (task.resource.isMergeRequired && task.totalSegments > 0) ...[
-            const SizedBox(height: 6),
-            Text(
-              '分片 ${task.downloadedSegments}/${task.totalSegments} · ffmpeg ${task.ffmpegTime} / ${_durationLabel(task.playlistDuration)} · speed ${task.ffmpegSpeed}x · 已用 ${_durationLabel(task.elapsed)}',
-              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
-            ),
-          ],
           const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
-              if (task.status == DownloadStatus.downloading ||
-                  task.status == DownloadStatus.preparing ||
-                  task.status == DownloadStatus.merging)
+              if (task.isActive)
                 FilledButton.tonalIcon(
-                  onPressed: () => state.downloadManager.pause(task),
+                  onPressed: () => manager.pause(task),
                   icon: const Icon(Icons.pause_rounded),
                   label: const Text('暂停'),
                 ),
-              if (task.status == DownloadStatus.paused ||
-                  task.status == DownloadStatus.failed ||
-                  task.status == DownloadStatus.canceled)
+              if (task.status == DownloadStatus.paused)
                 FilledButton.tonalIcon(
-                  onPressed: () => state.downloadManager.retry(task),
+                  onPressed: () => manager.retry(task),
                   icon: const Icon(Icons.play_arrow_rounded),
-                  label: Text(
-                    task.status == DownloadStatus.failed ? '重试' : '继续',
-                  ),
+                  label: const Text('继续'),
                 ),
-              if (task.tempPath.isNotEmpty &&
-                  task.status != DownloadStatus.canceled &&
-                  task.status != DownloadStatus.failed)
+              if (task.tempPath.isNotEmpty)
                 FutureBuilder<bool>(
-                  future: state.downloadManager.canPreviewPartial(task),
+                  future: manager.canPreviewPartial(task),
                   builder: (context, snapshot) => OutlinedButton.icon(
                     onPressed: snapshot.data == true
                         ? () => Navigator.of(context).push(
                               MaterialPageRoute<void>(
                                 builder: (_) => PlayerScreen(
                                   title: task.resource.title,
-                                  filePath: state.downloadManager
-                                      .previewPathFor(task),
+                                  filePath: manager.previewPathFor(task),
                                   allowPartial: true,
                                 ),
                               ),
@@ -184,138 +218,114 @@ class _DownloadCard extends StatelessWidget {
                     label: const Text('播放已下载部分'),
                   ),
                 ),
-              if (!isCompleted && !isMissing)
-                OutlinedButton.icon(
-                  onPressed: () => state.downloadManager.cancel(task),
-                  icon: const Icon(Icons.close_rounded),
-                  label: const Text('取消'),
-                ),
-              if (isCompleted)
-                FilledButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => PlayerScreen(
-                        title: task.resource.title,
-                        filePath: task.localPath,
-                      ),
-                    ),
-                  ),
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('播放'),
-                ),
-              if (isCompleted && task.localPath.isNotEmpty)
-                OutlinedButton.icon(
-                  onPressed: () => Share.shareXFiles([
-                    XFile(task.localPath),
-                  ], text: task.resource.title),
-                  icon: const Icon(Icons.ios_share_rounded),
-                  label: const Text('分享'),
-                ),
-              if (task.ffmpegLog.isNotEmpty || task.errorDetails.isNotEmpty)
-                OutlinedButton.icon(
-                  onPressed: () => _showDetails(context, task),
-                  icon: const Icon(Icons.article_outlined),
-                  label: const Text('查看详情'),
-                ),
+              OutlinedButton.icon(
+                onPressed: () => manager.cancel(task),
+                icon: const Icon(Icons.close_rounded),
+                label: const Text('取消'),
+              ),
             ],
           ),
         ],
       ),
     );
   }
+}
 
-  String _statusLabel(DownloadStatus status) {
-    switch (status) {
-      case DownloadStatus.preparing:
-        return '准备中';
-      case DownloadStatus.idle:
-        return '等待中';
-      case DownloadStatus.downloading:
-        return '下载中';
-      case DownloadStatus.merging:
-        return '合并中';
-      case DownloadStatus.paused:
-        return '已暂停';
-      case DownloadStatus.completed:
-        return '已完成';
-      case DownloadStatus.failed:
-        return '失败';
-      case DownloadStatus.canceled:
-        return '已取消';
-      case DownloadStatus.missing:
-        return '文件缺失';
-    }
-  }
+class _HistoryCard extends StatelessWidget {
+  const _HistoryCard({required this.task});
 
-  String _phaseLabel(DownloadTask task) {
-    switch (task.phase) {
-      case DownloadPhase.preparing:
-        return '准备中';
-      case DownloadPhase.fetchingPlaylist:
-        return '获取播放列表';
-      case DownloadPhase.downloadingSegments:
-        return '下载分片';
-      case DownloadPhase.downloadingFile:
-        return _statusLabel(task.status);
-      case DownloadPhase.merging:
-        return '合并中';
-      case DownloadPhase.completed:
-        return '已完成';
-      case DownloadPhase.failed:
-        return '失败';
-      case DownloadPhase.canceled:
-        return '已取消';
-    }
-  }
+  final DownloadTask task;
 
-  String _percent(DownloadTask task) {
-    if (task.isIndeterminate) return '未知';
-    return '${(task.progress.clamp(0, 1) * 100).round()}%';
-  }
-
-  String _remainingLabel(DownloadTask task) {
-    if (task.status == DownloadStatus.completed) return '剩余 00:00';
-    if (task.remaining.trim().isEmpty || task.remaining == '剩余时间未知') {
-      return '剩余时间未知';
-    }
-    return '剩余 ${task.remaining}';
-  }
-
-  String _durationLabel(Duration value) {
-    if (value == Duration.zero) return '未知';
-    final hours = value.inHours;
-    final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
-  }
-
-  void _showDetails(BuildContext context, DownloadTask task) {
-    final details =
-        task.errorDetails.isNotEmpty ? task.errorDetails : task.ffmpegLog;
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('任务详情'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: SingleChildScrollView(child: SelectableText(details)),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: details));
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(const SnackBar(content: Text('已复制详情日志')));
-            },
-            child: const Text('复制'),
+  @override
+  Widget build(BuildContext context) {
+    final manager = UiStateScope.of(context).downloadManager;
+    final scheme = Theme.of(context).colorScheme;
+    final completed = task.status == DownloadStatus.completed;
+    return AppCard(
+      child: Row(
+        children: [
+          Icon(
+            completed ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+            color: completed ? scheme.primary : scheme.error,
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('关闭'),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  task.resource.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${_historyStatus(task.status)} · ${_formatBytes(task.receivedBytes)}',
+                  style: TextStyle(color: scheme.onSurfaceVariant),
+                ),
+              ],
+            ),
           ),
+          if (completed && task.localPath.isNotEmpty)
+            IconButton(
+              tooltip: '播放',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => PlayerScreen(
+                    title: task.resource.title,
+                    filePath: task.localPath,
+                  ),
+                ),
+              ),
+              icon: const Icon(Icons.play_arrow_rounded),
+            )
+          else
+            IconButton(
+              tooltip: '重新下载',
+              onPressed: task.canRetry ? () => manager.retry(task) : null,
+              icon: const Icon(Icons.refresh_rounded),
+            ),
         ],
       ),
     );
   }
+}
+
+String _remaining(DownloadTask task) {
+  if (task.remaining.isEmpty || task.remaining == '剩余时间未知') {
+    return '剩余时间未知';
+  }
+  return '剩余 ${task.remaining}';
+}
+
+String _historyStatus(DownloadStatus status) {
+  switch (status) {
+    case DownloadStatus.completed:
+      return '已完成';
+    case DownloadStatus.failed:
+      return '失败';
+    case DownloadStatus.canceled:
+      return '已取消';
+    case DownloadStatus.missing:
+      return '文件缺失';
+    case DownloadStatus.paused:
+      return '已暂停';
+    case DownloadStatus.idle:
+      return '等待中';
+    case DownloadStatus.preparing:
+    case DownloadStatus.downloading:
+    case DownloadStatus.merging:
+      return '下载中';
+  }
+}
+
+String _formatBytes(int value) {
+  if (value <= 0) return '0 B';
+  if (value < 1024) return '$value B';
+  if (value < 1024 * 1024) return '${(value / 1024).toStringAsFixed(1)} KB';
+  if (value < 1024 * 1024 * 1024) {
+    return '${(value / 1024 / 1024).toStringAsFixed(1)} MB';
+  }
+  return '${(value / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';
 }
