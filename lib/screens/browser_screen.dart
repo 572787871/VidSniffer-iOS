@@ -1393,12 +1393,18 @@ class _BrowserScreenState extends State<BrowserScreen>
       const config = JSON.parse(node.getAttribute('data-config') || '{}');
       const video = config && config.video;
       if (!video || !video.url) return;
+      const media = node.querySelector('video');
+      const precedingImages = Array.from(document.querySelectorAll('img')).filter(
+        img => !!(img.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)
+      );
+      const preceding = precedingImages.length ? precedingImages[precedingImages.length - 1] : null;
       out.push({
         url: video.url,
         source: 'player-config',
         title: node.getAttribute('data-video-title') || title,
         duration: 0,
-        poster: video.pic || video.poster || '',
+        poster: (media && media.poster) || video.pic || video.poster ||
+          (preceding && (preceding.getAttribute('z-image-loader-url') || preceding.currentSrc || preceding.src)) || '',
         current: false,
         sources: []
       });
@@ -1745,9 +1751,6 @@ class _DownloadPickerState extends State<_DownloadPicker> {
           children: [
             Row(
               children: [
-                const Text('网络', style: TextStyle(fontWeight: FontWeight.w900)),
-                const SizedBox(width: 8),
-                Icon(Icons.wifi_rounded, color: scheme.primary),
                 const Spacer(),
                 IconButton(
                   onPressed: () => Navigator.pop(context),
@@ -1758,12 +1761,21 @@ class _DownloadPickerState extends State<_DownloadPicker> {
             const SizedBox(height: 10),
             Row(
               children: [
-                Container(
-                  width: 92,
-                  height: 74,
-                  alignment: Alignment.center,
-                  color: scheme.primaryContainer,
-                  child: Icon(Icons.movie_rounded, color: scheme.primary),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: SizedBox(
+                    width: 120,
+                    height: 80,
+                    child: selected.thumbnailUrl.trim().isEmpty
+                        ? ColoredBox(color: scheme.surfaceContainerHighest)
+                        : Image.network(
+                            selected.thumbnailUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => ColoredBox(
+                              color: scheme.surfaceContainerHighest,
+                            ),
+                          ),
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -1827,12 +1839,9 @@ String _formatVideoDuration(Duration duration) {
   final minutes = duration.inMinutes.remainder(60);
   final seconds = duration.inSeconds.remainder(60);
   if (hours > 0) {
-    return '${hours.toString().padLeft(2, '0')}:'
-        '${minutes.toString().padLeft(2, '0')}:'
-        '${seconds.toString().padLeft(2, '0')}';
+    return '$hours 小时 $minutes 分 ${seconds.toString().padLeft(2, '0')} 秒';
   }
-  return '${minutes.toString().padLeft(2, '0')}:'
-      '${seconds.toString().padLeft(2, '0')}';
+  return '$minutes 分 ${seconds.toString().padLeft(2, '0')} 秒';
 }
 
 class _BrowserBottomControls extends StatelessWidget {

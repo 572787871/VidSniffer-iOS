@@ -463,12 +463,16 @@ class VideoSniffer {
         return prioritizeResources(enriched, limit: enriched.length);
       }
       final duration = _playlistDuration(body);
+      final estimatedBytes = await _estimateHlsBytes(resource, body);
       final parsed = resource.copyWith(
         container: 'media m3u8',
         quality: resource.quality == '未知' ? '单清晰度 HLS' : resource.quality,
         duration: duration > 0
             ? Duration(milliseconds: (duration * 1000).round())
             : resource.duration,
+        size: estimatedBytes > 0
+            ? '约 ${_formatBytes(estimatedBytes)}'
+            : resource.size,
         isAdSuspect: resource.isAdSuspect,
         recommendation: resource.isAdSuspect ? '' : '可能的视频资源',
       );
@@ -519,16 +523,13 @@ class VideoSniffer {
       final duration = durationSeconds > 0
           ? Duration(milliseconds: (durationSeconds * 1000).round())
           : resource.duration;
-      final exactSize = int.tryParse(information.getSize() ?? '') ?? 0;
       final bitrate =
           int.tryParse(information.getBitrate() ?? '') ??
           int.tryParse(video?.getBitrate() ?? '') ??
           0;
-      final estimatedSize = exactSize > 0
-          ? exactSize
-          : bitrate > 0 && duration > Duration.zero
-              ? (bitrate * duration.inMilliseconds / 8000).round()
-              : 0;
+      final estimatedSize = bitrate > 0 && duration > Duration.zero
+          ? (bitrate * duration.inMilliseconds / 8000).round()
+          : 0;
       return resource.copyWith(
         quality: width > 0 && height > 0
             ? '$width×$height'
@@ -536,8 +537,8 @@ class VideoSniffer {
                 ? '${height}p'
                 : resource.quality,
         duration: duration,
-        size: estimatedSize > 0
-            ? '${exactSize > 0 ? '' : '约 '}${_formatBytes(estimatedSize)}'
+        size: estimatedSize >= 1024 * 1024
+            ? '约 ${_formatBytes(estimatedSize)}'
             : resource.size,
         bitrate: bitrate > 0
             ? '${(bitrate / 1000).round()} kbps'
@@ -547,6 +548,50 @@ class VideoSniffer {
     } catch (_) {
       return resource;
     }
+  }
+
+  Future<int> _estimateHlsBytes(
+    VideoResource resource,
+    String playlist,
+  ) async {
+    final base = Uri.parse(resource.url);
+    final segments = playlist
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty && !line.startsWith('#'))
+        .map(base.resolve)
+        .toList();
+    if (segments.isEmpty) return 0;
+    final sampleCount = segments.length.clamp(1, 6);
+    final sampled = <Uri>[];
+    for (var index = 0; index < sampleCount; index++) {
+      final position = ((segments.length - 1) * index / sampleCount).round();
+      sampled.add(segments[position]);
+    }
+    final lengths = await Future.wait(
+      sampled.map((uri) async {
+        try {
+          final response = await _dio.headUri(
+            uri,
+            options: Options(
+              followRedirects: true,
+              headers: _headersFor(resource),
+              validateStatus: (status) => status != null && status < 500,
+            ),
+          );
+          return int.tryParse(
+                response.headers.value(Headers.contentLengthHeader) ?? '',
+              ) ??
+              0;
+        } catch (_) {
+          return 0;
+        }
+      }),
+    );
+    final valid = lengths.where((length) => length > 0).toList();
+    if (valid.isEmpty) return 0;
+    final average = valid.reduce((a, b) => a + b) / valid.length;
+    return (average * segments.length).round();
   }
 
   Future<VideoResource?> _probeMp4(VideoResource resource) async {
