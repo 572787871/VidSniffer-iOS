@@ -78,6 +78,7 @@ class VideoSnifferController {
 
   final Map<String, _SnifferCandidate> _pending = {};
   final Map<String, VideoResource> _resources = {};
+  final Map<String, DateTime> _lastProbeAt = {};
   Timer? _timer;
   Timer? _emitTimer;
   bool _processing = false;
@@ -97,6 +98,7 @@ class VideoSnifferController {
     _emitTimer?.cancel();
     _pending.clear();
     _resources.clear();
+    _lastProbeAt.clear();
     _processing = false;
     _lastPageUrl = pageUrl;
     onResourcesChanged(const []);
@@ -156,6 +158,11 @@ class VideoSnifferController {
       _scheduleEmit();
       return;
     }
+    final lastProbe = _lastProbeAt[key];
+    if (lastProbe != null &&
+        DateTime.now().difference(lastProbe) < const Duration(seconds: 12)) {
+      return;
+    }
     final existingPending = _pending[key];
     _pending[key] =
         existingPending == null ? next : existingPending.merge(next);
@@ -185,6 +192,11 @@ class VideoSnifferController {
     }
     final base = Uri.tryParse(_lastPageUrl);
     final key = sniffer.dedupeKey(next.url, base: base);
+    final lastProbe = _lastProbeAt[key];
+    if (lastProbe != null &&
+        DateTime.now().difference(lastProbe) < const Duration(seconds: 12)) {
+      return;
+    }
     final existingPending = _pending[key];
     _pending[key] =
         existingPending == null ? next : existingPending.merge(next);
@@ -213,6 +225,10 @@ class VideoSnifferController {
         final end =
             offset + 4 < candidates.length ? offset + 4 : candidates.length;
         final batch = candidates.sublist(offset, end);
+        final attemptedAt = DateTime.now();
+        for (final candidate in batch) {
+          _lastProbeAt[sniffer.dedupeKey(candidate.url)] = attemptedAt;
+        }
         final detected = await Future.wait(
           batch.map((candidate) => _probeCandidate(candidate, context)),
         );
@@ -223,6 +239,8 @@ class VideoSnifferController {
           }
         }
       }
+      final expiry = DateTime.now().subtract(const Duration(minutes: 2));
+      _lastProbeAt.removeWhere((_, attemptedAt) => attemptedAt.isBefore(expiry));
       _scheduleEmit();
     } finally {
       _processing = false;

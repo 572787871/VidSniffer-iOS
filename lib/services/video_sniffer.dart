@@ -890,10 +890,11 @@ class VideoSniffer {
 
   bool _looksLikeProtectedPage(String html) {
     final lower = html.toLowerCase();
-    return lower.contains('widevine') ||
+    return lower.contains('com.widevine.alpha') ||
         lower.contains('fairplay') ||
-        lower.contains('encrypted-media') ||
-        lower.contains('eme');
+        lower.contains('skd://') ||
+        lower.contains('requestmediakeysystemaccess') ||
+        lower.contains('webkitkeysystemaccess');
   }
 
   String _decodeCandidate(String raw) {

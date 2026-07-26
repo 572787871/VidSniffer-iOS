@@ -798,18 +798,32 @@ class _BrowserScreenState extends State<BrowserScreen>
         processing = true;
         unawaited(() async {
           try {
-            // Give player scripts a brief moment to populate their config.
-            await Future<void>.delayed(const Duration(milliseconds: 700));
-            final html = await web.evaluateJavascript(
-              source: 'document.documentElement.outerHTML',
-            );
-            final actualUrl = loadedUrl?.toString() ?? url;
-            final candidates = sniffer.scanHtml(
-              html?.toString() ?? '',
-              Uri.parse(actualUrl),
-              source: 'headless-dom',
-            );
-            await finish(await _probeDirectCandidates(candidates));
+            // Player scripts often populate the real media URL after the first
+            // load event. Scan in stages while keeping the headless page hidden.
+            for (final delay in const [
+              Duration(milliseconds: 600),
+              Duration(milliseconds: 1200),
+              Duration(milliseconds: 2200),
+            ]) {
+              await Future<void>.delayed(delay);
+              if (completer.isCompleted) return;
+              final html = await web.evaluateJavascript(
+                source: 'document.documentElement.outerHTML',
+              );
+              final current = (await web.getUrl())?.toString();
+              final actualUrl = current ?? loadedUrl?.toString() ?? url;
+              final candidates = sniffer.scanHtml(
+                html?.toString() ?? '',
+                Uri.parse(actualUrl),
+                source: 'headless-dom',
+              );
+              final resources = await _probeDirectCandidates(candidates);
+              if (resources.isNotEmpty) {
+                await finish(resources);
+                return;
+              }
+            }
+            await finish(const []);
           } catch (_) {
             await finish(const []);
           }
