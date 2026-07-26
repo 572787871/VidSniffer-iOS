@@ -58,6 +58,8 @@ class _BrowserScreenState extends State<BrowserScreen>
   bool adBlockEnabled = true;
   bool blockPopups = true;
   bool blockTrackers = true;
+  bool browserTabsSheetOpen = false;
+  bool creatingBrowserTab = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -125,15 +127,6 @@ class _BrowserScreenState extends State<BrowserScreen>
           ],
         ),
       ),
-      floatingActionButton: showStartPage
-          ? null
-          : _DownloadFloatButton(
-              count: _downloadable.length,
-              busy: deepCapture,
-              onPressed: _downloadable.isEmpty
-                  ? () => _sniffPage(openPicker: true)
-                  : _showDownloadPicker,
-            ),
     );
   }
 
@@ -287,7 +280,8 @@ class _BrowserScreenState extends State<BrowserScreen>
                     );
                   },
                   shouldInterceptRequest: (_, request) async {
-                    if (_shouldBlockRequest(request.url.toString())) {
+                    if (request.isForMainFrame != true &&
+                        _shouldBlockRequest(request.url.toString())) {
                       return WebResourceResponse(
                         contentType: 'text/plain',
                         data: Uint8List(0),
@@ -322,16 +316,6 @@ class _BrowserScreenState extends State<BrowserScreen>
                   },
                 ),
               ),
-              Positioned(
-                left: 16,
-                right: 16,
-                bottom: 16,
-                child: _DetectionBar(
-                  count: _downloadable.length,
-                  onTap: _downloadable.isEmpty ? null : _showDownloadPicker,
-                  onParse: () => _sniffPage(openPicker: true),
-                ),
-              ),
               if (MediaQuery.viewInsetsOf(context).bottom > 0)
                 Positioned(
                   right: 16,
@@ -351,7 +335,11 @@ class _BrowserScreenState extends State<BrowserScreen>
           onBack: _goBack,
           onForward: _goForward,
           onHome: _goHome,
-          onNew: _goHome,
+          videoCount: _downloadable.length,
+          detectingVideo: deepCapture,
+          onDetectVideo: _downloadable.isEmpty
+              ? () => _sniffPage(openPicker: true)
+              : _showDownloadPicker,
         ),
       ],
     );
@@ -941,16 +929,22 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _showBrowserTabs() async {
+    if (browserTabsSheetOpen || !mounted) return;
+    browserTabsSheetOpen = true;
     try {
       browserTabs[activeBrowserTab].thumbnail =
           await controller?.takeScreenshot();
     } catch (_) {}
-    if (!mounted) return;
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) => StatefulBuilder(
+    if (!mounted) {
+      browserTabsSheetOpen = false;
+      return;
+    }
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheetContext) => StatefulBuilder(
         builder: (context, setSheetState) => SafeArea(
           child: SizedBox(
             height: MediaQuery.sizeOf(context).height * 0.78,
@@ -970,10 +964,18 @@ class _BrowserScreenState extends State<BrowserScreen>
                         ),
                       ),
                       TextButton.icon(
-                        onPressed: () {
-                          _newBrowserTab();
-                          Navigator.pop(sheetContext);
-                        },
+                        onPressed: creatingBrowserTab
+                            ? null
+                            : () {
+                                creatingBrowserTab = true;
+                                Navigator.pop(sheetContext);
+                                WidgetsBinding.instance
+                                    .addPostFrameCallback((_) {
+                                  if (!mounted) return;
+                                  _newBrowserTab();
+                                  creatingBrowserTab = false;
+                                });
+                              },
                         icon: const Icon(Icons.add_rounded),
                         label: const Text('新建'),
                       ),
@@ -1113,8 +1115,12 @@ class _BrowserScreenState extends State<BrowserScreen>
             ),
           ),
         ),
-      ),
-    );
+        ),
+      );
+    } finally {
+      browserTabsSheetOpen = false;
+      creatingBrowserTab = false;
+    }
   }
 
   void _newBrowserTab() {
@@ -1163,27 +1169,26 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   bool _shouldBlockRequest(String value) {
     if (!adBlockEnabled) return false;
-    final lower = value.toLowerCase();
-    const adTokens = [
+    final host = Uri.tryParse(value)?.host.toLowerCase() ?? '';
+    if (host.isEmpty) return false;
+    const adHosts = [
       'doubleclick.net',
       'googlesyndication.com',
       'googleadservices.com',
-      '/ads/',
-      '/advert',
-      'adserver',
-      'banner',
-      'popunder',
+      'adnxs.com',
+      'popads.net',
+      'popcash.net',
     ];
-    const trackerTokens = [
+    const trackerHosts = [
       'google-analytics.com',
       'googletagmanager.com',
-      'facebook.net/tr',
-      '/analytics',
-      '/tracking',
-      '/beacon',
+      'connect.facebook.net',
+      'analytics.twitter.com',
     ];
-    return adTokens.any(lower.contains) ||
-        (blockTrackers && trackerTokens.any(lower.contains));
+    bool matchesHost(String blocked) =>
+        host == blocked || host.endsWith('.$blocked');
+    return adHosts.any(matchesHost) ||
+        (blockTrackers && trackerHosts.any(matchesHost));
   }
 
   bool _shouldBlockNavigation(String value) {
@@ -1409,10 +1414,9 @@ class _BrowserScreenState extends State<BrowserScreen>
   static const _adBlockScript = r'''
 (() => {
   const selectors = [
-    '[id*="ad-"]', '[id^="ad_"]', '[class*=" ad-"]',
-    '[class^="ad-"]', '[class*="advert"]', '[class*="banner"]',
-    '[class*="popup"]', '[class*="popunder"]',
-    'iframe[src*="ads"]', 'iframe[src*="doubleclick"]'
+    '.adsbygoogle', '[data-ad-client]', '[data-ad-slot]',
+    'iframe[src*="doubleclick.net"]',
+    'iframe[src*="googlesyndication.com"]'
   ];
   const hide = root => {
     try {
@@ -1425,7 +1429,9 @@ class _BrowserScreenState extends State<BrowserScreen>
   new MutationObserver(records => records.forEach(record =>
     record.addedNodes.forEach(node => {
       if (node.nodeType === 1) {
-        if (node.matches && node.matches(selectors.join(','))) node.remove();
+        if (node.matches && node.matches(selectors.join(','))) {
+          node.style.setProperty('display', 'none', 'important');
+        }
         if (node.querySelectorAll) hide(node);
       }
     })
@@ -1619,89 +1625,6 @@ class _AddressBar extends StatelessWidget {
   }
 }
 
-class _DownloadFloatButton extends StatelessWidget {
-  const _DownloadFloatButton({
-    required this.count,
-    required this.busy,
-    required this.onPressed,
-  });
-
-  final int count;
-  final bool busy;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return FloatingActionButton(
-      heroTag: 'video-download-fab',
-      onPressed: onPressed,
-      backgroundColor: count > 0 ? Colors.redAccent : null,
-      child: busy
-          ? const SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : Badge(
-              isLabelVisible: count > 0,
-              label: Text('$count'),
-              child: const Icon(Icons.file_download_rounded),
-            ),
-    );
-  }
-}
-
-class _DetectionBar extends StatelessWidget {
-  const _DetectionBar({
-    required this.count,
-    required this.onTap,
-    required this.onParse,
-  });
-
-  final int count;
-  final VoidCallback? onTap;
-  final VoidCallback onParse;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      elevation: 6,
-      color: scheme.surface.withValues(alpha: 0.94),
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Row(
-            children: [
-              Icon(
-                count > 0 ? Icons.check_circle : Icons.info_outline,
-                color: count > 0 ? Colors.green : scheme.primary,
-                size: 18,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  count > 0 ? '发现 $count 个视频' : '播放视频后点击下载',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ),
-              TextButton(
-                onPressed: onParse,
-                child: const Text('检测'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _DownloadPicker extends StatefulWidget {
   const _DownloadPicker({
     required this.title,
@@ -1834,7 +1757,9 @@ class _BrowserBottomControls extends StatelessWidget {
     required this.onBack,
     required this.onForward,
     required this.onHome,
-    required this.onNew,
+    required this.videoCount,
+    required this.detectingVideo,
+    required this.onDetectVideo,
   });
 
   final bool canGoBack;
@@ -1842,7 +1767,9 @@ class _BrowserBottomControls extends StatelessWidget {
   final VoidCallback onBack;
   final VoidCallback onForward;
   final VoidCallback onHome;
-  final VoidCallback onNew;
+  final int videoCount;
+  final bool detectingVideo;
+  final VoidCallback onDetectVideo;
 
   @override
   Widget build(BuildContext context) {
@@ -1851,10 +1778,40 @@ class _BrowserBottomControls extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          IconButton(onPressed: canGoBack ? onBack : null, icon: const Icon(Icons.arrow_back_rounded)),
-          IconButton(onPressed: onHome, icon: const Icon(Icons.home_rounded)),
-          IconButton(onPressed: canGoForward ? onForward : null, icon: const Icon(Icons.arrow_forward_rounded)),
-          IconButton(onPressed: onNew, icon: const Icon(Icons.add_rounded)),
+          IconButton(
+            tooltip: '后退',
+            onPressed: canGoBack ? onBack : null,
+            icon: const Icon(Icons.arrow_back_rounded),
+          ),
+          IconButton(
+            tooltip: '主页',
+            onPressed: onHome,
+            icon: const Icon(Icons.home_rounded),
+          ),
+          IconButton(
+            tooltip: '前进',
+            onPressed: canGoForward ? onForward : null,
+            icon: const Icon(Icons.arrow_forward_rounded),
+          ),
+          IconButton(
+            tooltip: videoCount > 0 ? '发现 $videoCount 个视频' : '检测视频',
+            onPressed: detectingVideo ? null : onDetectVideo,
+            icon: detectingVideo
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Badge(
+                    isLabelVisible: videoCount > 0,
+                    label: Text('$videoCount'),
+                    child: Icon(
+                      videoCount > 0
+                          ? Icons.video_library_rounded
+                          : Icons.video_search_rounded,
+                    ),
+                  ),
+          ),
         ],
       ),
     );
