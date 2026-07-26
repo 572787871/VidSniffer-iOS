@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -949,9 +948,8 @@ class _BrowserScreenState extends State<BrowserScreen>
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     buildDefaultDragHandles: false,
                     itemCount: browserTabs.length,
-                    onReorder: (oldIndex, newIndex) {
+                    onReorderItem: (oldIndex, newIndex) {
                       setState(() {
-                        if (newIndex > oldIndex) newIndex--;
                         final activeId = browserTabs[activeBrowserTab].id;
                         final item = browserTabs.removeAt(oldIndex);
                         browserTabs.insert(newIndex, item);
