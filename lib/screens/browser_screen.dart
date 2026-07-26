@@ -67,6 +67,8 @@ class _BrowserScreenState extends State<BrowserScreen>
   bool browserTabsSheetOpen = false;
   bool creatingBrowserTab = false;
   bool browserDataLoaded = false;
+  String detectionNotice = '';
+  String directParseNotice = '';
 
   @override
   bool get wantKeepAlive => true;
@@ -139,6 +141,7 @@ class _BrowserScreenState extends State<BrowserScreen>
                       onOpen: _loadUrl,
                       onParseClipboard: _parseClipboardUrl,
                       parsing: directParsing,
+                      notice: directParseNotice,
                     )
                   : _browserBody(),
             ),
@@ -264,6 +267,7 @@ class _BrowserScreenState extends State<BrowserScreen>
                       loading = true;
                       progress = 0;
                       captured.clear();
+                      detectionNotice = '';
                     });
                     _remember(next);
                     _updateActiveTab(url: next);
@@ -335,6 +339,7 @@ class _BrowserScreenState extends State<BrowserScreen>
           onHome: _goHome,
           videoCount: _downloadable.length,
           detectingVideo: deepCapture,
+          notice: detectionNotice,
           onDetectVideo: _downloadable.isEmpty
               ? () => _sniffPage(openPicker: true)
               : _showDownloadPicker,
@@ -552,10 +557,13 @@ class _BrowserScreenState extends State<BrowserScreen>
     setState(() => deepCapture = false);
     if (openPicker) {
       if (_downloadable.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('暂未检测到视频，可播放后重试')),
-        );
+        setState(() {
+          detectionNotice = '暂未检测到视频，可播放后重试';
+        });
       } else {
+        if (detectionNotice.isNotEmpty) {
+          setState(() => detectionNotice = '');
+        }
         unawaited(_showDownloadPicker());
       }
     }
@@ -901,6 +909,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     setState(() {
       directParsing = true;
       directParseUrl = '';
+      directParseNotice = '';
     });
     try {
       final resources = await _parseWithHeadlessWebView(url);
@@ -923,19 +932,16 @@ class _BrowserScreenState extends State<BrowserScreen>
       setState(() {
         directParsing = false;
         directParseUrl = '';
+        directParseNotice = '未解析到视频，请检查网址或进入网页后重试';
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('未直接解析到视频，请检查网址或在网页中播放后检测')),
-      );
     } catch (error) {
       if (!mounted) return;
       setState(() {
         directParsing = false;
         directParseUrl = '';
+        directParseNotice = '解析失败，请检查网络或网址后重试';
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('直接解析失败：$error')),
-      );
+      debugPrint('[browser] direct parse failed: $error');
     }
   }
 
@@ -1879,11 +1885,13 @@ class _StartPage extends StatefulWidget {
     required this.onOpen,
     required this.onParseClipboard,
     required this.parsing,
+    required this.notice,
   });
 
   final ValueChanged<String> onOpen;
   final VoidCallback onParseClipboard;
   final bool parsing;
+  final String notice;
 
   @override
   State<_StartPage> createState() => _StartPageState();
@@ -1927,6 +1935,30 @@ class _StartPageState extends State<_StartPage> {
               : const Icon(Icons.content_paste_go_rounded),
           label: Text(widget.parsing ? '正在解析…' : '粘贴网址直接解析视频'),
         ),
+        if (widget.notice.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.info_outline_rounded,
+                size: 17,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  widget.notice,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
         const SizedBox(height: 26),
         GridView.count(
           shrinkWrap: true,
@@ -2322,7 +2354,22 @@ List<VideoResource> _collapseVideoQualities(List<VideoResource> resources) {
       );
     }
   }
-  return selected.values.toList(growable: false);
+  final collapsed = selected.values.toList(growable: false);
+  collapsed.sort((a, b) {
+    int height(VideoResource resource) =>
+        int.tryParse(
+          RegExp(r'(\d{3,4})p', caseSensitive: false)
+                  .firstMatch(_displayQuality(resource))
+                  ?.group(1) ??
+              '',
+        ) ??
+        -1;
+
+    final qualityOrder = height(b).compareTo(height(a));
+    if (qualityOrder != 0) return qualityOrder;
+    return _downloadChoiceScore(b).compareTo(_downloadChoiceScore(a));
+  });
+  return collapsed;
 }
 
 int _downloadChoiceScore(VideoResource resource) {
@@ -2345,6 +2392,7 @@ class _BrowserBottomControls extends StatelessWidget {
     required this.onHome,
     required this.videoCount,
     required this.detectingVideo,
+    required this.notice,
     required this.onDetectVideo,
   });
 
@@ -2355,6 +2403,7 @@ class _BrowserBottomControls extends StatelessWidget {
   final VoidCallback onHome;
   final int videoCount;
   final bool detectingVideo;
+  final String notice;
   final VoidCallback onDetectVideo;
 
   @override
@@ -2380,7 +2429,11 @@ class _BrowserBottomControls extends StatelessWidget {
             icon: const Icon(Icons.arrow_forward_rounded),
           ),
           IconButton(
-            tooltip: videoCount > 0 ? '发现 $videoCount 个视频' : '检测视频',
+            tooltip: notice.isNotEmpty
+                ? notice
+                : videoCount > 0
+                    ? '发现 $videoCount 个视频'
+                    : '检测视频',
             onPressed: detectingVideo ? null : onDetectVideo,
             icon: detectingVideo
                 ? const SizedBox(
@@ -2394,7 +2447,12 @@ class _BrowserBottomControls extends StatelessWidget {
                     child: Icon(
                       videoCount > 0
                           ? Icons.video_library_rounded
-                          : Icons.video_file_rounded,
+                          : notice.isNotEmpty
+                              ? Icons.info_outline_rounded
+                              : Icons.video_file_rounded,
+                      color: notice.isNotEmpty
+                          ? Theme.of(context).colorScheme.tertiary
+                          : null,
                     ),
                   ),
           ),
