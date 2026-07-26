@@ -16,6 +16,7 @@ class VideoSniffer {
       );
 
   final Dio _dio;
+  final Map<String, Future<List<VideoResource>>> _definitionRequests = {};
   static const _defaultUserAgent =
       'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
       'AppleWebKit/605.1.15';
@@ -268,13 +269,22 @@ class VideoSniffer {
 
   Future<List<VideoResource>> _probeJsonMediaDefinitions(
     VideoResource resource,
-  ) async {
+  ) {
     final lower = resource.url.toLowerCase();
     if (!lower.contains('get_media') &&
         !lower.contains('media_definition') &&
         !lower.contains('/video/')) {
-      return const [];
+      return Future.value(const []);
     }
+    return _definitionRequests.putIfAbsent(
+      resource.url,
+      () => _loadJsonMediaDefinitions(resource),
+    );
+  }
+
+  Future<List<VideoResource>> _loadJsonMediaDefinitions(
+    VideoResource resource,
+  ) async {
     try {
       final response = await _dio.get<String>(
         resource.url,
@@ -291,7 +301,7 @@ class VideoSniffer {
           : decoded is Map && decoded['mediaDefinitions'] is List
               ? decoded['mediaDefinitions'] as List
               : const [];
-      final results = <VideoResource>[];
+      final children = <VideoResource>[];
       for (final raw in items.whereType<Map>()) {
         final item = Map<String, dynamic>.from(raw);
         final url =
@@ -316,8 +326,15 @@ class VideoSniffer {
           allowUnknown: true,
         );
         if (child == null) continue;
-        results.addAll(await probeResource(child));
+        children.add(child);
       }
+      final groups = await Future.wait(
+        children.map((child) async {
+          final probed = await probeResource(child);
+          return probed.isEmpty ? <VideoResource>[child] : probed;
+        }),
+      );
+      final results = groups.expand((group) => group).toList(growable: false);
       return prioritizeResources(results, limit: results.length);
     } catch (_) {
       return const [];

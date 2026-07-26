@@ -396,14 +396,19 @@ class DownloadManager extends ChangeNotifier {
     debugPrint('[download] request url=${task.resource.url}');
     debugPrint('[download] save path=${finalFile.path}');
 
-    if (await _downloadMultipartDirect(
-      task,
-      finalFile,
-      partFile,
-      cancelToken,
-      startedAt,
-    )) {
-      return;
+    if (!_prefersSingleStream(task.resource)) {
+      if (await _downloadMultipartDirect(
+        task,
+        finalFile,
+        partFile,
+        cancelToken,
+        startedAt,
+      )) {
+        return;
+      }
+    } else {
+      task.message = resumeFrom > 0 ? '正在断点续传' : '正在连接视频服务器';
+      notifyListeners();
     }
 
     late final Response<ResponseBody> response;
@@ -1258,6 +1263,15 @@ class DownloadManager extends ChangeNotifier {
       'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
       'Connection': 'keep-alive',
     }..removeWhere((_, value) => value.trim().isEmpty);
+  }
+
+  bool _prefersSingleStream(VideoResource resource) {
+    final pageHost = Uri.tryParse(resource.pageUrl)?.host.toLowerCase() ?? '';
+    final mediaHost = Uri.tryParse(resource.url)?.host.toLowerCase() ?? '';
+    return pageHost == 'pornhub.com' ||
+        pageHost.endsWith('.pornhub.com') ||
+        mediaHost == 'phncdn.com' ||
+        mediaHost.endsWith('.phncdn.com');
   }
 
   String _ffmpegHeaders(VideoResource resource) {
