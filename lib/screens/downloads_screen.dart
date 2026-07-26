@@ -533,7 +533,7 @@ class _TaskArtwork extends StatelessWidget {
               ),
             ),
           ],
-        ],
+        ),
       ),
     );
   }
