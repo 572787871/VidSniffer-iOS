@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_session.dart';
+import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -135,6 +136,7 @@ class DownloadManager extends ChangeNotifier {
       return;
     }
     debugPrint('[download] start task=${task.id}');
+    final resuming = task.tempPath.isNotEmpty;
     task.status = DownloadStatus.preparing;
     task.message = '准备中';
     task.phase = DownloadPhase.preparing;
@@ -144,12 +146,14 @@ class DownloadManager extends ChangeNotifier {
     task.ffmpegLog = '';
     task.ffmpegTime = '--';
     task.ffmpegSpeed = '--';
-    task.downloadedSegments = 0;
-    task.totalSegments = 0;
-    task.tempPath = '';
-    task.outputDirectory = '';
-    task.playlistDuration = Duration.zero;
-    task.elapsed = Duration.zero;
+    if (!resuming) {
+      task.downloadedSegments = 0;
+      task.totalSegments = 0;
+      task.tempPath = '';
+      task.outputDirectory = '';
+      task.playlistDuration = Duration.zero;
+      task.elapsed = Duration.zero;
+    }
     task.completedAt = null;
     notifyListeners();
 
@@ -220,22 +224,28 @@ class DownloadManager extends ChangeNotifier {
     if (!task.canRetry) {
       return;
     }
-    task.progress = 0;
+    final resuming = task.status == DownloadStatus.paused &&
+        task.tempPath.isNotEmpty;
+    if (!resuming) task.progress = 0;
     task.status = DownloadStatus.preparing;
     task.phase = DownloadPhase.preparing;
     task.message = '准备重试';
     task.errorMessage = '';
     task.errorDetails = '';
-    task.receivedBytes = 0;
-    task.totalBytes = 0;
+    if (!resuming) {
+      task.receivedBytes = 0;
+      task.totalBytes = 0;
+    }
     task.speed = '--';
     task.remaining = '剩余时间未知';
     task.isIndeterminate = false;
     task.ffmpegLog = '';
     task.ffmpegTime = '--';
     task.ffmpegSpeed = '--';
-    task.downloadedSegments = 0;
-    task.totalSegments = 0;
+    if (!resuming) {
+      task.downloadedSegments = 0;
+      task.totalSegments = 0;
+    }
     notifyListeners();
     await start(task.id);
   }
@@ -244,12 +254,14 @@ class DownloadManager extends ChangeNotifier {
     if (!task.isActive) {
       return;
     }
+    task.status = DownloadStatus.paused;
+    task.isIndeterminate = false;
+    task.message = '正在暂停…';
+    notifyListeners();
     _cancelTokens[task.id]?.cancel('paused');
     if (_ffmpegSessions[task.id] != null) {
       await FFmpegKit.cancel();
     }
-    task.status = DownloadStatus.paused;
-    task.isIndeterminate = false;
     task.message = '已暂停，可继续';
     notifyListeners();
   }
@@ -405,50 +417,124 @@ class DownloadManager extends ChangeNotifier {
     if (!await tempDir.exists()) {
       await tempDir.create(recursive: true);
     }
-    final tempOutput = File(p.join(tempDir.path, '${task.id}.mp4'));
+    final tempOutput = File(
+      task.tempPath.isNotEmpty
+          ? task.tempPath
+          : p.join(tempDir.path, '${task.id}.mp4'),
+    );
     _partFiles[task.id] = tempOutput;
     task.tempPath = tempOutput.path;
     if (await output.exists()) {
       await output.delete();
     }
-    if (await tempOutput.exists()) {
-      await tempOutput.delete();
-    }
     debugPrint('[download] request url=${task.resource.url}');
     debugPrint('[download] save path=${output.path}');
     await _prefetchPlaylist(task);
 
+    final resumeDuration = await _mediaDuration(tempOutput);
+    final resumeBytes =
+        await tempOutput.exists() ? await tempOutput.length() : 0;
+    final isResume = resumeDuration > const Duration(seconds: 1);
+    final resumeOutput = File(
+      p.join(tempDir.path, '${task.id}.resume.mp4'),
+    );
+    final downloadOutput = isResume ? resumeOutput : tempOutput;
+    if (await downloadOutput.exists()) {
+      await downloadOutput.delete();
+    }
+    final remainingDuration = task.playlistDuration > resumeDuration
+        ? task.playlistDuration - resumeDuration
+        : Duration.zero;
+    if (isResume) {
+      task.receivedBytes = resumeBytes;
+      task.progress = task.playlistDuration > Duration.zero
+          ? (resumeDuration.inMilliseconds /
+                  task.playlistDuration.inMilliseconds)
+              .clamp(0, 0.95)
+              .toDouble()
+          : task.progress;
+      task.message = '从 ${_formatDuration(resumeDuration)} 继续下载';
+      notifyListeners();
+    }
     final command = [
       '-y',
       '-headers ${_shellQuote(_ffmpegHeaders(task.resource))}',
+      if (isResume) '-ss ${_ffmpegDurationSeconds(resumeDuration)}',
       '-i ${_shellQuote(task.resource.url)}',
-      if (task.playlistDuration > Duration.zero)
+      if (remainingDuration > Duration.zero)
+        '-t ${_ffmpegDurationSeconds(remainingDuration)}'
+      else if (!isResume && task.playlistDuration > Duration.zero)
         '-t ${_ffmpegDurationSeconds(task.playlistDuration)}',
       '-c copy',
       '-movflags +frag_keyframe+empty_moov+default_base_moof',
-      _shellQuote(tempOutput.path),
+      _shellQuote(downloadOutput.path),
     ].join(' ');
 
-    var logs = await _runFfmpeg(task, command);
+    var logs = await _runFfmpeg(
+      task,
+      command,
+      baseDuration: isResume ? resumeDuration : Duration.zero,
+      baseBytes: isResume ? resumeBytes : 0,
+    );
+    if (task.status == DownloadStatus.paused) {
+      if (isResume &&
+          await resumeOutput.exists() &&
+          await resumeOutput.length() > 0) {
+        await _concatResumeParts(
+          task,
+          tempOutput,
+          resumeOutput,
+          allowPaused: true,
+        );
+      }
+      return;
+    }
+    if (task.status == DownloadStatus.canceled) return;
     if (logs != null) {
-      if (await tempOutput.exists()) {
-        await tempOutput.delete().catchError((_) => tempOutput);
+      if (await downloadOutput.exists()) {
+        await downloadOutput.delete().catchError((_) => downloadOutput);
       }
       final fallback = [
         '-y',
         '-headers ${_shellQuote(_ffmpegHeaders(task.resource))}',
+        if (isResume) '-ss ${_ffmpegDurationSeconds(resumeDuration)}',
         '-i ${_shellQuote(task.resource.url)}',
-        if (task.playlistDuration > Duration.zero)
+        if (remainingDuration > Duration.zero)
+          '-t ${_ffmpegDurationSeconds(remainingDuration)}'
+        else if (!isResume && task.playlistDuration > Duration.zero)
           '-t ${_ffmpegDurationSeconds(task.playlistDuration)}',
         '-c:v copy',
         '-c:a aac',
         '-movflags +frag_keyframe+empty_moov+default_base_moof',
-        _shellQuote(tempOutput.path),
+        _shellQuote(downloadOutput.path),
       ].join(' ');
-      logs = await _runFfmpeg(task, fallback);
+      logs = await _runFfmpeg(
+        task,
+        fallback,
+        baseDuration: isResume ? resumeDuration : Duration.zero,
+        baseBytes: isResume ? resumeBytes : 0,
+      );
     }
+    if (task.status == DownloadStatus.paused) {
+      if (isResume &&
+          await resumeOutput.exists() &&
+          await resumeOutput.length() > 0) {
+        await _concatResumeParts(
+          task,
+          tempOutput,
+          resumeOutput,
+          allowPaused: true,
+        );
+      }
+      return;
+    }
+    if (task.status == DownloadStatus.canceled) return;
     if (logs != null) {
       throw StateError('ffmpeg 合并失败：$logs');
+    }
+
+    if (isResume) {
+      await _concatResumeParts(task, tempOutput, resumeOutput);
     }
 
     if (task.status == DownloadStatus.paused ||
@@ -477,7 +563,13 @@ class DownloadManager extends ChangeNotifier {
     task.localPath = output.path;
   }
 
-  Future<String?> _runFfmpeg(DownloadTask task, String command) async {
+  Future<String?> _runFfmpeg(
+    DownloadTask task,
+    String command, {
+    Duration baseDuration = Duration.zero,
+    int baseBytes = 0,
+    bool trackProgress = true,
+  }) async {
     final logs = StringBuffer();
     final completer = Completer<String?>();
     final startedAt = DateTime.now();
@@ -490,7 +582,7 @@ class DownloadManager extends ChangeNotifier {
         );
       },
       (log) {
-        if (_isTerminalOrPaused(task)) return;
+        if (_isTerminalOrPaused(task) || !trackProgress) return;
         final message = log.getMessage().trim();
         if (message.isEmpty) return;
         logs.writeln(message);
@@ -514,9 +606,14 @@ class DownloadManager extends ChangeNotifier {
         notifyListeners();
       },
       (statistics) {
-        if (_isTerminalOrPaused(task)) return;
+        if (_isTerminalOrPaused(task) || !trackProgress) return;
         unawaited(_refreshPartialSize(task));
-        final timeMs = statistics.getTime();
+        final timeMs =
+            baseDuration.inMilliseconds + statistics.getTime();
+        final statisticsSize = statistics.getSize();
+        if (statisticsSize > 0) {
+          task.receivedBytes = baseBytes + statisticsSize;
+        }
         task.elapsed = DateTime.now().difference(startedAt);
         if (timeMs > 0) {
           task.status = DownloadStatus.downloading;
@@ -560,6 +657,69 @@ class DownloadManager extends ChangeNotifier {
     );
     _ffmpegSessions[task.id] = session;
     return completer.future;
+  }
+
+  Future<Duration> _mediaDuration(File file) async {
+    if (!await file.exists() || await file.length() <= 0) {
+      return Duration.zero;
+    }
+    try {
+      final session = await FFprobeKit.getMediaInformation(file.path);
+      final seconds = double.tryParse(
+            session.getMediaInformation()?.getDuration() ?? '',
+          ) ??
+          0;
+      return seconds > 0
+          ? Duration(milliseconds: (seconds * 1000).round())
+          : Duration.zero;
+    } catch (_) {
+      return Duration.zero;
+    }
+  }
+
+  Future<void> _concatResumeParts(
+    DownloadTask task,
+    File original,
+    File resumed,
+    {bool allowPaused = false},
+  ) async {
+    if (!await original.exists() || !await resumed.exists()) {
+      throw StateError('续传分片文件不存在');
+    }
+    final combined = File('${original.path}.combined.mp4');
+    final listFile = File('${original.path}.concat.txt');
+    if (await combined.exists()) await combined.delete();
+    String concatPath(String value) =>
+        value.replaceAll("'", r"'\''");
+    await listFile.writeAsString(
+      "file '${concatPath(original.path)}'\n"
+      "file '${concatPath(resumed.path)}'\n",
+      flush: true,
+    );
+    final logs = await _runFfmpeg(
+      task,
+      [
+        '-y',
+        '-f concat',
+        '-safe 0',
+        '-i ${_shellQuote(listFile.path)}',
+        '-c copy',
+        '-movflags +faststart',
+        _shellQuote(combined.path),
+      ].join(' '),
+      trackProgress: false,
+    );
+    await listFile.delete().catchError((_) => listFile);
+    if (task.status == DownloadStatus.canceled ||
+        (task.status == DownloadStatus.paused && !allowPaused)) {
+      return;
+    }
+    if (logs != null || !await combined.exists()) {
+      throw StateError('续传文件拼接失败：${logs ?? '无输出文件'}');
+    }
+    await original.delete();
+    await resumed.delete();
+    await combined.rename(original.path);
   }
 
   Future<void> _prefetchPlaylist(DownloadTask task) async {
