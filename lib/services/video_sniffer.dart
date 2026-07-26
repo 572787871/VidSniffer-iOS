@@ -89,6 +89,12 @@ class VideoSniffer {
       '',
     );
     final title = _pageTitle(decodedHtml) ?? pageUri.host;
+    final xHamsterResources = _scanXHamsterInitials(
+      decodedHtml,
+      pageUri,
+      userAgent: userAgent,
+      cookie: cookie,
+    );
     final candidates = <String>[];
     final patterns = <RegExp>[
       RegExp(
@@ -144,7 +150,133 @@ class VideoSniffer {
       }
       resources.add(resource);
     }
-    return prioritizeResources(resources);
+    return prioritizeResources([...xHamsterResources, ...resources]);
+  }
+
+  List<VideoResource> _scanXHamsterInitials(
+    String html,
+    Uri pageUri, {
+    String userAgent = '',
+    String cookie = '',
+  }) {
+    if (!pageUri.host.toLowerCase().contains('xhchannel') &&
+        !pageUri.host.toLowerCase().contains('xhamster')) {
+      return const [];
+    }
+    final jsonText = _extractAssignedJson(html, 'window.initials');
+    if (jsonText.isEmpty) return const [];
+    try {
+      final decoded = jsonDecode(jsonText);
+      if (decoded is! Map) return const [];
+      final initials = Map<String, dynamic>.from(decoded);
+      final settings = initials['xplayerSettings'];
+      if (settings is! Map || settings['sources'] is! Map) return const [];
+      final sources = Map<String, dynamic>.from(settings['sources'] as Map);
+      final videoInfo = settings['videoInfo'] is Map
+          ? Map<String, dynamic>.from(settings['videoInfo'] as Map)
+          : const <String, dynamic>{};
+      final title =
+          videoInfo['title']?.toString() ?? _pageTitle(html) ?? pageUri.host;
+      final poster = videoInfo['thumbUrl']?.toString() ?? '';
+      final durationSeconds =
+          int.tryParse('${videoInfo['duration'] ?? 0}') ?? 0;
+      final resources = <VideoResource>[];
+
+      // The site's direct HTTP variants currently return "Wrong key".
+      // Prefer the encrypted HLS definitions, matching yt-dlp's extractor.
+      final hls = sources['hls'];
+      if (hls is Map) {
+        for (final codec in const ['h264', 'h265', 'av1']) {
+          final rawCodec = hls[codec];
+          if (rawCodec is! Map) continue;
+          final codecMap = Map<String, dynamic>.from(rawCodec);
+          String deciphered = '';
+          for (final key in const ['url', 'fallback']) {
+            deciphered = _decipherXHamsterUrl(
+              codecMap[key]?.toString() ?? '',
+            );
+            if (deciphered.isNotEmpty) break;
+          }
+          if (deciphered.isEmpty) continue;
+          final resource = resourceFromUrl(
+            deciphered,
+            pageTitle: title,
+            pageUrl: pageUri.toString(),
+            source: 'xhamster-static-hls-$codec',
+            userAgent: userAgent,
+            cookie: cookie,
+            duration: Duration(seconds: durationSeconds),
+            thumbnailUrl: poster,
+            allowUnknown: true,
+          );
+          if (resource != null) resources.add(resource);
+        }
+      }
+      return prioritizeResources(resources, limit: resources.length);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  String _extractAssignedJson(String html, String variable) {
+    final assignment = html.indexOf(variable);
+    if (assignment < 0) return '';
+    final start = html.indexOf('{', assignment + variable.length);
+    if (start < 0) return '';
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+    for (var index = start; index < html.length; index++) {
+      final code = html.codeUnitAt(index);
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (code == 0x5c) {
+          escaped = true;
+        } else if (code == 0x22) {
+          inString = false;
+        }
+        continue;
+      }
+      if (code == 0x22) {
+        inString = true;
+      } else if (code == 0x7b) {
+        depth++;
+      } else if (code == 0x7d) {
+        depth--;
+        if (depth == 0) return html.substring(start, index + 1);
+      }
+    }
+    return '';
+  }
+
+  String _decipherXHamsterUrl(String value) {
+    if (!RegExp(r'^[0-9a-fA-F]{12,}$').hasMatch(value)) return '';
+    try {
+      final encrypted = <int>[
+        for (var index = 0; index < value.length; index += 2)
+          int.parse(value.substring(index, index + 2), radix: 16),
+      ];
+      if (encrypted.length < 6) return '';
+      var seed = encrypted[1] |
+          (encrypted[2] << 8) |
+          (encrypted[3] << 16) |
+          (encrypted[4] << 24);
+      seed = _signed32(seed);
+      final generator = _XHamsterByteGenerator(encrypted.first, seed);
+      final clear = <int>[
+        for (final byte in encrypted.skip(5)) byte ^ generator.nextByte(),
+      ];
+      final decoded = latin1.decode(clear);
+      final uri = Uri.tryParse(decoded);
+      return uri != null &&
+              (uri.scheme == 'https' || uri.scheme == 'http') &&
+              uri.host.isNotEmpty
+          ? decoded
+          : '';
+    } catch (_) {
+      return '';
+    }
   }
 
   VideoResource? resourceFromUrl(
@@ -1062,5 +1194,66 @@ class VideoSniffer {
       dotAll: true,
     ).firstMatch(html);
     return match?.group(1)?.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+}
+
+int _signed32(int value) {
+  final unsigned = value & 0xffffffff;
+  return unsigned >= 0x80000000 ? unsigned - 0x100000000 : unsigned;
+}
+
+class _XHamsterByteGenerator {
+  _XHamsterByteGenerator(this.algorithm, int seed) : state = _signed32(seed);
+
+  final int algorithm;
+  int state;
+
+  int nextByte() {
+    switch (algorithm) {
+      case 1:
+        state = _signed32(state * 1664525 + 1013904223);
+        return state & 0xff;
+      case 2:
+        var value = _signed32(state ^ (state << 13));
+        value = _signed32(value ^ ((value & 0xffffffff) >>> 17));
+        state = _signed32(value ^ (value << 5));
+        return state & 0xff;
+      case 3:
+        state = _signed32(state + 0x9e3779b9);
+        var value = _signed32(state ^ ((state & 0xffffffff) >>> 16));
+        value = _signed32(value * _signed32(0x85ebca77));
+        value = _signed32(value ^ ((value & 0xffffffff) >>> 13));
+        value = _signed32(value * _signed32(0xc2b2ae3d));
+        return _signed32(value ^ ((value & 0xffffffff) >>> 16)) & 0xff;
+      case 4:
+        state = _signed32(state + 0x6d2b79f5);
+        var value = _signed32(
+          (state << 7) | ((state & 0xffffffff) >>> 25),
+        );
+        value = _signed32(value + 0x9e3779b9);
+        value = _signed32(value ^ ((value & 0xffffffff) >>> 11));
+        return _signed32(value * 0x27d4eb2d) & 0xff;
+      case 5:
+        var value = _signed32(state ^ (state << 7));
+        value = _signed32(value ^ ((value & 0xffffffff) >>> 9));
+        value = _signed32(value ^ (value << 8));
+        state = _signed32(value + 0xa5a5a5a5);
+        return state & 0xff;
+      case 6:
+        state = _signed32(
+          state * _signed32(0x2c9277b5) + _signed32(0xac564b05),
+        );
+        final value = _signed32(state ^ ((state & 0xffffffff) >>> 18));
+        final shift = ((state & 0xffffffff) >>> 27) & 31;
+        return _signed32((value & 0xffffffff) >>> shift) & 0xff;
+      case 7:
+        state = _signed32(state + _signed32(0x9e3779b9));
+        var value = _signed32(state ^ (state << 5));
+        value = _signed32(value * _signed32(0x7feb352d));
+        value = _signed32(value ^ ((value & 0xffffffff) >>> 15));
+        return _signed32(value * _signed32(0x846ca68b)) & 0xff;
+      default:
+        throw StateError('Unsupported xHamster cipher $algorithm');
+    }
   }
 }
