@@ -649,89 +649,104 @@ class DownloadManager extends ChangeNotifier {
     DateTime startedAt,
   ) async {
     const chunkSize = 8 * 1024 * 1024;
+    final taskClient = Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(minutes: 30),
+        followRedirects: true,
+        validateStatus: (status) => status != null && status < 500,
+      ),
+    );
     var received = await partFile.exists() ? await partFile.length() : 0;
     var total = task.totalBytes;
     var started = false;
 
-    while (total <= 0 || received < total) {
-      if (cancelToken.isCancelled ||
-          task.status == DownloadStatus.paused ||
-          task.status == DownloadStatus.canceled) {
-        return true;
-      }
-      final end = total > 0
-          ? (received + chunkSize - 1).clamp(received, total - 1)
-          : received + chunkSize - 1;
-      Response<ResponseBody>? response;
-      Object? lastError;
-      for (var attempt = 0; attempt < 3; attempt++) {
+    try {
+      while (total <= 0 || received < total) {
+        if (cancelToken.isCancelled ||
+            task.status == DownloadStatus.paused ||
+            task.status == DownloadStatus.canceled) {
+          return true;
+        }
+        final end = total > 0
+            ? (received + chunkSize - 1).clamp(received, total - 1)
+            : received + chunkSize - 1;
+        Response<ResponseBody>? response;
+        Object? lastError;
+        for (var attempt = 0; attempt < 3; attempt++) {
+          try {
+            response = await taskClient.get<ResponseBody>(
+              task.resource.url,
+              cancelToken: cancelToken,
+              options: Options(
+                responseType: ResponseType.stream,
+                headers: {
+                  ..._headersFor(task.resource),
+                  'Range': 'bytes=$received-$end',
+                },
+                validateStatus: (status) => status != null && status < 500,
+              ),
+            );
+            if (response.statusCode == 206 && response.data != null) break;
+            await response.data?.stream.take(1).drain<void>();
+            if (!started && response.statusCode == 200) return false;
+            lastError = HttpException('HTTP ${response.statusCode}');
+          } catch (error) {
+            lastError = error;
+            if (error is DioException && CancelToken.isCancel(error)) {
+              return true;
+            }
+          }
+          if (attempt < 2) {
+            await Future<void>.delayed(Duration(seconds: 1 << attempt));
+          }
+        }
+        if (response?.statusCode != 206 || response?.data == null) {
+          if (!started) return false;
+          throw StateError('视频分块重试失败：${lastError ?? '服务器未返回分段数据'}');
+        }
+        started = true;
+        final contentRange =
+            response!.headers.value(HttpHeaders.contentRangeHeader) ?? '';
+        final discoveredTotal = int.tryParse(
+          RegExp(r'/(\d+)$').firstMatch(contentRange)?.group(1) ?? '',
+        );
+        if (discoveredTotal != null && discoveredTotal > 0) {
+          total = discoveredTotal;
+          task.totalBytes = total;
+        }
+
+        final before = received;
+        final sink = partFile.openWrite(
+          mode: received > 0 ? FileMode.append : FileMode.write,
+        );
         try {
-          response = await _dio.get<ResponseBody>(
-            task.resource.url,
-            cancelToken: cancelToken,
-            options: Options(
-              responseType: ResponseType.stream,
-              headers: {
-                ..._headersFor(task.resource),
-                'Range': 'bytes=$received-$end',
-              },
-              validateStatus: (status) => status != null && status < 500,
-            ),
-          );
-          if (response.statusCode == 206 && response.data != null) break;
-          await response.data?.stream.take(1).drain<void>();
-          if (!started && response.statusCode == 200) return false;
-          lastError = HttpException('HTTP ${response.statusCode}');
-        } catch (error) {
-          lastError = error;
-          if (error is DioException && CancelToken.isCancel(error)) return true;
+          await for (final data in response.data!.stream) {
+            if (cancelToken.isCancelled) break;
+            sink.add(data);
+            received += data.length;
+            _updateProgress(task, received, total, startedAt);
+          }
+        } finally {
+          await sink.close();
         }
-        if (attempt < 2) {
-          await Future<void>.delayed(Duration(seconds: 1 << attempt));
+        if (received <= before) {
+          throw StateError('视频服务器没有返回有效数据');
         }
-      }
-      if (response?.statusCode != 206 || response?.data == null) {
-        if (!started) return false;
-        throw StateError('视频分块重试失败：${lastError ?? '服务器未返回分段数据'}');
-      }
-      started = true;
-      final contentRange =
-          response!.headers.value(HttpHeaders.contentRangeHeader) ?? '';
-      final discoveredTotal =
-          int.tryParse(RegExp(r'/(\d+)$').firstMatch(contentRange)?.group(1) ?? '');
-      if (discoveredTotal != null && discoveredTotal > 0) {
-        total = discoveredTotal;
-        task.totalBytes = total;
+        task.message = '分块下载中';
+        notifyListeners();
       }
 
-      final before = received;
-      final sink = partFile.openWrite(
-        mode: received > 0 ? FileMode.append : FileMode.write,
-      );
-      try {
-        await for (final data in response.data!.stream) {
-          if (cancelToken.isCancelled) break;
-          sink.add(data);
-          received += data.length;
-          _updateProgress(task, received, total, startedAt);
-        }
-      } finally {
-        await sink.close();
+      if (await FileUtils.looksLikeHtml(partFile)) {
+        throw StateError('解析到的是网页，不是视频文件');
       }
-      if (received <= before) {
-        throw StateError('视频服务器没有返回有效数据');
-      }
-      task.message = '分块下载中';
-      notifyListeners();
+      if (await finalFile.exists()) await finalFile.delete();
+      await partFile.rename(finalFile.path);
+      task.localPath = finalFile.path;
+      return true;
+    } finally {
+      taskClient.close(force: true);
     }
-
-    if (await FileUtils.looksLikeHtml(partFile)) {
-      throw StateError('解析到的是网页，不是视频文件');
-    }
-    if (await finalFile.exists()) await finalFile.delete();
-    await partFile.rename(finalFile.path);
-    task.localPath = finalFile.path;
-    return true;
   }
 
   Future<void> _downloadWithFFmpeg(DownloadTask task) async {
