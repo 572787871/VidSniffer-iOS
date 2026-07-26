@@ -590,7 +590,7 @@ class VideoSniffer {
           ? (bitrate * duration.inMilliseconds / 8000).round()
           : 0;
       return resource.copyWith(
-        quality: height > 0 ? '${height}P' : _normalizeQuality(resource.quality),
+        quality: height > 0 ? '${height}p' : _normalizeQuality(resource.quality),
         duration: duration,
         size: estimatedSize >= 1024 * 1024
             ? '约 ${_formatBytes(estimatedSize)}'
@@ -757,7 +757,7 @@ class VideoSniffer {
           url: variantUri.toString(),
           quality: height == null
               ? _qualityFromUrl(variantUri.toString())
-              : '${height}P',
+              : '${height}p',
           bitrate: bandwidth == null
               ? ''
               : '${(bandwidth / 1000).round()} kbps',
@@ -943,9 +943,9 @@ class VideoSniffer {
   String _qualityFromUrl(String value) {
     final lower = value.toLowerCase();
     final pMatch = RegExp(r'([1-9]\d{2,3})p').firstMatch(lower);
-    if (pMatch != null) return '${pMatch.group(1)}P';
+    if (pMatch != null) return '${pMatch.group(1)}p';
     final resMatch = RegExp(r'(\d{3,4})x([1-9]\d{2,3})').firstMatch(lower);
-    if (resMatch != null) return '${resMatch.group(2)}P';
+    if (resMatch != null) return '${resMatch.group(2)}p';
     return '未知';
   }
 
@@ -953,11 +953,13 @@ class VideoSniffer {
     final p = RegExp(r'(\d{3,4})p', caseSensitive: false)
         .firstMatch(value)
         ?.group(1);
-    if (p != null) return '${p}P';
+    if (p != null) return '${p}p';
     final resolution = RegExp(r'\d{3,4}\s*[x×]\s*(\d{3,4})')
         .firstMatch(value)
         ?.group(1);
-    if (resolution != null) return '${resolution}P';
+    if (resolution != null) return '${resolution}p';
+    final number = int.tryParse(value.trim());
+    if (number != null && number >= 144) return '${number}p';
     return value;
   }
 

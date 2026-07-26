@@ -424,6 +424,7 @@ class _BrowserScreenState extends State<BrowserScreen>
           )
           .toList();
     }
+    values = _collapseVideoQualities(values);
     values.sort((a, b) {
       final current = b.isCurrentPlayback.toString().compareTo(
             a.isCurrentPlayback.toString(),
@@ -879,8 +880,12 @@ class _BrowserScreenState extends State<BrowserScreen>
           await sniffer.parsePage(url),
         );
       } catch (_) {}
-      if (resources.isEmpty) {
-        resources = await _parseWithHeadlessWebView(url);
+      final headlessResources = await _parseWithHeadlessWebView(url);
+      if (headlessResources.isNotEmpty) {
+        resources = _collapseVideoQualities([
+          ...resources,
+          ...headlessResources,
+        ]);
       }
       if (!mounted) return;
       if (resources.isNotEmpty) {
@@ -943,6 +948,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     final completer = Completer<List<VideoResource>>();
     late final HeadlessInAppWebView headless;
     var processing = false;
+    final accumulated = <VideoResource>[];
 
     Future<void> finish(List<VideoResource> value) async {
       if (completer.isCompleted) return;
@@ -976,18 +982,25 @@ class _BrowserScreenState extends State<BrowserScreen>
               );
               final current = (await web.getUrl())?.toString();
               final actualUrl = current ?? loadedUrl?.toString() ?? url;
-              final candidates = sniffer.scanHtml(
-                html?.toString() ?? '',
-                Uri.parse(actualUrl),
-                source: 'headless-dom',
-              );
+              final candidates = <VideoResource>[
+                ...sniffer.scanHtml(
+                  html?.toString() ?? '',
+                  Uri.parse(actualUrl),
+                  source: 'headless-dom',
+                ),
+                ...await _headlessPlayerResources(web, actualUrl),
+              ];
               final resources = await _probeDirectCandidates(candidates);
-              if (resources.isNotEmpty) {
-                await finish(resources);
+              accumulated.addAll(resources);
+              final collapsed = _collapseVideoQualities(accumulated);
+              if (collapsed.any(
+                (resource) => resource.source.contains('media-definition'),
+              )) {
+                await finish(collapsed);
                 return;
               }
             }
-            await finish(const []);
+            await finish(_collapseVideoQualities(accumulated));
           } catch (_) {
             await finish(const []);
           }
@@ -1007,6 +1020,46 @@ class _BrowserScreenState extends State<BrowserScreen>
         return const [];
       },
     );
+  }
+
+  Future<List<VideoResource>> _headlessPlayerResources(
+    InAppWebViewController web,
+    String pageUrl,
+  ) async {
+    try {
+      final payload = await web.evaluateJavascript(source: _scanScript);
+      final decoded = payload is String ? jsonDecode(payload) : payload;
+      if (decoded is! List) return const [];
+      final resources = <VideoResource>[];
+      for (final raw in decoded.whereType<Map>()) {
+        final item = Map<String, dynamic>.from(raw);
+        final durationSeconds =
+            double.tryParse('${item['duration'] ?? 0}') ?? 0;
+        for (final url in [
+          item['url']?.toString() ?? '',
+          ...((item['sources'] as List?) ?? const []).map((value) => '$value'),
+        ]) {
+          final resource = sniffer.resourceFromUrl(
+            url,
+            pageTitle: item['title']?.toString() ?? pageTitle,
+            pageUrl: pageUrl,
+            source: item['source']?.toString() ?? 'headless-player',
+            quality: _qualityLabel(item['quality']?.toString() ?? ''),
+            duration: durationSeconds > 0
+                ? Duration(
+                    milliseconds: (durationSeconds * 1000).round(),
+                  )
+                : Duration.zero,
+            thumbnailUrl: item['poster']?.toString() ?? '',
+            allowUnknown: true,
+          );
+          if (resource != null) resources.add(resource);
+        }
+      }
+      return resources;
+    } catch (_) {
+      return const [];
+    }
   }
 
   Future<void> _showSavedPages(int initialIndex) {
@@ -2011,7 +2064,9 @@ class _DownloadPickerState extends State<_DownloadPicker> {
       }),
     );
     if (!mounted) return;
-    final enriched = groups.expand((items) => items).toList(growable: false);
+    final enriched = _collapseVideoQualities(
+      groups.expand((items) => items).toList(growable: false),
+    );
     final selectedUrl = selected.url;
     setState(() {
       resources = enriched;
@@ -2206,12 +2261,44 @@ String _displayQuality(VideoResource resource) {
   final p = RegExp(r'(\d{3,4})p', caseSensitive: false)
       .firstMatch(raw)
       ?.group(1);
-  if (p != null) return '${p}P';
+  if (p != null) return '${p}p';
   final resolution = RegExp(r'\d{3,4}\s*[x×]\s*(\d{3,4})')
       .firstMatch(raw)
       ?.group(1);
-  if (resolution != null) return '${resolution}P';
+  if (resolution != null) return '${resolution}p';
+  final number = int.tryParse(raw);
+  if (number != null && number >= 144) return '${number}p';
   return raw == '未知' || raw.isEmpty ? resource.displayFormat : raw;
+}
+
+List<VideoResource> _collapseVideoQualities(List<VideoResource> resources) {
+  final selected = <String, VideoResource>{};
+  for (final resource in resources) {
+    final quality = _displayQuality(resource);
+    final height = RegExp(r'(\d{3,4})p', caseSensitive: false)
+        .firstMatch(quality)
+        ?.group(1);
+    final key = height == null ? resource.normalizedUrl : 'height:$height';
+    final current = selected[key];
+    if (current == null ||
+        _downloadChoiceScore(resource) > _downloadChoiceScore(current)) {
+      selected[key] = resource.copyWith(
+        quality: height == null ? resource.quality : '${height}p',
+      );
+    }
+  }
+  return selected.values.toList(growable: false);
+}
+
+int _downloadChoiceScore(VideoResource resource) {
+  var score = 0;
+  if (resource.type == VideoResourceType.mp4) score += 500;
+  if (resource.type == VideoResourceType.hls) score += 300;
+  if (resource.size != '未知' && resource.size.trim().isNotEmpty) score += 250;
+  if (resource.duration > Duration.zero) score += 100;
+  if (resource.thumbnailUrl.isNotEmpty) score += 20;
+  if (resource.source.contains('media-definition')) score += 50;
+  return score;
 }
 
 class _BrowserBottomControls extends StatelessWidget {
