@@ -1808,7 +1808,7 @@ class _BrowserBottomControls extends StatelessWidget {
                     child: Icon(
                       videoCount > 0
                           ? Icons.video_library_rounded
-                          : Icons.video_search_rounded,
+                          : Icons.video_file_rounded,
                     ),
                   ),
           ),
