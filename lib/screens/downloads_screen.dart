@@ -286,6 +286,8 @@ class _DownloadCard extends StatelessWidget {
                                   title: task.resource.title,
                                   filePath: manager.previewPathFor(task),
                                   allowPartial: true,
+                                  downloadTask: task,
+                                  downloadManager: manager,
                                 ),
                               ),
                             )

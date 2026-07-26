@@ -40,10 +40,17 @@ class BrowserPageRecord {
 }
 
 class BrowserData {
-  const BrowserData({this.history = const [], this.bookmarks = const []});
+  const BrowserData({
+    this.history = const [],
+    this.bookmarks = const [],
+    this.openTabs = const [],
+    this.activeTab = 0,
+  });
 
   final List<BrowserPageRecord> history;
   final List<BrowserPageRecord> bookmarks;
+  final List<BrowserPageRecord> openTabs;
+  final int activeTab;
 }
 
 class BrowserDataStore {
@@ -56,6 +63,8 @@ class BrowserDataStore {
       return BrowserData(
         history: _records(decoded['history']),
         bookmarks: _records(decoded['bookmarks']),
+        openTabs: _records(decoded['openTabs']),
+        activeTab: int.tryParse('${decoded['activeTab'] ?? 0}') ?? 0,
       );
     } catch (_) {
       return const BrowserData();
@@ -65,6 +74,8 @@ class BrowserDataStore {
   Future<void> save({
     required List<BrowserPageRecord> history,
     required List<BrowserPageRecord> bookmarks,
+    List<BrowserPageRecord> openTabs = const [],
+    int activeTab = 0,
   }) async {
     final file = await _file();
     if (!await file.parent.exists()) {
@@ -74,6 +85,8 @@ class BrowserDataStore {
       jsonEncode({
         'history': history.map((item) => item.toJson()).toList(),
         'bookmarks': bookmarks.map((item) => item.toJson()).toList(),
+        'openTabs': openTabs.map((item) => item.toJson()).toList(),
+        'activeTab': activeTab,
       }),
     );
   }

@@ -744,6 +744,8 @@ class _DownloadPreviewCard extends StatelessWidget {
                                       .previewPathFor(task),
                                   title: task.resource.title,
                                   allowPartial: true,
+                                  downloadTask: task,
+                                  downloadManager: state.downloadManager,
                                 ),
                               ),
                             )

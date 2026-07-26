@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
+import '../models/download_task.dart';
+import '../models/video_resource.dart';
+import '../services/download_manager.dart';
 import '../services/file_utils.dart';
 import '../services/playback_store.dart';
 
@@ -13,12 +16,16 @@ class PlayerScreen extends StatefulWidget {
     required this.title,
     this.filePath,
     this.allowPartial = false,
+    this.downloadTask,
+    this.downloadManager,
     super.key,
   });
 
   final String title;
   final String? filePath;
   final bool allowPartial;
+  final DownloadTask? downloadTask;
+  final DownloadManager? downloadManager;
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
@@ -49,6 +56,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    widget.downloadManager?.addListener(_onPlayerChanged);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -57,8 +65,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     ]);
     final filePath = widget.filePath;
     if (filePath != null && filePath.isNotEmpty) {
-      _openFile(filePath);
-      if (widget.allowPartial) {
+      if (widget.allowPartial &&
+          widget.downloadTask?.resource.type == VideoResourceType.hls) {
+        _openStreamingPreview(widget.downloadTask!.resource);
+      } else {
+        _openFile(filePath);
+      }
+      if (widget.allowPartial &&
+          widget.downloadTask?.resource.type != VideoResourceType.hls) {
         partialRefreshTimer = Timer.periodic(
           const Duration(seconds: 2),
           (_) => unawaited(_refreshGrowingFile()),
@@ -76,6 +90,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     controller?.setPlaybackSpeed(1);
     controller?.removeListener(_onPlayerChanged);
     controller?.dispose();
+    widget.downloadManager?.removeListener(_onPlayerChanged);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     super.dispose();
@@ -266,19 +281,33 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 trackHeight: 5,
                 thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
               ),
-              child: Slider(
-                value: _positionFraction(),
-                onChanged: value == null || !value.isInitialized
-                    ? null
-                    : (position) {
-                        final duration = value.duration;
-                        player?.seekTo(
-                          Duration(
-                            milliseconds:
-                                (duration.inMilliseconds * position).round(),
-                          ),
-                        );
-                      },
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Positioned.fill(
+                    child: _PreviewProgressTrack(
+                      played: _positionFraction(),
+                      buffered: _bufferedFraction(),
+                      downloaded:
+                          widget.downloadTask?.progress.clamp(0, 1).toDouble() ??
+                              _bufferedFraction(),
+                    ),
+                  ),
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      activeTrackColor: Colors.transparent,
+                      inactiveTrackColor: Colors.transparent,
+                      disabledActiveTrackColor: Colors.transparent,
+                      disabledInactiveTrackColor: Colors.transparent,
+                    ),
+                    child: Slider(
+                      value: _positionFraction(),
+                      onChanged: value == null || !value.isInitialized
+                          ? null
+                          : (position) => _seekToFraction(position),
+                    ),
+                  ),
+                ],
               ),
             ),
             Row(
@@ -289,7 +318,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
                 const Spacer(),
                 Text(
-                  _formatPosition(value?.duration ?? Duration.zero),
+                  _formatPosition(_displayDuration()),
                   style: const TextStyle(color: Colors.white70),
                 ),
               ],
@@ -359,12 +388,46 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final value = controller?.value;
     if (value == null ||
         !value.isInitialized ||
-        value.duration.inMilliseconds <= 0) {
+        _displayDuration().inMilliseconds <= 0) {
       return 0;
     }
-    return (value.position.inMilliseconds / value.duration.inMilliseconds)
+    return (value.position.inMilliseconds / _displayDuration().inMilliseconds)
         .clamp(0, 1)
         .toDouble();
+  }
+
+  Duration _displayDuration() {
+    final playlist = widget.downloadTask?.playlistDuration ?? Duration.zero;
+    if (playlist > Duration.zero) return playlist;
+    return controller?.value.duration ?? Duration.zero;
+  }
+
+  double _bufferedFraction() {
+    final value = controller?.value;
+    final duration = _displayDuration();
+    if (value == null || duration.inMilliseconds <= 0 || value.buffered.isEmpty) {
+      return 0;
+    }
+    final end = value.buffered
+        .map((range) => range.end)
+        .reduce((a, b) => a > b ? a : b);
+    return (end.inMilliseconds / duration.inMilliseconds)
+        .clamp(0, 1)
+        .toDouble();
+  }
+
+  Future<void> _seekToFraction(double fraction) async {
+    final player = controller;
+    if (player == null) return;
+    final target = Duration(
+      milliseconds: (_displayDuration().inMilliseconds * fraction).round(),
+    );
+    if (widget.downloadTask != null &&
+        fraction > widget.downloadTask!.progress) {
+      _showOverlay('正在缓冲目标片段…');
+    }
+    await player.seekTo(target);
+    await player.play();
   }
 
   void _togglePlay() {
@@ -419,7 +482,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _seekBy(int seconds) {
     final player = controller;
     if (player == null || !player.value.isInitialized) return;
-    final duration = player.value.duration;
+    final duration = _displayDuration();
     final current = player.value.position;
     final targetMs = (current.inMilliseconds + seconds * 1000)
         .clamp(0, duration.inMilliseconds)
@@ -530,6 +593,36 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  Future<void> _openStreamingPreview(VideoResource resource) async {
+    try {
+      final previous = controller;
+      previous?.removeListener(_onPlayerChanged);
+      await previous?.dispose();
+      final player = VideoPlayerController.networkUrl(
+        Uri.parse(resource.url),
+        httpHeaders: {
+          if (resource.referer.isNotEmpty || resource.pageUrl.isNotEmpty)
+            'Referer': resource.referer.isNotEmpty
+                ? resource.referer
+                : resource.pageUrl,
+          if (resource.userAgent.isNotEmpty) 'User-Agent': resource.userAgent,
+          if (resource.cookie.isNotEmpty) 'Cookie': resource.cookie,
+          if (resource.origin.isNotEmpty) 'Origin': resource.origin,
+        },
+      )..addListener(_onPlayerChanged);
+      controller = player;
+      await player.initialize();
+      if (!mounted) return;
+      setState(() => error = null);
+      _scheduleControlsHide();
+      await player.play();
+    } catch (e) {
+      if (mounted) {
+        setState(() => error = '边下边播连接失败，请返回网页重新解析。\n$e');
+      }
+    }
+  }
+
   Future<void> _refreshGrowingFile() async {
     if (refreshingPartial) return;
     final path = currentPath;
@@ -599,6 +692,65 @@ class _PlayerScreenState extends State<PlayerScreen> {
         position: value.position,
         duration: value.duration,
       ),
+    );
+  }
+}
+
+class _PreviewProgressTrack extends StatelessWidget {
+  const _PreviewProgressTrack({
+    required this.played,
+    required this.buffered,
+    required this.downloaded,
+  });
+
+  final double played;
+  final double buffered;
+  final double downloaded;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(99),
+      child: LayoutBuilder(
+        builder: (context, constraints) => Stack(
+          children: [
+            const Positioned.fill(child: ColoredBox(color: Colors.white24)),
+            _bar(const Color(0xff7657d6), downloaded, constraints.maxWidth),
+            _rangeBar(
+              Colors.white54,
+              downloaded,
+              buffered,
+              constraints.maxWidth,
+            ),
+            _bar(const Color(0xff2f73ea), played, constraints.maxWidth),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _bar(Color color, double fraction, double width) => Positioned(
+        left: 0,
+        top: 0,
+        bottom: 0,
+        width: width * fraction.clamp(0, 1).toDouble(),
+        child: ColoredBox(color: color),
+      );
+
+  Widget _rangeBar(
+    Color color,
+    double start,
+    double end,
+    double width,
+  ) {
+    final from = start.clamp(0, 1).toDouble();
+    final to = end.clamp(from, 1).toDouble();
+    return Positioned(
+      left: width * from,
+      top: 0,
+      bottom: 0,
+      width: width * (to - from),
+      child: ColoredBox(color: color),
     );
   }
 }

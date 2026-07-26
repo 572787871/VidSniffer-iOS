@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -64,6 +66,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   bool blockTrackers = true;
   bool browserTabsSheetOpen = false;
   bool creatingBrowserTab = false;
+  bool browserDataLoaded = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -101,6 +104,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     flushTimer?.cancel();
     snifferController.dispose();
     addressController.dispose();
+    if (browserDataLoaded) unawaited(_saveBrowserData());
     super.dispose();
   }
 
@@ -617,6 +621,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
     final cover = await _currentPageCover();
+    final coverBytes = cover.isEmpty ? null : await _loadCoverBytes(cover);
     if (!mounted) return;
     if (cover.isNotEmpty) {
       resources = resources
@@ -635,6 +640,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       builder: (context) => _DownloadPicker(
         title: title ?? pageTitle,
         resources: resources,
+        coverBytes: coverBytes,
         onProbe: (resource) async => sniffer.probeResource(
           await _withCurrentCredentials(resource),
         ),
@@ -644,6 +650,36 @@ class _BrowserScreenState extends State<BrowserScreen>
         },
       ),
     );
+  }
+
+  Future<Uint8List?> _loadCoverBytes(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.hasScheme) return null;
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = await client.getUrl(uri);
+      request.headers.set(HttpHeaders.refererHeader, currentUrl);
+      if (userAgent.isNotEmpty) {
+        request.headers.set(HttpHeaders.userAgentHeader, userAgent);
+      }
+      if (currentCookie.isNotEmpty) {
+        request.headers.set(HttpHeaders.cookieHeader, currentCookie);
+      }
+      final response = await request.close().timeout(const Duration(seconds: 10));
+      if (response.statusCode < 200 || response.statusCode >= 300) return null;
+      final bytes = BytesBuilder(copy: false);
+      var length = 0;
+      await for (final chunk in response) {
+        length += chunk.length;
+        if (length > 6 * 1024 * 1024) return null;
+        bytes.add(chunk);
+      }
+      return bytes.takeBytes();
+    } catch (_) {
+      return null;
+    } finally {
+      client.close(force: true);
+    }
   }
 
   Future<String> _currentPageCover() async {
@@ -1016,6 +1052,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     if (browserTabs.isEmpty || activeBrowserTab >= browserTabs.length) return;
     final current = browserTabs[activeBrowserTab];
     browserTabs[activeBrowserTab] = current.copyWith(url: url, title: title);
+    if (browserDataLoaded) unawaited(_saveBrowserData());
     if (notify && mounted) setState(() {});
   }
 
@@ -1231,6 +1268,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       addressController.clear();
       captured.clear();
     });
+    if (browserDataLoaded) unawaited(_saveBrowserData());
   }
 
   void _activateBrowserTab(int index) {
@@ -1249,6 +1287,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       captured.clear();
       controller = tabControllers[tab.id];
     });
+    if (browserDataLoaded) unawaited(_saveBrowserData());
   }
 
   void _closeBrowserTab(int index) {
@@ -1260,6 +1299,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     activeBrowserTab =
         activeBrowserTab.clamp(0, browserTabs.length - 1).toInt();
     _activateBrowserTab(activeBrowserTab);
+    if (browserDataLoaded) unawaited(_saveBrowserData());
   }
 
   bool _shouldBlockRequest(String value) {
@@ -1400,12 +1440,44 @@ class _BrowserScreenState extends State<BrowserScreen>
           bookmarks.add(item);
         }
       }
+      if (data.openTabs.isNotEmpty) {
+        browserTabs
+          ..clear()
+          ..addAll(
+            data.openTabs.asMap().entries.map(
+              (entry) => _BrowserTabData(
+                id: '${DateTime.now().microsecondsSinceEpoch}-${entry.key}',
+                title: entry.value.title.isEmpty ? '网页' : entry.value.title,
+                url: entry.value.url,
+                keepAlive: InAppWebViewKeepAlive(),
+              ),
+            ),
+          );
+        activeBrowserTab =
+            data.activeTab.clamp(0, browserTabs.length - 1).toInt();
+        final restored = browserTabs[activeBrowserTab];
+        currentUrl = restored.url;
+        pageTitle = restored.title;
+        showStartPage = restored.url == 'about:blank';
+        addressController.text = showStartPage ? '' : restored.url;
+      }
+      browserDataLoaded = true;
     });
   }
 
   Future<void> _saveBrowserData() => browserDataStore.save(
         history: history,
         bookmarks: bookmarks,
+        openTabs: browserTabs
+            .map(
+              (tab) => BrowserPageRecord(
+                url: tab.url,
+                title: tab.title,
+                updatedAt: DateTime.now(),
+              ),
+            )
+            .toList(growable: false),
+        activeTab: activeBrowserTab,
       );
 
   String _normalize(String value) {
@@ -1802,12 +1874,14 @@ class _DownloadPicker extends StatefulWidget {
   const _DownloadPicker({
     required this.title,
     required this.resources,
+    required this.coverBytes,
     required this.onProbe,
     required this.onDownload,
   });
 
   final String title;
   final List<VideoResource> resources;
+  final Uint8List? coverBytes;
   final Future<List<VideoResource>> Function(VideoResource) onProbe;
   final FutureOr<void> Function(VideoResource) onDownload;
 
@@ -1884,6 +1958,7 @@ class _DownloadPickerState extends State<_DownloadPicker> {
                         padding: const EdgeInsets.only(bottom: 10),
                         child: _VideoChoiceTile(
                           resource: resource,
+                          coverBytes: widget.coverBytes,
                           selected: resource.url == selected.url,
                           fallbackTitle: widget.title,
                           onTap: () => setState(() => selected = resource),
@@ -1913,12 +1988,14 @@ class _DownloadPickerState extends State<_DownloadPicker> {
 class _VideoChoiceTile extends StatelessWidget {
   const _VideoChoiceTile({
     required this.resource,
+    required this.coverBytes,
     required this.selected,
     required this.fallbackTitle,
     required this.onTap,
   });
 
   final VideoResource resource;
+  final Uint8List? coverBytes;
   final bool selected;
   final String fallbackTitle;
   final VoidCallback onTap;
@@ -1954,7 +2031,9 @@ class _VideoChoiceTile extends StatelessWidget {
                 child: SizedBox(
                   width: 112,
                   height: 76,
-                  child: resource.thumbnailUrl.trim().isEmpty
+                  child: coverBytes != null
+                      ? Image.memory(coverBytes!, fit: BoxFit.cover)
+                      : resource.thumbnailUrl.trim().isEmpty
                       ? ColoredBox(color: scheme.surfaceContainerHighest)
                       : Image.network(
                           resource.thumbnailUrl,
