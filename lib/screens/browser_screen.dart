@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1787,74 +1786,6 @@ class _BrowserBottomControls extends StatelessWidget {
           IconButton(onPressed: canGoForward ? onForward : null, icon: const Icon(Icons.arrow_forward_rounded)),
           IconButton(onPressed: onNew, icon: const Icon(Icons.add_rounded)),
         ],
-      ),
-    );
-  }
-}
-
-class _TabsDrawer extends StatelessWidget {
-  const _TabsDrawer({
-    required this.history,
-    required this.bookmarks,
-    required this.onOpen,
-    required this.onClearHistory,
-    required this.onRemoveHistory,
-    required this.onRemoveBookmark,
-  });
-
-  final List<BrowserPageRecord> history;
-  final List<BrowserPageRecord> bookmarks;
-  final ValueChanged<String> onOpen;
-  final VoidCallback onClearHistory;
-  final ValueChanged<String> onRemoveHistory;
-  final ValueChanged<String> onRemoveBookmark;
-
-  @override
-  Widget build(BuildContext context) {
-    return Drawer(
-      child: DefaultTabController(
-        length: 2,
-        child: SafeArea(
-          child: Column(
-            children: [
-              ListTile(
-                title: const Text(
-                  '浏览器',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-                ),
-                trailing: IconButton(
-                  tooltip: '清空历史记录',
-                  onPressed: history.isEmpty ? null : onClearHistory,
-                  icon: const Icon(Icons.delete_sweep_rounded),
-                ),
-              ),
-              const TabBar(
-                tabs: [
-                  Tab(icon: Icon(Icons.bookmark_rounded), text: '收藏'),
-                  Tab(icon: Icon(Icons.history_rounded), text: '历史'),
-                ],
-              ),
-              Expanded(
-                child: TabBarView(
-                  children: [
-                    _BrowserRecordList(
-                      records: bookmarks,
-                      emptyText: '暂无收藏',
-                      onOpen: onOpen,
-                      onRemove: onRemoveBookmark,
-                    ),
-                    _BrowserRecordList(
-                      records: history,
-                      emptyText: '暂无历史记录',
-                      onOpen: onOpen,
-                      onRemove: onRemoveHistory,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
