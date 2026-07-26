@@ -13,20 +13,20 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
-  final pages = const [
-    BrowserScreen(),
-    DownloadsScreen(),
-    LibraryScreen(),
-  ];
-
   @override
   Widget build(BuildContext context) {
     final state = UiStateScope.of(context);
     return Scaffold(
       body: AnimatedBuilder(
         animation: state,
-        builder: (context, _) =>
-            IndexedStack(index: state.selectedTab, children: pages),
+        builder: (context, _) => IndexedStack(
+          index: state.selectedTab,
+          children: [
+            BrowserScreen(active: state.selectedTab == 0),
+            const DownloadsScreen(),
+            const LibraryScreen(),
+          ],
+        ),
       ),
       bottomNavigationBar: AnimatedBuilder(
         animation: state,

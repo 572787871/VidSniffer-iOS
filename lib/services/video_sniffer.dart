@@ -173,9 +173,7 @@ class VideoSniffer {
         isCurrentPlayback ||
         sourceLower.contains('current') ||
         sourceLower.contains('video-play');
-    final adSuspect =
-        isAdSuspect(uri.toString()) ||
-        (duration > Duration.zero && duration.inSeconds < 45);
+    final adSuspect = isAdSuspect(uri.toString());
     return VideoResource(
       url: uri.toString(),
       title: pageTitle.trim().isEmpty
@@ -465,15 +463,14 @@ class VideoSniffer {
         return prioritizeResources(enriched, limit: enriched.length);
       }
       final duration = _playlistDuration(body);
-      final shortAd = duration > 0 && duration < 45;
       final parsed = resource.copyWith(
         container: 'media m3u8',
         quality: resource.quality == '未知' ? '单清晰度 HLS' : resource.quality,
         duration: duration > 0
             ? Duration(milliseconds: (duration * 1000).round())
             : resource.duration,
-        isAdSuspect: resource.isAdSuspect || shortAd,
-        recommendation: shortAd ? '' : '可能的视频资源',
+        isAdSuspect: resource.isAdSuspect,
+        recommendation: resource.isAdSuspect ? '' : '可能的视频资源',
       );
       return [await _enrichHlsMetadata(parsed)];
     } catch (_) {
@@ -805,10 +802,7 @@ class VideoSniffer {
     if (resource.source.toLowerCase().contains('current')) score += 5000;
     if (resource.source.toLowerCase().contains('video-play')) score += 4000;
     if (resource.source.toLowerCase().contains('media')) score += 2500;
-    if (resource.duration.inSeconds >= 45) score += resource.duration.inSeconds;
-    if (resource.duration > Duration.zero && resource.duration.inSeconds < 45) {
-      score -= 7000;
-    }
+    if (resource.duration > Duration.zero) score += resource.duration.inSeconds;
     switch (resource.type) {
       case VideoResourceType.hls:
         score += 1500;

@@ -13,14 +13,16 @@ import '../services/video_sniffer_controller.dart';
 import 'downloads_screen.dart';
 
 class BrowserScreen extends StatefulWidget {
-  const BrowserScreen({super.key});
+  const BrowserScreen({super.key, this.active = true});
+
+  final bool active;
 
   @override
   State<BrowserScreen> createState() => _BrowserScreenState();
 }
 
 class _BrowserScreenState extends State<BrowserScreen>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   final addressController = TextEditingController();
   final sniffer = VideoSniffer();
   final BrowserDataStore browserDataStore = BrowserDataStore();
@@ -68,6 +70,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     addressController.text = '';
     unawaited(_loadBrowserData());
     snifferController = VideoSnifferController(
@@ -92,11 +95,20 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     deepTimer?.cancel();
     flushTimer?.cancel();
     snifferController.dispose();
     addressController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant BrowserScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.active && !widget.active) {
+      unawaited(_pauseAllWebMedia());
+    }
   }
 
   @override
@@ -333,6 +345,29 @@ class _BrowserScreenState extends State<BrowserScreen>
     await _syncBrowserState();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      unawaited(_pauseAllWebMedia());
+    }
+  }
+
+  Future<void> _pauseAllWebMedia() async {
+    await Future.wait(tabControllers.values.map(_pauseWebMedia));
+  }
+
+  Future<void> _pauseWebMedia(InAppWebViewController web) async {
+    try {
+      await web.evaluateJavascript(
+        source: '''
+          document.querySelectorAll('video,audio').forEach(media => {
+            try { media.pause(); } catch (_) {}
+          });
+        ''',
+      );
+    } catch (_) {}
+  }
+
   InAppWebViewSettings _settings() {
     return InAppWebViewSettings(
       javaScriptEnabled: true,
@@ -404,6 +439,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   void _goHome() {
+    unawaited(_pauseAllWebMedia());
     setState(() {
       showStartPage = true;
       currentUrl = 'about:blank';
@@ -1137,7 +1173,11 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   void _activateBrowserTab(int index) {
     if (index < 0 || index >= browserTabs.length) return;
+    final previousController = controller;
     final tab = browserTabs[index];
+    if (index != activeBrowserTab && previousController != null) {
+      unawaited(_pauseWebMedia(previousController));
+    }
     setState(() {
       activeBrowserTab = index;
       currentUrl = tab.url;
