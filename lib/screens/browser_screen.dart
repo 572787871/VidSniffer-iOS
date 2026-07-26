@@ -274,10 +274,10 @@ class _BrowserScreenState extends State<BrowserScreen>
                     _remember(next);
                   },
                   onLoadResource: (_, resource) {
-                    snifferController.captureNetwork(
-                      resource.url.toString(),
-                      'resource',
-                    );
+                    final url = resource.url.toString();
+                    if (_looksLikeMediaRequest(url)) {
+                      snifferController.captureNetwork(url, 'resource');
+                    }
                   },
                   shouldInterceptRequest: (_, request) async {
                     if (request.isForMainFrame != true &&
@@ -287,10 +287,10 @@ class _BrowserScreenState extends State<BrowserScreen>
                         data: Uint8List(0),
                       );
                     }
-                    snifferController.captureNetwork(
-                      request.url.toString(),
-                      'net',
-                    );
+                    final url = request.url.toString();
+                    if (_looksLikeMediaRequest(url)) {
+                      snifferController.captureNetwork(url, 'net');
+                    }
                     return null;
                   },
                   shouldOverrideUrlLoading: (_, action) async {
@@ -302,14 +302,14 @@ class _BrowserScreenState extends State<BrowserScreen>
                   },
                   shouldInterceptFetchRequest: (_, request) async {
                     final url = request.url?.toString();
-                    if (url != null) {
+                    if (url != null && _looksLikeMediaRequest(url)) {
                       snifferController.captureNetwork(url, 'fetch');
                     }
                     return request;
                   },
                   shouldInterceptAjaxRequest: (_, request) async {
                     final url = request.url?.toString();
-                    if (url != null) {
+                    if (url != null && _looksLikeMediaRequest(url)) {
                       snifferController.captureNetwork(url, 'xhr');
                     }
                     return request;
@@ -1191,6 +1191,13 @@ class _BrowserScreenState extends State<BrowserScreen>
         (blockTrackers && trackerHosts.any(matchesHost));
   }
 
+  bool _looksLikeMediaRequest(String value) {
+    final lower = value.toLowerCase();
+    return RegExp(
+      r'\.(m3u8|mp4|m4v|mov|webm|mpd)(?:[?#]|$)',
+    ).hasMatch(lower);
+  }
+
   bool _shouldBlockNavigation(String value) {
     if (!blockPopups || value.isEmpty) return false;
     return _shouldBlockRequest(value) ||
@@ -1384,11 +1391,24 @@ class _BrowserScreenState extends State<BrowserScreen>
     });
   };
   document.querySelectorAll('video,audio').forEach(bind);
-  new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => {
-    if (!n.querySelectorAll) return;
-    if (n.tagName === 'VIDEO' || n.tagName === 'AUDIO') bind(n);
-    n.querySelectorAll('video,audio').forEach(bind);
-  }))).observe(document.documentElement, {childList:true, subtree:true});
+  const pendingRoots = new Set();
+  let scanScheduled = false;
+  const flushAddedMedia = () => {
+    scanScheduled = false;
+    pendingRoots.forEach(n => {
+      if (!n.querySelectorAll) return;
+      if (n.tagName === 'VIDEO' || n.tagName === 'AUDIO') bind(n);
+      n.querySelectorAll('video,audio').forEach(bind);
+    });
+    pendingRoots.clear();
+  };
+  new MutationObserver(ms => {
+    ms.forEach(m => m.addedNodes.forEach(n => pendingRoots.add(n)));
+    if (!scanScheduled) {
+      scanScheduled = true;
+      requestAnimationFrame(flushAddedMedia);
+    }
+  }).observe(document.documentElement, {childList:true, subtree:true});
   const oldFetch = window.fetch;
   if (oldFetch) {
     window.fetch = function() {
@@ -1413,29 +1433,31 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   static const _adBlockScript = r'''
 (() => {
-  const selectors = [
-    '.adsbygoogle', '[data-ad-client]', '[data-ad-slot]',
-    'iframe[src*="doubleclick.net"]',
-    'iframe[src*="googlesyndication.com"]'
-  ];
-  const hide = root => {
-    try {
-      root.querySelectorAll(selectors.join(',')).forEach(node => {
-        node.style.setProperty('display', 'none', 'important');
-      });
-    } catch (_) {}
-  };
-  hide(document);
-  new MutationObserver(records => records.forEach(record =>
-    record.addedNodes.forEach(node => {
-      if (node.nodeType === 1) {
-        if (node.matches && node.matches(selectors.join(','))) {
-          node.style.setProperty('display', 'none', 'important');
-        }
-        if (node.querySelectorAll) hide(node);
+  if (!document.getElementById('__vidsniffer_adblock')) {
+    const style = document.createElement('style');
+    style.id = '__vidsniffer_adblock';
+    style.textContent = `
+      .adsbygoogle,
+      [data-ad-client],
+      [data-ad-slot],
+      [data-ad_slot_key],
+      [data-ad_type],
+      [data-event="ad_click"],
+      .horizontal-banner,
+      .dw-activity-banner,
+      .adspop,
+      iframe[src*="doubleclick.net"],
+      iframe[src*="googlesyndication.com"] {
+        display: none !important;
+        visibility: hidden !important;
+        min-height: 0 !important;
+        height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
       }
-    })
-  )).observe(document.documentElement, {childList: true, subtree: true});
+    `;
+    (document.head || document.documentElement).appendChild(style);
+  }
   window.open = () => null;
 })();
 ''';
