@@ -576,7 +576,6 @@ class VideoSniffer {
         (stream) => stream.getType() == 'video',
       );
       final video = videoStreams.isEmpty ? null : videoStreams.first;
-      final width = video?.getWidth() ?? 0;
       final height = video?.getHeight() ?? 0;
       final durationSeconds =
           double.tryParse(information.getDuration() ?? '') ?? 0;
