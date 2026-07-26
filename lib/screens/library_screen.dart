@@ -933,10 +933,15 @@ class _VideoCard extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        video.title.isEmpty ? video.name : video.title,
+                        _cleanDisplayTitle(
+                          video.title.isEmpty ? video.name : video.title,
+                        ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w900),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          color: scheme.onSurface,
+                        ),
                       ),
                     ),
                     IconButton(
@@ -1026,6 +1031,16 @@ class _VideoCard extends StatelessWidget {
     ];
     return parts.join(' · ');
   }
+}
+
+String _cleanDisplayTitle(String value) {
+  return value
+      .replaceAll(
+        RegExp(r'[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFE0E\uFE0F]'),
+        '',
+      )
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
 }
 
 Future<void> _confirmDeleteVideo(

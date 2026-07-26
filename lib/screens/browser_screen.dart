@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -238,6 +239,13 @@ class _BrowserScreenState extends State<BrowserScreen>
                 child: InAppWebView(
                   key: ValueKey(browserTabs[activeBrowserTab].id),
                   keepAlive: browserTabs[activeBrowserTab].keepAlive,
+                  initialUserScripts: UnmodifiableListView([
+                    if (adBlockEnabled)
+                      UserScript(
+                        source: _adBlockScript,
+                        injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+                      ),
+                  ]),
                   initialUrlRequest: currentUrl.startsWith('about:')
                       ? null
                       : URLRequest(url: WebUri(currentUrl)),
@@ -1844,6 +1852,12 @@ class _VideoChoiceTile extends StatelessWidget {
                       : Image.network(
                           resource.thumbnailUrl,
                           fit: BoxFit.cover,
+                          headers: {
+                            if (resource.pageUrl.isNotEmpty)
+                              'Referer': resource.pageUrl,
+                            if (resource.userAgent.isNotEmpty)
+                              'User-Agent': resource.userAgent,
+                          },
                           errorBuilder: (_, __, ___) => ColoredBox(
                             color: scheme.surfaceContainerHighest,
                           ),
@@ -1862,11 +1876,18 @@ class _VideoChoiceTile extends StatelessWidget {
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 7),
-                    Text(
-                      metadata,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: scheme.onSurfaceVariant),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        metadata,
+                        maxLines: 1,
+                        softWrap: false,
+                        style: TextStyle(
+                          color: scheme.onSurfaceVariant,
+                          fontSize: 13,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -1891,9 +1912,9 @@ String _formatVideoDuration(Duration duration) {
   final minutes = duration.inMinutes.remainder(60);
   final seconds = duration.inSeconds.remainder(60);
   if (hours > 0) {
-    return '$hours 小时 $minutes 分 ${seconds.toString().padLeft(2, '0')} 秒';
+    return '$hours小时$minutes分${seconds.toString().padLeft(2, '0')}秒';
   }
-  return '$minutes 分 ${seconds.toString().padLeft(2, '0')} 秒';
+  return '$minutes分${seconds.toString().padLeft(2, '0')}秒';
 }
 
 class _BrowserBottomControls extends StatelessWidget {
