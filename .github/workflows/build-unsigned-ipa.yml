@@ -58,6 +58,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
+            CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}" \
             build
 
       - name: Package unsigned IPA
@@ -76,8 +77,25 @@ jobs:
           rm -rf "$IPA_DIR"
           mkdir -p "$IPA_DIR/Payload"
           cp -R "$APP_PATH" "$IPA_DIR/Payload/Runner.app"
+          APP_COPY="$IPA_DIR/Payload/Runner.app"
+
+          # Produce a genuinely unsigned bundle. Pre-signed Flutter and plugin
+          # frameworks can make third-party signing tools leave mixed
+          # signatures behind, which iOS rejects during installation.
+          find "$APP_COPY" -type d -name _CodeSignature -prune -exec rm -rf {} +
+          find "$APP_COPY" -name CodeResources -delete
+          rm -f "$APP_COPY/embedded.mobileprovision"
+          xattr -cr "$APP_COPY"
+
+          if find "$APP_COPY" -type d -name _CodeSignature -print -quit |
+            grep -q .; then
+            echo "A nested code signature remains in the unsigned app"
+            exit 1
+          fi
+
           (cd "$IPA_DIR" && zip -qry "$(basename "$IPA_PATH")" Payload)
           test -f "$IPA_PATH"
+          unzip -tq "$IPA_PATH"
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
