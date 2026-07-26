@@ -281,14 +281,25 @@ class _DownloadCard extends StatelessWidget {
                               MaterialPageRoute<void>(
                                 builder: (_) => PlayerScreen(
                                   title: task.resource.title,
-                                  filePath: manager.previewPathFor(task),
+                                  filePath: task.resource.isMergeRequired
+                                      ? null
+                                      : manager.previewPathFor(task),
+                                  networkUrl: task.resource.isMergeRequired
+                                      ? task.resource.url
+                                      : null,
+                                  httpHeaders:
+                                      manager.playbackHeadersFor(task),
                                   allowPartial: true,
                                 ),
                               ),
                             )
                         : null,
                     icon: const Icon(Icons.play_circle_outline_rounded),
-                    label: const Text('播放已下载部分'),
+                    label: Text(
+                      task.resource.isMergeRequired
+                          ? '边下边播'
+                          : '播放已下载部分',
+                    ),
                   ),
                 ),
               if (completed && task.localPath.isNotEmpty)

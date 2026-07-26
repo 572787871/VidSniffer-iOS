@@ -12,12 +12,16 @@ class PlayerScreen extends StatefulWidget {
   const PlayerScreen({
     required this.title,
     this.filePath,
+    this.networkUrl,
+    this.httpHeaders = const {},
     this.allowPartial = false,
     super.key,
   });
 
   final String title;
   final String? filePath;
+  final String? networkUrl;
+  final Map<String, String> httpHeaders;
   final bool allowPartial;
 
   @override
@@ -52,8 +56,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
+    final networkUrl = widget.networkUrl;
     final filePath = widget.filePath;
-    if (filePath != null && filePath.isNotEmpty) {
+    if (networkUrl != null && networkUrl.isNotEmpty) {
+      _openNetwork(networkUrl);
+    } else if (filePath != null && filePath.isNotEmpty) {
       _openFile(filePath);
     }
   }
@@ -502,6 +509,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ? '已下载部分暂时无法播放，请等待更多内容后重试。\n$e'
               : '$e',
         );
+      }
+    }
+  }
+
+  Future<void> _openNetwork(String url) async {
+    try {
+      currentPath = url;
+      final player = VideoPlayerController.networkUrl(
+        Uri.parse(url),
+        httpHeaders: widget.httpHeaders,
+      )..addListener(_onPlayerChanged);
+      controller = player;
+      await player.initialize();
+      if (!mounted) return;
+      await _afterInitialized(url);
+    } catch (e) {
+      if (mounted) {
+        setState(() => error = '边下载边播放暂时不可用，请稍后重试。\n$e');
       }
     }
   }

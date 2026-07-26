@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +12,7 @@ import '../services/ui_state.dart';
 import '../services/video_sniffer.dart';
 import '../services/video_sniffer_controller.dart';
 import '../widgets/home_sniffer.dart';
+import 'downloads_screen.dart';
 
 class BrowserScreen extends StatefulWidget {
   const BrowserScreen({super.key});
@@ -26,6 +28,10 @@ class _BrowserScreenState extends State<BrowserScreen>
   final BrowserDataStore browserDataStore = BrowserDataStore();
   final List<BrowserPageRecord> history = [];
   final List<BrowserPageRecord> bookmarks = [];
+  final List<_BrowserTabData> browserTabs = [
+    _BrowserTabData(id: 'initial', title: '新窗口', url: 'about:blank'),
+  ];
+  final List<_BrowserTabData> recentlyClosedTabs = [];
   final Map<String, VideoResource> captured = {};
   late final VideoSnifferController snifferController;
 
@@ -44,6 +50,10 @@ class _BrowserScreenState extends State<BrowserScreen>
   bool showStartPage = true;
   int progress = 0;
   int handledBrowserRequestId = 0;
+  int activeBrowserTab = 0;
+  bool adBlockEnabled = true;
+  bool blockPopups = true;
+  bool blockTrackers = true;
 
   @override
   bool get wantKeepAlive => true;
@@ -196,22 +206,12 @@ class _BrowserScreenState extends State<BrowserScreen>
       leading: Builder(
         builder: (context) => IconButton(
           tooltip: '收藏与历史',
-          onPressed: () => Scaffold.of(context).openDrawer(),
-          icon: _TabCountBadge(count: history.isEmpty ? 1 : history.length),
+          onPressed: _showBrowserTabs,
+          icon: _TabCountBadge(count: browserTabs.length),
         ),
       ),
       title: const SizedBox.shrink(),
       actions: [
-        IconButton(
-          tooltip: '收藏夹',
-          onPressed: () => _showSavedPages(0),
-          icon: const Icon(Icons.bookmarks_rounded),
-        ),
-        IconButton(
-          tooltip: '历史记录',
-          onPressed: () => _showSavedPages(1),
-          icon: const Icon(Icons.history_rounded),
-        ),
         PopupMenuButton<String>(
           onSelected: _handleMenu,
           itemBuilder: (context) => const [
@@ -220,6 +220,9 @@ class _BrowserScreenState extends State<BrowserScreen>
               child: Text('粘贴网址直接解析'),
             ),
             PopupMenuItem(value: 'paste', child: Text('粘贴并打开')),
+            PopupMenuItem(value: 'favorites', child: Text('收藏夹')),
+            PopupMenuItem(value: 'history', child: Text('历史记录')),
+            PopupMenuItem(value: 'downloadHistory', child: Text('下载记录')),
             PopupMenuItem(value: 'help', child: Text('帮助')),
             PopupMenuItem(value: 'settings', child: Text('浏览器设置')),
           ],
@@ -234,8 +237,8 @@ class _BrowserScreenState extends State<BrowserScreen>
       leading: Builder(
         builder: (context) => IconButton(
           tooltip: '收藏与历史',
-          onPressed: () => Scaffold.of(context).openDrawer(),
-          icon: _TabCountBadge(count: history.isEmpty ? 1 : history.length),
+          onPressed: _showBrowserTabs,
+          icon: _TabCountBadge(count: browserTabs.length),
         ),
       ),
       titleSpacing: 0,
@@ -265,6 +268,7 @@ class _BrowserScreenState extends State<BrowserScreen>
             PopupMenuItem(value: 'sniff', child: Text('重新解析视频')),
             PopupMenuItem(value: 'favorites', child: Text('收藏夹')),
             PopupMenuItem(value: 'history', child: Text('历史记录')),
+            PopupMenuItem(value: 'downloadHistory', child: Text('下载记录')),
             PopupMenuItem(
               value: 'parsePaste',
               child: Text('粘贴网址直接解析'),
@@ -307,6 +311,7 @@ class _BrowserScreenState extends State<BrowserScreen>
                       captured.clear();
                     });
                     _remember(next);
+                    _updateActiveTab(url: next);
                   },
                   onLoadStop: (_, url) async {
                     currentUrl = url?.toString() ?? currentUrl;
@@ -326,6 +331,7 @@ class _BrowserScreenState extends State<BrowserScreen>
                     if (value.isNotEmpty && mounted) {
                       setState(() => pageTitle = value);
                       _updateSavedTitle(value);
+                      _updateActiveTab(title: value);
                     }
                   },
                   onUpdateVisitedHistory: (_, url, __) {
@@ -344,11 +350,24 @@ class _BrowserScreenState extends State<BrowserScreen>
                     );
                   },
                   shouldInterceptRequest: (_, request) async {
+                    if (_shouldBlockRequest(request.url.toString())) {
+                      return WebResourceResponse(
+                        contentType: 'text/plain',
+                        data: Uint8List(0),
+                      );
+                    }
                     snifferController.captureNetwork(
                       request.url.toString(),
                       'net',
                     );
                     return null;
+                  },
+                  shouldOverrideUrlLoading: (_, action) async {
+                    final url = action.request.url?.toString() ?? '';
+                    if (_shouldBlockNavigation(url)) {
+                      return NavigationActionPolicy.CANCEL;
+                    }
+                    return NavigationActionPolicy.ALLOW;
                   },
                   shouldInterceptFetchRequest: (_, request) async {
                     final url = request.url?.toString();
@@ -412,6 +431,8 @@ class _BrowserScreenState extends State<BrowserScreen>
       useShouldInterceptRequest: true,
       useShouldInterceptAjaxRequest: true,
       useShouldInterceptFetchRequest: true,
+      useShouldOverrideUrlLoading: true,
+      javaScriptCanOpenWindowsAutomatically: !blockPopups,
       supportZoom: true,
     );
   }
@@ -448,6 +469,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       showStartPage = false;
       currentUrl = url;
       addressController.text = url;
+      _updateActiveTab(url: url, notify: false);
     });
     final web = controller;
     if (web == null) {
@@ -478,6 +500,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       pageTitle = '新窗口';
       captured.clear();
       addressController.clear();
+      _updateActiveTab(url: 'about:blank', title: '新窗口', notify: false);
     });
   }
 
@@ -508,6 +531,9 @@ class _BrowserScreenState extends State<BrowserScreen>
   Future<void> _injectHooks() async {
     try {
       await controller?.evaluateJavascript(source: _hookScript);
+      if (adBlockEnabled) {
+        await controller?.evaluateJavascript(source: _adBlockScript);
+      }
     } catch (_) {}
   }
 
@@ -705,6 +731,12 @@ class _BrowserScreenState extends State<BrowserScreen>
         _showSavedPages(0);
       case 'history':
         _showSavedPages(1);
+      case 'downloadHistory':
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => const DownloadHistoryScreen(),
+          ),
+        );
       case 'parsePaste':
         await _parseClipboardUrl();
       case 'paste':
@@ -841,8 +873,246 @@ class _BrowserScreenState extends State<BrowserScreen>
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (context) => const _SettingsSheet(),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => _SettingsSheet(
+          adBlockEnabled: adBlockEnabled,
+          blockPopups: blockPopups,
+          blockTrackers: blockTrackers,
+          onAdBlockChanged: (value) {
+            setState(() => adBlockEnabled = value);
+            setSheetState(() {});
+            unawaited(_reload());
+          },
+          onPopupsChanged: (value) {
+            setState(() => blockPopups = value);
+            setSheetState(() {});
+            unawaited(controller?.setSettings(settings: _settings()));
+          },
+          onTrackersChanged: (value) {
+            setState(() => blockTrackers = value);
+            setSheetState(() {});
+            unawaited(_reload());
+          },
+        ),
+      ),
     );
+  }
+
+  void _updateActiveTab({
+    String? url,
+    String? title,
+    bool notify = true,
+  }) {
+    if (browserTabs.isEmpty || activeBrowserTab >= browserTabs.length) return;
+    final current = browserTabs[activeBrowserTab];
+    browserTabs[activeBrowserTab] = current.copyWith(url: url, title: title);
+    if (notify && mounted) setState(() {});
+  }
+
+  Future<void> _showBrowserTabs() {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(context).height * 0.78,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 12, 8),
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          '标签页',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () {
+                          _newBrowserTab();
+                          Navigator.pop(sheetContext);
+                        },
+                        icon: const Icon(Icons.add_rounded),
+                        label: const Text('新建'),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: ReorderableListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    buildDefaultDragHandles: false,
+                    itemCount: browserTabs.length,
+                    onReorder: (oldIndex, newIndex) {
+                      setState(() {
+                        if (newIndex > oldIndex) newIndex--;
+                        final activeId = browserTabs[activeBrowserTab].id;
+                        final item = browserTabs.removeAt(oldIndex);
+                        browserTabs.insert(newIndex, item);
+                        activeBrowserTab = browserTabs.indexWhere(
+                          (tab) => tab.id == activeId,
+                        );
+                      });
+                      setSheetState(() {});
+                    },
+                    itemBuilder: (context, index) {
+                      final tab = browserTabs[index];
+                      return Dismissible(
+                        key: ValueKey(tab.id),
+                        direction: browserTabs.length > 1
+                            ? DismissDirection.endToStart
+                            : DismissDirection.none,
+                        background: Container(
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.only(right: 24),
+                          color: Theme.of(context).colorScheme.errorContainer,
+                          child: const Icon(Icons.close_rounded),
+                        ),
+                        onDismissed: (_) {
+                          _closeBrowserTab(index);
+                          setSheetState(() {});
+                        },
+                        child: ListTile(
+                          selected: index == activeBrowserTab,
+                          leading: const Icon(Icons.web_asset_rounded),
+                          title: Text(
+                            tab.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            tab.url == 'about:blank' ? '新标签页' : tab.url,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () {
+                            _activateBrowserTab(index);
+                            Navigator.pop(sheetContext);
+                          },
+                          onLongPress: tab.url.startsWith('http')
+                              ? () {
+                                  Clipboard.setData(
+                                    ClipboardData(text: tab.url),
+                                  );
+                                  ScaffoldMessenger.of(this.context)
+                                      .showSnackBar(
+                                    const SnackBar(content: Text('网址已复制')),
+                                  );
+                                }
+                              : null,
+                          trailing: ReorderableDragStartListener(
+                            index: index,
+                            child: const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: Icon(Icons.drag_handle_rounded),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                if (recentlyClosedTabs.isNotEmpty)
+                  ListTile(
+                    leading: const Icon(Icons.history_toggle_off_rounded),
+                    title: const Text('最近关闭'),
+                    subtitle: Text(recentlyClosedTabs.first.title),
+                    onTap: () {
+                      final tab = recentlyClosedTabs.removeAt(0);
+                      setState(() {
+                        browserTabs.add(tab);
+                        activeBrowserTab = browserTabs.length - 1;
+                      });
+                      _activateBrowserTab(activeBrowserTab);
+                      Navigator.pop(sheetContext);
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _newBrowserTab() {
+    setState(() {
+      browserTabs.add(
+        _BrowserTabData(
+          id: DateTime.now().microsecondsSinceEpoch.toString(),
+          title: '新窗口',
+          url: 'about:blank',
+        ),
+      );
+      activeBrowserTab = browserTabs.length - 1;
+      showStartPage = true;
+      currentUrl = 'about:blank';
+      pageTitle = '新窗口';
+      addressController.clear();
+      captured.clear();
+    });
+  }
+
+  void _activateBrowserTab(int index) {
+    if (index < 0 || index >= browserTabs.length) return;
+    final tab = browserTabs[index];
+    setState(() {
+      activeBrowserTab = index;
+      currentUrl = tab.url;
+      pageTitle = tab.title;
+      showStartPage = tab.url == 'about:blank';
+      addressController.text = showStartPage ? '' : tab.url;
+      captured.clear();
+    });
+    if (!showStartPage) unawaited(_loadUrl(tab.url));
+  }
+
+  void _closeBrowserTab(int index) {
+    if (browserTabs.length <= 1) return;
+    final closed = browserTabs.removeAt(index);
+    recentlyClosedTabs.insert(0, closed);
+    if (recentlyClosedTabs.length > 10) recentlyClosedTabs.removeLast();
+    activeBrowserTab =
+        activeBrowserTab.clamp(0, browserTabs.length - 1).toInt();
+    _activateBrowserTab(activeBrowserTab);
+  }
+
+  bool _shouldBlockRequest(String value) {
+    if (!adBlockEnabled) return false;
+    final lower = value.toLowerCase();
+    const adTokens = [
+      'doubleclick.net',
+      'googlesyndication.com',
+      'googleadservices.com',
+      '/ads/',
+      '/advert',
+      'adserver',
+      'banner',
+      'popunder',
+    ];
+    const trackerTokens = [
+      'google-analytics.com',
+      'googletagmanager.com',
+      'facebook.net/tr',
+      '/analytics',
+      '/tracking',
+      '/beacon',
+    ];
+    return adTokens.any(lower.contains) ||
+        (blockTrackers && trackerTokens.any(lower.contains));
+  }
+
+  bool _shouldBlockNavigation(String value) {
+    if (!blockPopups || value.isEmpty) return false;
+    return _shouldBlockRequest(value) ||
+        value.startsWith('intent:') ||
+        value.startsWith('itms-services:');
   }
 
   void _showHelp() {
@@ -1057,6 +1327,54 @@ class _BrowserScreenState extends State<BrowserScreen>
   };
 })();
 ''';
+
+  static const _adBlockScript = r'''
+(() => {
+  const selectors = [
+    '[id*="ad-"]', '[id^="ad_"]', '[class*=" ad-"]',
+    '[class^="ad-"]', '[class*="advert"]', '[class*="banner"]',
+    '[class*="popup"]', '[class*="popunder"]',
+    'iframe[src*="ads"]', 'iframe[src*="doubleclick"]'
+  ];
+  const hide = root => {
+    try {
+      root.querySelectorAll(selectors.join(',')).forEach(node => {
+        node.style.setProperty('display', 'none', 'important');
+      });
+    } catch (_) {}
+  };
+  hide(document);
+  new MutationObserver(records => records.forEach(record =>
+    record.addedNodes.forEach(node => {
+      if (node.nodeType === 1) {
+        if (node.matches && node.matches(selectors.join(','))) node.remove();
+        if (node.querySelectorAll) hide(node);
+      }
+    })
+  )).observe(document.documentElement, {childList: true, subtree: true});
+  window.open = () => null;
+})();
+''';
+}
+
+class _BrowserTabData {
+  const _BrowserTabData({
+    required this.id,
+    required this.title,
+    required this.url,
+  });
+
+  final String id;
+  final String title;
+  final String url;
+
+  _BrowserTabData copyWith({String? title, String? url}) {
+    return _BrowserTabData(
+      id: id,
+      title: title ?? this.title,
+      url: url ?? this.url,
+    );
+  }
 }
 
 class _StartPage extends StatefulWidget {
@@ -1603,22 +1921,51 @@ class _TabCountBadge extends StatelessWidget {
 }
 
 class _SettingsSheet extends StatelessWidget {
-  const _SettingsSheet();
+  const _SettingsSheet({
+    required this.adBlockEnabled,
+    required this.blockPopups,
+    required this.blockTrackers,
+    required this.onAdBlockChanged,
+    required this.onPopupsChanged,
+    required this.onTrackersChanged,
+  });
+
+  final bool adBlockEnabled;
+  final bool blockPopups;
+  final bool blockTrackers;
+  final ValueChanged<bool> onAdBlockChanged;
+  final ValueChanged<bool> onPopupsChanged;
+  final ValueChanged<bool> onTrackersChanged;
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
       child: ListView(
         shrinkWrap: true,
-        children: const [
-          ListTile(title: Text('浏览器设置', style: TextStyle(fontSize: 22))),
-          SwitchListTile(value: true, onChanged: null, title: Text('仅使用 Wi-Fi 下载')),
-          ListTile(title: Text('浏览器'), subtitle: Text('默认页面')),
-          SwitchListTile(value: true, onChanged: null, title: Text('拦截广告')),
-          SwitchListTile(value: true, onChanged: null, title: Text('保存密码')),
-          ListTile(title: Text('搜索引擎'), subtitle: Text('Google')),
-          ListTile(title: Text('清除缓存')),
-          ListTile(title: Text('清除 Cookies')),
+        children: [
+          const ListTile(
+            title: Text('浏览器设置', style: TextStyle(fontSize: 22)),
+          ),
+          SwitchListTile(
+            value: adBlockEnabled,
+            onChanged: onAdBlockChanged,
+            title: const Text('广告拦截'),
+            subtitle: const Text('隐藏横幅、广告脚本和常见广告框架'),
+          ),
+          SwitchListTile(
+            value: blockPopups,
+            onChanged: onPopupsChanged,
+            title: const Text('阻止弹窗与自动跳转'),
+          ),
+          SwitchListTile(
+            value: blockTrackers,
+            onChanged: adBlockEnabled ? onTrackersChanged : null,
+            title: const Text('隐私追踪过滤'),
+          ),
+          const ListTile(
+            title: Text('过滤模式'),
+            subtitle: Text('基础过滤 + 去弹窗 + 去追踪'),
+          ),
         ],
       ),
     );
