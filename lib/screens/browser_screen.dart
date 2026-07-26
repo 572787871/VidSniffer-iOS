@@ -721,23 +721,15 @@ class _BrowserScreenState extends State<BrowserScreen>
       directParseUrl = '';
     });
     try {
-      final candidates = await sniffer.parsePage(url);
-      final probedGroups = await Future.wait(
-        candidates.map((candidate) async {
-          try {
-            return await sniffer.probeResource(candidate);
-          } catch (_) {
-            return const <VideoResource>[];
-          }
-        }),
-      );
-      final resources = sniffer
-          .prioritizeResources(probedGroups.expand((group) => group).where(
-            (resource) =>
-                resource.isPlayable &&
-                !resource.isFragment &&
-                !resource.isAdSuspect,
-          ).toList());
+      List<VideoResource> resources = const [];
+      try {
+        resources = await _probeDirectCandidates(
+          await sniffer.parsePage(url),
+        );
+      } catch (_) {}
+      if (resources.isEmpty) {
+        resources = await _parseWithHeadlessWebView(url);
+      }
       if (!mounted) return;
       if (resources.isNotEmpty) {
         setState(() {
@@ -771,6 +763,84 @@ class _BrowserScreenState extends State<BrowserScreen>
         SnackBar(content: Text('直接解析失败：$error')),
       );
     }
+  }
+
+  Future<List<VideoResource>> _probeDirectCandidates(
+    Iterable<VideoResource> candidates,
+  ) async {
+    final probedGroups = await Future.wait(
+      candidates.map((candidate) async {
+        try {
+          return await sniffer.probeResource(candidate);
+        } catch (_) {
+          return const <VideoResource>[];
+        }
+      }),
+    );
+    return sniffer.prioritizeResources(
+      probedGroups.expand((group) => group).where(
+        (resource) =>
+            resource.isPlayable &&
+            !resource.isFragment &&
+            !resource.isAdSuspect,
+      ),
+    );
+  }
+
+  Future<List<VideoResource>> _parseWithHeadlessWebView(String url) async {
+    final completer = Completer<List<VideoResource>>();
+    late final HeadlessInAppWebView headless;
+    var processing = false;
+
+    Future<void> finish(List<VideoResource> value) async {
+      if (completer.isCompleted) return;
+      completer.complete(value);
+      await headless.dispose();
+    }
+
+    headless = HeadlessInAppWebView(
+      initialUrlRequest: URLRequest(url: WebUri(url)),
+      initialSettings: InAppWebViewSettings(
+        javaScriptEnabled: true,
+        mediaPlaybackRequiresUserGesture: false,
+        allowsInlineMediaPlayback: true,
+      ),
+      onLoadStop: (web, loadedUrl) {
+        if (processing || completer.isCompleted) return;
+        processing = true;
+        unawaited(() async {
+          try {
+            // Give player scripts a brief moment to populate their config.
+            await Future<void>.delayed(const Duration(milliseconds: 700));
+            final html = await web.evaluateJavascript(
+              source: 'document.documentElement.outerHTML',
+            );
+            final actualUrl = loadedUrl?.toString() ?? url;
+            final candidates = sniffer.scanHtml(
+              html?.toString() ?? '',
+              Uri.parse(actualUrl),
+              source: 'headless-dom',
+            );
+            await finish(await _probeDirectCandidates(candidates));
+          } catch (_) {
+            await finish(const []);
+          }
+        }());
+      },
+      onReceivedError: (_, request, __) {
+        if (request.isForMainFrame == true) {
+          unawaited(finish(const []));
+        }
+      },
+    );
+    await headless.run();
+    return completer.future.timeout(
+      const Duration(seconds: 15),
+      onTimeout: () {
+        unawaited(headless.dispose());
+        return const [];
+      },
+    );
   }
 
   Future<void> _showSavedPages(int initialIndex) {
