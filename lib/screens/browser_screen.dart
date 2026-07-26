@@ -385,6 +385,17 @@ class _BrowserScreenState extends State<BrowserScreen>
       useShouldInterceptAjaxRequest: false,
       useShouldInterceptFetchRequest: false,
       useShouldOverrideUrlLoading: true,
+      contentBlockers: adBlockEnabled
+          ? [
+              ContentBlocker(
+                trigger: ContentBlockerTrigger(urlFilter: '.*'),
+                action: ContentBlockerAction(
+                  type: ContentBlockerActionType.CSS_DISPLAY_NONE,
+                  selector: _adBlockSelector,
+                ),
+              ),
+            ]
+          : const [],
       javaScriptCanOpenWindowsAutomatically: !blockPopups,
       supportZoom: true,
     );
@@ -598,12 +609,22 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<void> _showDownloadPicker({String? title}) async {
-    final resources = _downloadable;
+    var resources = _downloadable;
     if (resources.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('请先播放视频，再点击下载按钮')),
       );
       return;
+    }
+    final cover = await _currentPageCover();
+    if (cover.isNotEmpty) {
+      resources = resources
+          .map(
+            (resource) => resource.thumbnailUrl.trim().isEmpty
+                ? resource.copyWith(thumbnailUrl: cover)
+                : resource,
+          )
+          .toList(growable: false);
     }
     final appState = UiStateScope.of(context);
     await showModalBottomSheet<void>(
@@ -613,12 +634,44 @@ class _BrowserScreenState extends State<BrowserScreen>
       builder: (context) => _DownloadPicker(
         title: title ?? pageTitle,
         resources: resources,
+        onProbe: (resource) async => sniffer.probeResource(
+          await _withCurrentCredentials(resource),
+        ),
         onDownload: (resource) async {
           Navigator.pop(context);
           appState.downloadResource(await _withCurrentCredentials(resource));
         },
       ),
     );
+  }
+
+  Future<String> _currentPageCover() async {
+    try {
+      final value = await controller?.evaluateJavascript(
+        source: '''
+          (() => {
+            const player = document.querySelector('.dplayer,[data-config]');
+            const images = Array.from(document.querySelectorAll(
+              'img[z-image-loader-url], article img, .post-content img'
+            ));
+            const before = player
+              ? images.filter(img => !!(
+                  img.compareDocumentPosition(player) &
+                  Node.DOCUMENT_POSITION_FOLLOWING
+                ))
+              : images;
+            const image = before.length ? before[before.length - 1] : null;
+            return image
+              ? (image.getAttribute('z-image-loader-url') ||
+                  image.currentSrc || image.src || '')
+              : '';
+          })()
+        ''',
+      );
+      return value?.toString().replaceAll(RegExp(r'^"|"$'), '') ?? '';
+    } catch (_) {
+      return '';
+    }
   }
 
   Future<SnifferPageContext> _snifferContext() async {
@@ -1502,6 +1555,26 @@ class _BrowserScreenState extends State<BrowserScreen>
 })();
 ''';
 
+  static const _adBlockSelector = '''
+    .adsbygoogle,
+    [data-ad-client],
+    [data-ad-slot],
+    [data-ad_slot_key],
+    [data-ad_type],
+    [data-event="ad_click"],
+    [data-page_key="float_ads"],
+    .horizontal-banner,
+    .dw-activity-banner,
+    .adspop,
+    #adFloat,
+    #aiFloat,
+    .xqbj-component-adfloat,
+    .xqbj-component-aifloat,
+    .launchapp-btn-container,
+    iframe[src*="doubleclick.net"],
+    iframe[src*="googlesyndication.com"]
+  ''';
+
   static const _adBlockScript = r'''
 (() => {
   if (!document.getElementById('__vidsniffer_adblock')) {
@@ -1728,11 +1801,13 @@ class _DownloadPicker extends StatefulWidget {
   const _DownloadPicker({
     required this.title,
     required this.resources,
+    required this.onProbe,
     required this.onDownload,
   });
 
   final String title;
   final List<VideoResource> resources;
+  final Future<List<VideoResource>> Function(VideoResource) onProbe;
   final FutureOr<void> Function(VideoResource) onDownload;
 
   @override
@@ -1740,7 +1815,37 @@ class _DownloadPicker extends StatefulWidget {
 }
 
 class _DownloadPickerState extends State<_DownloadPicker> {
-  late VideoResource selected = widget.resources.first;
+  late List<VideoResource> resources = widget.resources.toList();
+  late VideoResource selected = resources.first;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_enrichResources());
+  }
+
+  Future<void> _enrichResources() async {
+    final groups = await Future.wait(
+      resources.map((resource) async {
+        try {
+          final probed = await widget.onProbe(resource);
+          return probed.isEmpty ? [resource] : probed;
+        } catch (_) {
+          return [resource];
+        }
+      }),
+    );
+    if (!mounted) return;
+    final enriched = groups.expand((items) => items).toList(growable: false);
+    final selectedUrl = selected.url;
+    setState(() {
+      resources = enriched;
+      selected = enriched.firstWhere(
+        (resource) => resource.url == selectedUrl,
+        orElse: () => enriched.first,
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1773,7 +1878,7 @@ class _DownloadPickerState extends State<_DownloadPicker> {
               child: SingleChildScrollView(
                 child: Column(
                   children: [
-                    for (final resource in widget.resources)
+                    for (final resource in resources)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: _VideoChoiceTile(
@@ -1826,11 +1931,12 @@ class _VideoChoiceTile extends StatelessWidget {
         ? resource.displayFormat
         : resource.quality;
     final metadata = [
-      quality,
-      resource.size,
-      if (resource.duration > Duration.zero)
-        _formatVideoDuration(resource.duration),
-    ].where((value) => value.trim().isNotEmpty && value != '未知').join(' · ');
+      quality.trim().isEmpty ? '分辨率未知' : quality,
+      resource.size.trim().isEmpty ? '大小未知' : resource.size,
+      resource.duration > Duration.zero
+          ? _formatVideoDuration(resource.duration)
+          : '时长未知',
+    ].join(' · ');
     return Material(
       color: selected ? scheme.primaryContainer : scheme.surfaceContainerLow,
       borderRadius: BorderRadius.circular(14),
