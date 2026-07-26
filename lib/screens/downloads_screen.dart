@@ -129,10 +129,10 @@ class _SwipeToDeleteState extends State<_SwipeToDelete> {
                   color: Theme.of(context).colorScheme.error,
                   child: InkWell(
                     onTap: () => manager.removeTask(widget.task),
-                    child: const Semantics(
+                    child: Semantics(
                       button: true,
                       label: '删除下载任务',
-                      child: Column(
+                      child: const Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(Icons.delete_rounded, color: Colors.white),
