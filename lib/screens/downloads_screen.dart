@@ -97,29 +97,83 @@ class DownloadHistoryScreen extends StatelessWidget {
   }
 }
 
-class _SwipeToDelete extends StatelessWidget {
+class _SwipeToDelete extends StatefulWidget {
   const _SwipeToDelete({required this.task, required this.child});
 
   final DownloadTask task;
   final Widget child;
 
   @override
+  State<_SwipeToDelete> createState() => _SwipeToDeleteState();
+}
+
+class _SwipeToDeleteState extends State<_SwipeToDelete> {
+  static const actionWidth = 88.0;
+  double offset = 0;
+  bool dragging = false;
+
+  @override
   Widget build(BuildContext context) {
     final manager = UiStateScope.of(context).downloadManager;
-    return Dismissible(
-      key: ValueKey(task.id),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 24),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.error,
-          borderRadius: BorderRadius.circular(24),
-        ),
-        child: const Icon(Icons.delete_rounded, color: Colors.white),
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: SizedBox(
+                width: actionWidth,
+                child: Material(
+                  color: Theme.of(context).colorScheme.error,
+                  child: InkWell(
+                    onTap: () => manager.removeTask(widget.task),
+                    child: const Semantics(
+                      button: true,
+                      label: '删除下载任务',
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.delete_rounded, color: Colors.white),
+                          SizedBox(height: 4),
+                          Text('删除', style: TextStyle(color: Colors.white)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          AnimatedContainer(
+            duration: dragging || reduceMotion
+                ? Duration.zero
+                : const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            transform: Matrix4.translationValues(offset, 0, 0),
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onHorizontalDragStart: (_) => setState(() => dragging = true),
+              onHorizontalDragUpdate: (details) {
+                setState(
+                  () => offset =
+                      (offset + details.delta.dx)
+                          .clamp(-actionWidth, 0)
+                          .toDouble(),
+                );
+              },
+              onHorizontalDragEnd: (_) {
+                setState(() {
+                  dragging = false;
+                  offset = offset <= -actionWidth * 0.38 ? -actionWidth : 0;
+                });
+              },
+              child: widget.child,
+            ),
+          ),
+        ],
       ),
-      onDismissed: (_) => manager.removeTask(task),
-      child: child,
     );
   }
 }

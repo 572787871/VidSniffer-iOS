@@ -38,6 +38,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   bool canGoBack = false;
   bool canGoForward = false;
   bool deepCapture = false;
+  bool directParsing = false;
   bool showStartPage = true;
   int progress = 0;
   int handledBrowserRequestId = 0;
@@ -109,7 +110,13 @@ class _BrowserScreenState extends State<BrowserScreen>
         onRemoveBookmark: _removeBookmark,
       ),
       body: SafeArea(
-        child: showStartPage ? _StartPage(onOpen: _loadUrl) : _browserBody(),
+        child: showStartPage
+            ? _StartPage(
+                onOpen: _loadUrl,
+                onParseClipboard: _parseClipboardUrl,
+                parsing: directParsing,
+              )
+            : _browserBody(),
       ),
       floatingActionButton: showStartPage
           ? null
@@ -127,7 +134,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     return AppBar(
       leading: Builder(
         builder: (context) => IconButton(
-          tooltip: '标签',
+          tooltip: '收藏与历史',
           onPressed: () => Scaffold.of(context).openDrawer(),
           icon: _TabCountBadge(count: history.isEmpty ? 1 : history.length),
         ),
@@ -135,19 +142,24 @@ class _BrowserScreenState extends State<BrowserScreen>
       title: const SizedBox.shrink(),
       actions: [
         IconButton(
-          tooltip: '帮助',
-          onPressed: _showHelp,
-          icon: const Icon(Icons.help_rounded),
+          tooltip: '收藏夹',
+          onPressed: () => _showSavedPages(0),
+          icon: const Icon(Icons.bookmarks_rounded),
         ),
         IconButton(
-          tooltip: '设置',
-          onPressed: _showSettings,
-          icon: const Icon(Icons.settings_rounded),
+          tooltip: '历史记录',
+          onPressed: () => _showSavedPages(1),
+          icon: const Icon(Icons.history_rounded),
         ),
         PopupMenuButton<String>(
           onSelected: _handleMenu,
           itemBuilder: (context) => const [
+            PopupMenuItem(
+              value: 'parsePaste',
+              child: Text('粘贴网址直接解析'),
+            ),
             PopupMenuItem(value: 'paste', child: Text('粘贴并打开')),
+            PopupMenuItem(value: 'help', child: Text('帮助')),
             PopupMenuItem(value: 'settings', child: Text('浏览器设置')),
           ],
         ),
@@ -160,7 +172,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       leadingWidth: 40,
       leading: Builder(
         builder: (context) => IconButton(
-          tooltip: '标签',
+          tooltip: '收藏与历史',
           onPressed: () => Scaffold.of(context).openDrawer(),
           icon: _TabCountBadge(count: history.isEmpty ? 1 : history.length),
         ),
@@ -190,6 +202,12 @@ class _BrowserScreenState extends State<BrowserScreen>
           itemBuilder: (context) => const [
             PopupMenuItem(value: 'home', child: Text('主页')),
             PopupMenuItem(value: 'sniff', child: Text('重新解析视频')),
+            PopupMenuItem(value: 'favorites', child: Text('收藏夹')),
+            PopupMenuItem(value: 'history', child: Text('历史记录')),
+            PopupMenuItem(
+              value: 'parsePaste',
+              child: Text('粘贴网址直接解析'),
+            ),
             PopupMenuItem(value: 'copy', child: Text('复制网址')),
             PopupMenuItem(value: 'settings', child: Text('浏览器设置')),
           ],
@@ -533,7 +551,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     });
   }
 
-  Future<void> _showDownloadPicker() async {
+  Future<void> _showDownloadPicker({String? title}) async {
     final resources = _downloadable;
     if (resources.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -547,7 +565,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => _DownloadPicker(
-        title: pageTitle,
+        title: title ?? pageTitle,
         resources: resources,
         onDownload: (resource) async {
           Navigator.pop(context);
@@ -622,13 +640,123 @@ class _BrowserScreenState extends State<BrowserScreen>
         await _sniffPage(openPicker: true);
       case 'copy':
         await Clipboard.setData(ClipboardData(text: currentUrl));
+      case 'favorites':
+        _showSavedPages(0);
+      case 'history':
+        _showSavedPages(1);
+      case 'parsePaste':
+        await _parseClipboardUrl();
       case 'paste':
         final data = await Clipboard.getData(Clipboard.kTextPlain);
         final text = data?.text?.trim() ?? '';
         if (text.isNotEmpty) await _loadUrl(text);
       case 'settings':
         _showSettings();
+      case 'help':
+        _showHelp();
     }
+  }
+
+  Future<void> _parseClipboardUrl() async {
+    if (directParsing) return;
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final raw = data?.text?.trim() ?? '';
+    if (raw.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('剪贴板中没有网址')),
+        );
+      }
+      return;
+    }
+    final url = _normalize(raw);
+    setState(() => directParsing = true);
+    try {
+      final resources = await sniffer.parsePage(url);
+      if (!mounted) return;
+      if (resources.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('未直接解析到视频，该网站可能需要打开网页并播放')),
+        );
+        return;
+      }
+      setState(() {
+        captured
+          ..clear()
+          ..addEntries(
+            resources.map(
+              (resource) =>
+                  MapEntry(sniffer.dedupeKey(resource.url), resource),
+            ),
+          );
+      });
+      await _showDownloadPicker(title: resources.first.title);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('直接解析失败：$error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => directParsing = false);
+    }
+  }
+
+  Future<void> _showSavedPages(int initialIndex) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => DefaultTabController(
+        length: 2,
+        initialIndex: initialIndex,
+        child: SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(sheetContext).height * 0.78,
+            child: Column(
+              children: [
+                const ListTile(
+                  title: Text(
+                    '收藏与历史',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                const TabBar(
+                  tabs: [
+                    Tab(icon: Icon(Icons.bookmark_rounded), text: '收藏夹'),
+                    Tab(icon: Icon(Icons.history_rounded), text: '历史记录'),
+                  ],
+                ),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      _BrowserRecordList(
+                        records: bookmarks,
+                        emptyText: '暂无收藏',
+                        onOpen: (url) {
+                          Navigator.pop(sheetContext);
+                          unawaited(_loadUrl(url));
+                        },
+                        onRemove: _removeBookmark,
+                      ),
+                      _BrowserRecordList(
+                        records: history,
+                        emptyText: '暂无历史记录',
+                        onOpen: (url) {
+                          Navigator.pop(sheetContext);
+                          unawaited(_loadUrl(url));
+                        },
+                        onRemove: _removeHistory,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _showSettings() {
@@ -854,9 +982,15 @@ class _BrowserScreenState extends State<BrowserScreen>
 }
 
 class _StartPage extends StatefulWidget {
-  const _StartPage({required this.onOpen});
+  const _StartPage({
+    required this.onOpen,
+    required this.onParseClipboard,
+    required this.parsing,
+  });
 
   final ValueChanged<String> onOpen;
+  final VoidCallback onParseClipboard;
+  final bool parsing;
 
   @override
   State<_StartPage> createState() => _StartPageState();
@@ -887,6 +1021,18 @@ class _StartPageState extends State<_StartPage> {
             ),
           ),
           onSubmitted: widget.onOpen,
+        ),
+        const SizedBox(height: 14),
+        FilledButton.icon(
+          onPressed: widget.parsing ? null : widget.onParseClipboard,
+          icon: widget.parsing
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.content_paste_go_rounded),
+          label: Text(widget.parsing ? '正在解析…' : '粘贴网址直接解析视频'),
         ),
         const SizedBox(height: 26),
         GridView.count(
