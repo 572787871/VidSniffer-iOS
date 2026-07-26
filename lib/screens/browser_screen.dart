@@ -42,9 +42,11 @@ class _BrowserScreenState extends State<BrowserScreen>
   InAppWebViewController? controller;
   Timer? deepTimer;
   Timer? flushTimer;
+  Timer? scrollIdleTimer;
   String currentUrl = 'about:blank';
   String pageTitle = '新窗口';
   String userAgent = '';
+  String currentCookie = '';
   bool loading = false;
   bool canGoBack = false;
   bool canGoForward = false;
@@ -93,6 +95,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   void dispose() {
     deepTimer?.cancel();
     flushTimer?.cancel();
+    scrollIdleTimer?.cancel();
     snifferController.dispose();
     addressController.dispose();
     super.dispose();
@@ -246,8 +249,17 @@ class _BrowserScreenState extends State<BrowserScreen>
                   onLoadStop: (_, url) async {
                     currentUrl = url?.toString() ?? currentUrl;
                     await _syncBrowserState();
+                    unawaited(_refreshCurrentCookie());
                     await _injectHooks();
                     await _scanDom();
+                  },
+                  onScrollChanged: (_, __, ___) {
+                    snifferController.setSuspended(true);
+                    scrollIdleTimer?.cancel();
+                    scrollIdleTimer = Timer(
+                      const Duration(milliseconds: 900),
+                      () => snifferController.setSuspended(false),
+                    );
                   },
                   onProgressChanged: (_, value) {
                     if (!mounted) return;
@@ -604,13 +616,18 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Future<SnifferPageContext> _snifferContext() async {
-    await _syncBrowserState();
     return SnifferPageContext(
       pageUrl: currentUrl,
       pageTitle: pageTitle,
       userAgent: userAgent,
-      cookie: await _cookiesFor(currentUrl),
+      cookie: currentCookie,
     );
+  }
+
+  Future<void> _refreshCurrentCookie() async {
+    final value = await _cookiesFor(currentUrl);
+    if (!mounted) return;
+    currentCookie = value;
   }
 
   Future<VideoResource> _withCurrentCredentials(
@@ -1457,9 +1474,15 @@ class _BrowserScreenState extends State<BrowserScreen>
       [data-ad_slot_key],
       [data-ad_type],
       [data-event="ad_click"],
+      [data-page_key="float_ads"],
       .horizontal-banner,
       .dw-activity-banner,
       .adspop,
+      #adFloat,
+      #aiFloat,
+      .xqbj-component-adfloat,
+      .xqbj-component-aifloat,
+      .launchapp-btn-container,
       iframe[src*="doubleclick.net"],
       iframe[src*="googlesyndication.com"] {
         display: none !important;
