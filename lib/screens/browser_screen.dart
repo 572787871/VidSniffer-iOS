@@ -1758,64 +1758,26 @@ class _DownloadPickerState extends State<_DownloadPicker> {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: SizedBox(
-                    width: 120,
-                    height: 80,
-                    child: selected.thumbnailUrl.trim().isEmpty
-                        ? ColoredBox(color: scheme.surfaceContainerHighest)
-                        : Image.network(
-                            selected.thumbnailUrl,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => ColoredBox(
-                              color: scheme.surfaceContainerHighest,
-                            ),
-                          ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    widget.title.trim().isEmpty ? selected.title : widget.title,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                for (final resource in widget.resources)
-                  ChoiceChip(
-                    selected: resource.url == selected.url,
-                    label: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            resource.quality == '未知'
-                                ? resource.displayFormat
-                                : resource.quality,
-                            style: const TextStyle(fontWeight: FontWeight.w900),
-                          ),
-                          Text(resource.size),
-                          if (resource.duration > Duration.zero)
-                            Text(_formatVideoDuration(resource.duration)),
-                        ],
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.52,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    for (final resource in widget.resources)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _VideoChoiceTile(
+                          resource: resource,
+                          selected: resource.url == selected.url,
+                          fallbackTitle: widget.title,
+                          onTap: () => setState(() => selected = resource),
+                        ),
                       ),
-                    ),
-                    onSelected: (_) => setState(() => selected = resource),
-                  ),
-              ],
+                  ],
+                ),
+              ),
             ),
             const SizedBox(height: 18),
             SizedBox(
@@ -1828,6 +1790,96 @@ class _DownloadPickerState extends State<_DownloadPicker> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _VideoChoiceTile extends StatelessWidget {
+  const _VideoChoiceTile({
+    required this.resource,
+    required this.selected,
+    required this.fallbackTitle,
+    required this.onTap,
+  });
+
+  final VideoResource resource;
+  final bool selected;
+  final String fallbackTitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final title =
+        resource.title.trim().isEmpty ? fallbackTitle : resource.title.trim();
+    final quality = resource.quality == '未知'
+        ? resource.displayFormat
+        : resource.quality;
+    final metadata = [
+      quality,
+      resource.size,
+      if (resource.duration > Duration.zero)
+        _formatVideoDuration(resource.duration),
+    ].where((value) => value.trim().isNotEmpty && value != '未知').join(' · ');
+    return Material(
+      color: selected ? scheme.primaryContainer : scheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: SizedBox(
+                  width: 112,
+                  height: 76,
+                  child: resource.thumbnailUrl.trim().isEmpty
+                      ? ColoredBox(color: scheme.surfaceContainerHighest)
+                      : Image.network(
+                          resource.thumbnailUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => ColoredBox(
+                            color: scheme.surfaceContainerHighest,
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 7),
+                    Text(
+                      metadata,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: scheme.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              Icon(
+                selected
+                    ? Icons.check_circle_rounded
+                    : Icons.radio_button_unchecked_rounded,
+                color: selected ? scheme.primary : scheme.outline,
+              ),
+            ],
+          ),
         ),
       ),
     );
