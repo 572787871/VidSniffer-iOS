@@ -617,6 +617,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
     final cover = await _currentPageCover();
+    if (!mounted) return;
     if (cover.isNotEmpty) {
       resources = resources
           .map(
