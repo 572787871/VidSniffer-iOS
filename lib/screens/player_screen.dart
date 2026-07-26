@@ -278,8 +278,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
           children: [
             SliderTheme(
               data: SliderTheme.of(context).copyWith(
-                trackHeight: 5,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                trackHeight: 6,
+                thumbColor: const Color(0xff246bfd),
+                overlayColor: const Color(0x33246bfd),
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
               ),
               child: Stack(
                 alignment: Alignment.center,
@@ -714,15 +716,15 @@ class _PreviewProgressTrack extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) => Stack(
           children: [
-            const Positioned.fill(child: ColoredBox(color: Colors.white24)),
-            _bar(const Color(0xff7657d6), downloaded, constraints.maxWidth),
+            const Positioned.fill(child: ColoredBox(color: Color(0x55ffffff))),
+            _bar(const Color(0xff91b3ff), downloaded, constraints.maxWidth),
             _rangeBar(
-              Colors.white54,
+              const Color(0xffd5e1ff),
               downloaded,
               buffered,
               constraints.maxWidth,
             ),
-            _bar(const Color(0xff2f73ea), played, constraints.maxWidth),
+            _bar(const Color(0xff246bfd), played, constraints.maxWidth),
           ],
         ),
       ),

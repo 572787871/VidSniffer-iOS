@@ -25,12 +25,14 @@ class LibraryScreen extends StatefulWidget {
 
 class _LibraryScreenState extends State<LibraryScreen> {
   final searchController = TextEditingController();
+  final searchFocus = FocusNode();
   _LibrarySort sort = _LibrarySort.newest;
   _LibraryView view = _LibraryView.all;
 
   @override
   void dispose() {
     searchController.dispose();
+    searchFocus.dispose();
     super.dispose();
   }
 
@@ -41,6 +43,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
       appBar: AppBar(
         title: const Text('已下载'),
         actions: [
+          IconButton(
+            tooltip: '搜索',
+            onPressed: searchFocus.requestFocus,
+            icon: const Icon(Icons.search_rounded),
+          ),
           PopupMenuButton<_LibrarySort>(
             initialValue: sort,
             onSelected: (value) => setState(() => sort = value),
@@ -50,18 +57,21 @@ class _LibraryScreenState extends State<LibraryScreen> {
               PopupMenuItem(value: _LibrarySort.duration, child: Text('时长')),
               PopupMenuItem(value: _LibrarySort.name, child: Text('文件名')),
             ],
-            icon: const Icon(Icons.sort_rounded),
+            icon: const Icon(Icons.sort_by_alpha_rounded),
           ),
           IconButton(
-            tooltip: '新建文件夹',
-            onPressed: () => _createFolder(context),
-            icon: const Icon(Icons.create_new_folder_rounded),
-          ),
-          IconButton(
+            tooltip: '刷新',
             onPressed: state.refreshLibrary,
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const Icon(Icons.more_horiz_rounded),
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        tooltip: '新建文件夹',
+        onPressed: () => _createFolder(context),
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        foregroundColor: Colors.white,
+        child: const Icon(Icons.add_rounded),
       ),
       body: AnimatedBuilder(
         animation: state,
@@ -84,7 +94,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   scrollDirection: Axis.horizontal,
                   children: [
                     _ViewChip(
-                      label: '全部',
+                      label: '全部 ${state.videos.length}',
                       selected: view == _LibraryView.all,
                       onSelected: () => setState(() => view = _LibraryView.all),
                     ),
@@ -95,19 +105,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           setState(() => view = _LibraryView.recent),
                     ),
                     _ViewChip(
-                      label: '文件夹',
+                      label: '文件夹 ${folderEntries.length}',
                       selected: view == _LibraryView.folders,
                       onSelected: () =>
                           setState(() => view = _LibraryView.folders),
                     ),
                     _ViewChip(
-                      label: '来源网站',
+                      label: '来源网站 ${siteEntries.length}',
                       selected: view == _LibraryView.sites,
                       onSelected: () =>
                           setState(() => view = _LibraryView.sites),
                     ),
                     _ViewChip(
-                      label: '收藏',
+                      label: '收藏 ${state.videos.where((item) => item.isFavorite).length}',
                       selected: view == _LibraryView.favorites,
                       onSelected: () =>
                           setState(() => view = _LibraryView.favorites),
@@ -119,6 +129,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 padding: const EdgeInsets.fromLTRB(18, 8, 18, 10),
                 child: TextField(
                   controller: searchController,
+                  focusNode: searchFocus,
                   onChanged: (_) => setState(() {}),
                   decoration: const InputDecoration(
                     prefixIcon: Icon(Icons.search_rounded),
@@ -416,7 +427,19 @@ class _FolderCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          _CoverWall(videos: entry.videos),
+          Container(
+            width: 64,
+            height: 58,
+            decoration: BoxDecoration(
+              color: const Color(0xfffff5dc),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(
+              Icons.folder_rounded,
+              color: Color(0xffffbd2e),
+              size: 34,
+            ),
+          ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -477,54 +500,13 @@ class _FolderCard extends StatelessWidget {
                 PopupMenuItem(value: 'rename', child: Text('重命名')),
                 PopupMenuItem(value: 'delete', child: Text('删除文件夹')),
               ],
+            )
+          else
+            Icon(
+              Icons.chevron_right_rounded,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
         ],
-      ),
-    );
-  }
-}
-
-class _CoverWall extends StatelessWidget {
-  const _CoverWall({required this.videos});
-
-  final List<LocalVideo> videos;
-
-  @override
-  Widget build(BuildContext context) {
-    final thumbs = videos.take(4).toList();
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: SizedBox(
-        width: 92,
-        height: 72,
-        child: GridView.builder(
-          physics: const NeverScrollableScrollPhysics(),
-          padding: EdgeInsets.zero,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            mainAxisSpacing: 1,
-            crossAxisSpacing: 1,
-          ),
-          itemCount: 4,
-          itemBuilder: (context, index) {
-            if (index >= thumbs.length) {
-              return ColoredBox(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                child: const Icon(Icons.folder_rounded, size: 18),
-              );
-            }
-            final file = thumbs[index].thumbnailPath.isEmpty
-                ? null
-                : File(thumbs[index].thumbnailPath);
-            if (file != null && file.existsSync()) {
-              return Image.file(file, fit: BoxFit.cover);
-            }
-            return ColoredBox(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              child: const Icon(Icons.movie_creation_outlined, size: 18),
-            );
-          },
-        ),
       ),
     );
   }
@@ -844,15 +826,15 @@ class _VideoInlineRow extends StatelessWidget {
     final state = UiStateScope.of(context);
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(15),
       ),
       child: Row(
         children: [
-          _Thumbnail(video: video),
-          const SizedBox(width: 12),
+          _Thumbnail(video: video, width: 88, height: 72),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -861,51 +843,55 @@ class _VideoInlineRow extends StatelessWidget {
                   video.title.isEmpty ? video.name : video.title,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w900),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
                 const SizedBox(height: 5),
                 Text(
                   '${video.resolutionLabel} · ${_formatDuration(video.duration)} · ${_formatBytes(video.size)}',
-                  style: TextStyle(color: scheme.onSurfaceVariant),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    IconButton.filled(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => PlayerScreen(
-                            title:
-                                video.title.isEmpty ? video.name : video.title,
-                            filePath: video.path,
-                          ),
-                        ),
-                      ),
-                      icon: const Icon(Icons.play_arrow_rounded),
-                    ),
-                    IconButton.filledTonal(
-                      onPressed: () => Share.shareXFiles([
-                        XFile(video.path),
-                      ], text: video.title.isEmpty ? video.name : video.title),
-                      icon: const Icon(Icons.ios_share_rounded),
-                    ),
-                    IconButton.filledTonal(
-                      onPressed: () => _showMoveToFolder(context, video),
-                      icon: const Icon(Icons.drive_file_move_rounded),
-                    ),
-                    IconButton.outlined(
-                      onPressed: () => _confirmDeleteVideo(
-                        context,
-                        state,
-                        video,
-                      ),
-                      icon: const Icon(Icons.delete_outline_rounded),
-                    ),
-                  ],
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 11,
+                  ),
                 ),
               ],
             ),
+          ),
+          IconButton(
+            tooltip: '播放',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => PlayerScreen(
+                  title: video.title.isEmpty ? video.name : video.title,
+                  filePath: video.path,
+                ),
+              ),
+            ),
+            icon: const Icon(Icons.play_arrow_rounded),
+          ),
+          PopupMenuButton<String>(
+            onSelected: (value) async {
+              if (value == 'share') {
+                await Share.shareXFiles(
+                  [XFile(video.path)],
+                  text: video.title.isEmpty ? video.name : video.title,
+                );
+              } else if (value == 'move' && context.mounted) {
+                await _showMoveToFolder(context, video);
+              } else if (value == 'delete' && context.mounted) {
+                await _confirmDeleteVideo(context, state, video);
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'share', child: Text('分享')),
+              PopupMenuItem(value: 'move', child: Text('移动到文件夹')),
+              PopupMenuItem(value: 'delete', child: Text('删除')),
+            ],
+            icon: const Icon(Icons.more_vert_rounded),
           ),
         ],
       ),
@@ -923,54 +909,59 @@ class _VideoCard extends StatelessWidget {
     final state = UiStateScope.of(context);
     final scheme = Theme.of(context).colorScheme;
     return AppCard(
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => PlayerScreen(
+            title: video.title.isEmpty ? video.name : video.title,
+            filePath: video.path,
+          ),
+        ),
+      ),
+      padding: const EdgeInsets.all(11),
       child: Row(
         children: [
-          _Thumbnail(video: video),
-          const SizedBox(width: 14),
+          _Thumbnail(video: video, width: 104, height: 94),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                Text(
+                  _cleanDisplayTitle(
+                    video.title.isEmpty ? video.name : video.title,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    height: 1.2,
+                    fontWeight: FontWeight.w900,
+                    color: scheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 5,
+                  runSpacing: 4,
                   children: [
-                    Expanded(
-                      child: Text(
-                        _cleanDisplayTitle(
-                          video.title.isEmpty ? video.name : video.title,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          color: scheme.onSurface,
-                        ),
-                      ),
+                    _LibraryTag(
+                      label: video.resolutionLabel,
+                      highlighted: true,
                     ),
-                    IconButton(
-                      tooltip: video.isFavorite ? '取消收藏' : '收藏',
-                      onPressed: () => state.toggleFavorite(video),
-                      icon: Icon(
-                        video.isFavorite
-                            ? Icons.star_rounded
-                            : Icons.star_outline_rounded,
-                        color:
-                            video.isFavorite ? const Color(0xffffb703) : null,
-                      ),
-                    ),
+                    _LibraryTag(label: p.extension(video.name).isEmpty
+                        ? '视频'
+                        : p.extension(video.name).substring(1).toUpperCase()),
                   ],
                 ),
-                const SizedBox(height: 5),
+                const SizedBox(height: 7),
                 Text(
-                  '${video.resolutionLabel} · ${_formatDuration(video.duration)} · ${_formatBytes(video.size)}',
-                  style: TextStyle(color: scheme.onSurfaceVariant),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _subtitle(),
+                  '${_formatBytes(video.size)} · ${_formatDate(video.modifiedAt)}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style:
-                      TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 11.5,
+                  ),
                 ),
                 if (video.resumePosition > Duration.zero) ...[
                   const SizedBox(height: 4),
@@ -982,56 +973,86 @@ class _VideoCard extends StatelessWidget {
                         fontWeight: FontWeight.w700),
                   ),
                 ],
-                const Spacer(),
-                Row(
-                  children: [
-                    IconButton.filled(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => PlayerScreen(
-                            title:
-                                video.title.isEmpty ? video.name : video.title,
-                            filePath: video.path,
-                          ),
-                        ),
-                      ),
-                      icon: const Icon(Icons.play_arrow_rounded),
-                    ),
-                    IconButton.filledTonal(
-                      onPressed: () => Share.shareXFiles([
-                        XFile(video.path),
-                      ], text: video.title.isEmpty ? video.name : video.title),
-                      icon: const Icon(Icons.ios_share_rounded),
-                    ),
-                    IconButton.filledTonal(
-                      onPressed: () => _showMoveToFolder(context, video),
-                      icon: const Icon(Icons.drive_file_move_rounded),
-                    ),
-                    IconButton.outlined(
-                      onPressed: () => _confirmDeleteVideo(
-                        context,
-                        state,
-                        video,
-                      ),
-                      icon: const Icon(Icons.delete_outline_rounded),
-                    ),
-                  ],
-                ),
               ],
+            ),
+          ),
+          PopupMenuButton<String>(
+            tooltip: '更多操作',
+            onSelected: (value) async {
+              switch (value) {
+                case 'play':
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => PlayerScreen(
+                        title: video.title.isEmpty ? video.name : video.title,
+                        filePath: video.path,
+                      ),
+                    ),
+                  );
+                case 'favorite':
+                  await state.toggleFavorite(video);
+                case 'share':
+                  await Share.shareXFiles(
+                    [XFile(video.path)],
+                    text: video.title.isEmpty ? video.name : video.title,
+                  );
+                case 'move':
+                  if (context.mounted) {
+                    await _showMoveToFolder(context, video);
+                  }
+                case 'delete':
+                  if (context.mounted) {
+                    await _confirmDeleteVideo(context, state, video);
+                  }
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 'play', child: Text('播放')),
+              PopupMenuItem(
+                value: 'favorite',
+                child: Text(video.isFavorite ? '取消收藏' : '收藏'),
+              ),
+              const PopupMenuItem(value: 'share', child: Text('分享')),
+              const PopupMenuItem(value: 'move', child: Text('移动到文件夹')),
+              const PopupMenuItem(value: 'delete', child: Text('删除')),
+            ],
+            icon: Icon(
+              Icons.more_vert_rounded,
+              color: scheme.onSurfaceVariant,
             ),
           ),
         ],
       ),
     );
   }
+}
 
-  String _subtitle() {
-    final parts = <String>[
-      _formatDate(video.modifiedAt),
-      if (video.codec.isNotEmpty) video.codec,
-      if (video.sourceSite.isNotEmpty) video.sourceSite,
-    ];
-    return parts.join(' · ');
+class _LibraryTag extends StatelessWidget {
+  const _LibraryTag({required this.label, this.highlighted = false});
+
+  final String label;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: highlighted
+            ? scheme.primary.withValues(alpha: 0.09)
+            : scheme.surfaceContainerHighest.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: highlighted ? scheme.primary : scheme.onSurfaceVariant,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
   }
 }
 
@@ -1061,9 +1082,15 @@ Future<void> _confirmDeleteVideo(
 }
 
 class _Thumbnail extends StatelessWidget {
-  const _Thumbnail({required this.video});
+  const _Thumbnail({
+    required this.video,
+    this.width = 138,
+    this.height = 92,
+  });
 
   final LocalVideo video;
+  final double width;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
@@ -1071,8 +1098,8 @@ class _Thumbnail extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: SizedBox(
-        width: 138,
-        height: 92,
+        width: width,
+        height: height,
         child: Stack(
           fit: StackFit.expand,
           children: [

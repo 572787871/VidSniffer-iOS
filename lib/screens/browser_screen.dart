@@ -140,6 +140,11 @@ class _BrowserScreenState extends State<BrowserScreen>
                   ? _StartPage(
                       onOpen: _loadUrl,
                       onParseClipboard: _parseClipboardUrl,
+                      onFavorites: () => _showSavedPages(0),
+                      onHistory: () => _showSavedPages(1),
+                      onDownloadHistory: () =>
+                          _handleMenu('downloadHistory'),
+                      onSettings: _showSettings,
                       parsing: directParsing,
                       notice: directParseNotice,
                     )
@@ -153,15 +158,21 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   PreferredSizeWidget _startAppBar() {
     return AppBar(
-      leading: Builder(
-        builder: (context) => IconButton(
-          tooltip: '收藏与历史',
+      title: const Text('浏览器'),
+      actions: [
+        IconButton(
+          tooltip: '智能解析',
+          onPressed: directParsing ? null : _parseClipboardUrl,
+          icon: const Icon(
+            Icons.auto_awesome_rounded,
+            color: Color(0xffffc52f),
+          ),
+        ),
+        IconButton(
+          tooltip: '标签页',
           onPressed: _showBrowserTabs,
           icon: _TabCountBadge(count: browserTabs.length),
         ),
-      ),
-      title: const SizedBox.shrink(),
-      actions: [
         PopupMenuButton<String>(
           onSelected: _handleMenu,
           itemBuilder: (context) => const [
@@ -1884,12 +1895,20 @@ class _StartPage extends StatefulWidget {
   const _StartPage({
     required this.onOpen,
     required this.onParseClipboard,
+    required this.onFavorites,
+    required this.onHistory,
+    required this.onDownloadHistory,
+    required this.onSettings,
     required this.parsing,
     required this.notice,
   });
 
   final ValueChanged<String> onOpen;
   final VoidCallback onParseClipboard;
+  final VoidCallback onFavorites;
+  final VoidCallback onHistory;
+  final VoidCallback onDownloadHistory;
+  final VoidCallback onSettings;
   final bool parsing;
   final String notice;
 
@@ -1908,64 +1927,69 @@ class _StartPageState extends State<_StartPage> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return ListView(
-      padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 30),
       children: [
         TextField(
           controller: controller,
           textInputAction: TextInputAction.go,
           decoration: InputDecoration(
             hintText: '搜索或输入网址',
+            prefixIcon: const Icon(Icons.search_rounded),
             suffixIcon: IconButton(
-              icon: const Icon(Icons.keyboard_return_rounded),
+              tooltip: '打开',
+              icon: const Icon(Icons.arrow_forward_rounded),
               onPressed: () => widget.onOpen(controller.text),
             ),
           ),
           onSubmitted: widget.onOpen,
         ),
-        const SizedBox(height: 14),
-        FilledButton.icon(
-          onPressed: widget.parsing ? null : widget.onParseClipboard,
-          icon: widget.parsing
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.content_paste_go_rounded),
-          label: Text(widget.parsing ? '正在解析…' : '粘贴网址直接解析视频'),
+        const SizedBox(height: 18),
+        _ParseHero(
+          parsing: widget.parsing,
+          onTap: widget.onParseClipboard,
         ),
         if (widget.notice.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.info_outline_rounded,
-                size: 17,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  widget.notice,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+            decoration: BoxDecoration(
+              color: scheme.surface,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.info_outline_rounded,
+                  size: 17,
+                  color: scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    widget.notice,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
-        const SizedBox(height: 26),
+        const SizedBox(height: 28),
+        const _SectionTitle(title: '热门平台'),
+        const SizedBox(height: 12),
         GridView.count(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           crossAxisCount: 4,
-          mainAxisSpacing: 20,
-          crossAxisSpacing: 14,
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          childAspectRatio: 0.9,
           children: [
             _SiteShortcut(label: 'Facebook', color: const Color(0xff1877f2), text: 'f', url: 'https://www.facebook.com', onOpen: widget.onOpen),
             _SiteShortcut(label: 'Instagram', color: const Color(0xffe4405f), text: '◎', url: 'https://www.instagram.com', onOpen: widget.onOpen),
@@ -1973,19 +1997,281 @@ class _StartPageState extends State<_StartPage> {
             _SiteShortcut(label: 'Dailymotion', color: const Color(0xff00aaff), text: 'd', url: 'https://www.dailymotion.com', onOpen: widget.onOpen),
             _SiteShortcut(label: 'Twitter', color: const Color(0xff1da1f2), text: 't', url: 'https://twitter.com', onOpen: widget.onOpen),
             _SiteShortcut(label: 'TikTok', color: Colors.black, text: '♪', url: 'https://www.tiktok.com', onOpen: widget.onOpen),
-            _SiteShortcut(label: 'WhatsApp', color: const Color(0xff25d366), text: 'w', url: 'https://www.whatsapp.com', onOpen: widget.onOpen),
-            _SiteShortcut(label: 'Google', color: const Color(0xff4285f4), text: 'G', url: 'https://www.google.com', onOpen: widget.onOpen),
+            _SiteShortcut(label: 'YouTube', color: const Color(0xffff0033), text: '▶', url: 'https://www.youtube.com', onOpen: widget.onOpen),
+            _SiteShortcut(label: '更多', color: const Color(0xff7b8190), text: '•••', url: 'https://www.google.com', onOpen: widget.onOpen),
           ],
         ),
-        const SizedBox(height: 42),
-        Center(
-          child: TextButton.icon(
-            onPressed: () {},
-            icon: const Icon(Icons.feedback_rounded),
-            label: const Text('有反馈或问题吗？联系我们'),
+        const SizedBox(height: 28),
+        const _SectionTitle(title: '快捷工具'),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _QuickTool(
+                icon: Icons.bookmark_border_rounded,
+                label: '收藏夹',
+                onTap: widget.onFavorites,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _QuickTool(
+                icon: Icons.history_rounded,
+                label: '历史记录',
+                onTap: widget.onHistory,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _QuickTool(
+                icon: Icons.download_done_rounded,
+                label: '下载记录',
+                onTap: widget.onDownloadHistory,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _QuickTool(
+                icon: Icons.tune_rounded,
+                label: '设置',
+                onTap: widget.onSettings,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                const Color(0xffedf3ff),
+                const Color(0xfff7f8ff),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  color: scheme.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Icon(
+                  Icons.bolt_rounded,
+                  color: scheme.primary,
+                  size: 32,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '三步下载视频',
+                      style: TextStyle(
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      '复制视频网址 · 智能解析 · 选择清晰度下载',
+                      style: TextStyle(
+                        color: scheme.onSurfaceVariant,
+                        height: 1.35,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.arrow_forward_ios_rounded,
+                color: scheme.primary,
+                size: 16,
+              ),
+            ],
           ),
         ),
       ],
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.w900,
+        letterSpacing: -0.2,
+      ),
+    );
+  }
+}
+
+class _ParseHero extends StatelessWidget {
+  const _ParseHero({required this.parsing, required this.onTap});
+
+  final bool parsing;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
+      child: Ink(
+        height: 92,
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xff2567ed), Color(0xff5c8fff)],
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xff246bfd).withValues(alpha: 0.22),
+              blurRadius: 22,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: InkWell(
+          onTap: parsing ? null : onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            child: Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.17),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Center(
+                    child: parsing
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(
+                            Icons.link_rounded,
+                            color: Colors.white,
+                            size: 29,
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        parsing ? '正在智能解析' : '智能解析',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        parsing ? '正在读取视频信息…' : '粘贴网址，自动解析视频',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.82),
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickTool extends StatelessWidget {
+  const _QuickTool({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surface,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 82),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+            child: Column(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: scheme.primary, size: 21),
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -2007,35 +2293,49 @@ class _SiteShortcut extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: () => onOpen(url),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CircleAvatar(
-            radius: 27,
-            backgroundColor: color,
-            child: Text(
-              text,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 28,
-                fontWeight: FontWeight.w900,
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      borderRadius: BorderRadius.circular(17),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(17),
+        onTap: () => onOpen(url),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 43,
+                height: 43,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Text(
+                  text,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 23,
+                    height: 1,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 7),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 12,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -2133,10 +2433,17 @@ class _DownloadPickerState extends State<_DownloadPicker> {
     return SafeArea(
       child: Container(
         margin: const EdgeInsets.all(12),
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.1),
+              blurRadius: 30,
+              offset: const Offset(0, 12),
+            ),
+          ],
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -2144,13 +2451,35 @@ class _DownloadPickerState extends State<_DownloadPicker> {
           children: [
             Row(
               children: [
-                const Spacer(),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '选择下载清晰度',
+                        style: TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      SizedBox(height: 3),
+                      Text(
+                        '选择一个视频开始下载',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xff747986),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 IconButton(
                   onPressed: () => Navigator.pop(context),
                   icon: const Icon(Icons.close_rounded),
                 ),
               ],
             ),
+            const SizedBox(height: 10),
             ConstrainedBox(
               constraints: BoxConstraints(
                 maxHeight: MediaQuery.sizeOf(context).height * 0.52,
@@ -2176,7 +2505,7 @@ class _DownloadPickerState extends State<_DownloadPicker> {
             const SizedBox(height: 18),
             SizedBox(
               width: double.infinity,
-              height: 52,
+              height: 54,
               child: FilledButton.icon(
                 onPressed: () async => widget.onDownload(selected),
                 icon: const Icon(Icons.file_download_rounded),
@@ -2219,21 +2548,23 @@ class _VideoChoiceTile extends StatelessWidget {
           : '时长未知',
     ].join(' · ');
     return Material(
-      color: selected ? scheme.primaryContainer : scheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(14),
+      color: selected
+          ? scheme.primary.withValues(alpha: 0.09)
+          : scheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(17),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(17),
         child: Padding(
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(11),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               ClipRRect(
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(12),
                 child: SizedBox(
-                  width: 112,
-                  height: 76,
+                  width: 100,
+                  height: 72,
                   child: coverBytes != null
                       ? Image.memory(coverBytes!, fit: BoxFit.cover)
                       : resource.thumbnailUrl.trim().isEmpty
@@ -2249,6 +2580,9 @@ class _VideoChoiceTile extends StatelessWidget {
                           },
                           errorBuilder: (_, __, ___) => ColoredBox(
                             color: scheme.surfaceContainerHighest,
+                            child: const Icon(
+                              Icons.movie_creation_outlined,
+                            ),
                           ),
                         ),
                 ),
@@ -2262,9 +2596,13 @@ class _VideoChoiceTile extends StatelessWidget {
                       title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        height: 1.2,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
-                    const SizedBox(height: 7),
+                    const SizedBox(height: 8),
                     FittedBox(
                       fit: BoxFit.scaleDown,
                       alignment: Alignment.centerLeft,
@@ -2274,7 +2612,8 @@ class _VideoChoiceTile extends StatelessWidget {
                         softWrap: false,
                         style: TextStyle(
                           color: scheme.onSurfaceVariant,
-                          fontSize: 13,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),

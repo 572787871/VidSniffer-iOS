@@ -30,26 +30,41 @@ class _AppShellState extends State<AppShell> {
       ),
       bottomNavigationBar: AnimatedBuilder(
         animation: state,
-        builder: (context, _) => NavigationBar(
-          selectedIndex: state.selectedTab,
-          onDestinationSelected: state.selectTab,
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.web_asset_outlined),
-              selectedIcon: Icon(Icons.web_asset_rounded),
-              label: '窗口',
+        builder: (context, _) => DecoratedBox(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            border: Border(
+              top: BorderSide(color: Theme.of(context).dividerColor),
             ),
-            NavigationDestination(
-              icon: Icon(Icons.downloading_outlined),
-              selectedIcon: Icon(Icons.downloading_rounded),
-              label: '下载中',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.folder_outlined),
-              selectedIcon: Icon(Icons.folder_rounded),
-              label: '已下载',
-            ),
-          ],
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.035),
+                blurRadius: 18,
+                offset: const Offset(0, -5),
+              ),
+            ],
+          ),
+          child: NavigationBar(
+            selectedIndex: state.selectedTab,
+            onDestinationSelected: state.selectTab,
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.language_outlined),
+                selectedIcon: Icon(Icons.language_rounded),
+                label: '浏览器',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.arrow_circle_down_outlined),
+                selectedIcon: Icon(Icons.arrow_circle_down_rounded),
+                label: '下载中',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.folder_outlined),
+                selectedIcon: Icon(Icons.folder_rounded),
+                label: '已下载',
+              ),
+            ],
+          ),
         ),
       ),
     );
