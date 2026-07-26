@@ -1348,6 +1348,22 @@ class _BrowserScreenState extends State<BrowserScreen>
     push(v.currentSrc || v.src, 'video', v);
     Array.from(v.querySelectorAll('source')).forEach(s => push(s.src || s.getAttribute('src'), 'source', v));
   });
+  document.querySelectorAll('[data-config]').forEach(node => {
+    try {
+      const config = JSON.parse(node.getAttribute('data-config') || '{}');
+      const video = config && config.video;
+      if (!video || !video.url) return;
+      out.push({
+        url: video.url,
+        source: 'player-config',
+        title: node.getAttribute('data-video-title') || title,
+        duration: 0,
+        poster: video.pic || video.poster || '',
+        current: false,
+        sources: []
+      });
+    } catch (_) {}
+  });
   Array.from(document.querySelectorAll('a[href]')).forEach(a => {
     const href = a.href || '';
     if (/\.(mp4|m4v|mov|webm|m3u8)(\?|#|$)/i.test(href)) push(href, 'link', null);
@@ -1384,6 +1400,14 @@ class _BrowserScreenState extends State<BrowserScreen>
     });
   };
   document.querySelectorAll('video,audio').forEach(bind);
+  document.querySelectorAll('[data-config]').forEach(node => {
+    try {
+      const config = JSON.parse(node.getAttribute('data-config') || '{}');
+      if (config && config.video && config.video.url) {
+        post(config.video.url, 'player-config', null);
+      }
+    } catch (_) {}
+  });
   const pendingRoots = new Set();
   let scanScheduled = false;
   const flushAddedMedia = () => {
