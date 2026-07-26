@@ -9,10 +9,16 @@ import '../services/file_utils.dart';
 import '../services/playback_store.dart';
 
 class PlayerScreen extends StatefulWidget {
-  const PlayerScreen({required this.title, this.filePath, super.key});
+  const PlayerScreen({
+    required this.title,
+    this.filePath,
+    this.allowPartial = false,
+    super.key,
+  });
 
   final String title;
   final String? filePath;
+  final bool allowPartial;
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
@@ -473,7 +479,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (await file.length() <= 0) {
         throw StateError('文件大小为 0');
       }
-      if (!lower.endsWith('.mp4') &&
+      if (!widget.allowPartial &&
+          !lower.endsWith('.mp4') &&
           !lower.endsWith('.mov') &&
           !lower.endsWith('.m4v')) {
         throw StateError('不是支持的视频文件后缀');
@@ -482,14 +489,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
         throw StateError('文件内容是 HTML，不是视频');
       }
       currentPath = path;
-      controller = VideoPlayerController.file(file)
-        ..initialize().then((_) {
-          if (!mounted) return;
-          _afterInitialized(path);
-        })
+      final player = VideoPlayerController.file(file)
         ..addListener(_onPlayerChanged);
+      controller = player;
+      await player.initialize();
+      if (!mounted) return;
+      await _afterInitialized(path);
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted) {
+        setState(
+          () => error = widget.allowPartial
+              ? '已下载部分暂时无法播放，请等待更多内容后重试。\n$e'
+              : '$e',
+        );
+      }
     }
   }
 

@@ -412,8 +412,10 @@ class DownloadManager extends ChangeNotifier {
       '-y',
       '-headers ${_shellQuote(_ffmpegHeaders(task.resource))}',
       '-i ${_shellQuote(task.resource.url)}',
+      if (task.playlistDuration > Duration.zero)
+        '-t ${_ffmpegDurationSeconds(task.playlistDuration)}',
       '-c copy',
-      '-movflags +faststart',
+      '-movflags +frag_keyframe+empty_moov+default_base_moof',
       _shellQuote(tempOutput.path),
     ].join(' ');
 
@@ -426,9 +428,11 @@ class DownloadManager extends ChangeNotifier {
         '-y',
         '-headers ${_shellQuote(_ffmpegHeaders(task.resource))}',
         '-i ${_shellQuote(task.resource.url)}',
+        if (task.playlistDuration > Duration.zero)
+          '-t ${_ffmpegDurationSeconds(task.playlistDuration)}',
         '-c:v copy',
         '-c:a aac',
-        '-movflags +faststart',
+        '-movflags +frag_keyframe+empty_moov+default_base_moof',
         _shellQuote(tempOutput.path),
       ].join(' ');
       logs = await _runFfmpeg(task, fallback);
@@ -445,9 +449,9 @@ class DownloadManager extends ChangeNotifier {
     task.phase = DownloadPhase.merging;
     task.message = '正在写入视频文件';
     task.isIndeterminate = true;
-    if (task.progress < 0.96) {
-      task.progress = 0.96;
-    }
+    task.downloadedSegments = task.totalSegments;
+    task.progress = 0.99;
+    task.remaining = '00:00';
     notifyListeners();
     if (!await tempOutput.exists() || await tempOutput.length() <= 0) {
       throw StateError('m3u8 没有合并出有效 mp4 文件');
@@ -509,9 +513,20 @@ class DownloadManager extends ChangeNotifier {
           task.ffmpegTime = _formatDuration(Duration(milliseconds: timeMs));
           task.ffmpegSpeed = statistics.getSpeed().toStringAsFixed(2);
           if (task.playlistDuration > Duration.zero) {
-            task.progress = (timeMs / task.playlistDuration.inMilliseconds)
+            final ratio =
+                (timeMs / task.playlistDuration.inMilliseconds)
+                    .clamp(0, 1)
+                    .toDouble();
+            task.progress = ratio
                 .clamp(0, 0.95)
                 .toDouble();
+            if (task.totalSegments > 0) {
+              task.downloadedSegments =
+                  (ratio * task.totalSegments).floor().clamp(
+                    task.downloadedSegments,
+                    task.totalSegments,
+                  );
+            }
             task.isIndeterminate = false;
             final speed = statistics.getSpeed();
             final remainingMs = (task.playlistDuration.inMilliseconds - timeMs)
@@ -863,6 +878,9 @@ class DownloadManager extends ChangeNotifier {
   }
 
   String _shellQuote(String value) => "'${value.replaceAll("'", "'\\''")}'";
+
+  String _ffmpegDurationSeconds(Duration value) =>
+      (value.inMilliseconds / 1000).toStringAsFixed(3);
 
   String _formatBytes(int value) {
     if (value < 1024) return '$value B';

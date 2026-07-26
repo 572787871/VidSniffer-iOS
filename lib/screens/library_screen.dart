@@ -11,7 +11,6 @@ import '../services/ui_state.dart';
 import '../widgets/app_card.dart';
 import '../widgets/empty_state.dart';
 import 'player_screen.dart';
-import 'resource_preview_screen.dart';
 
 enum _LibrarySort { newest, size, duration, name }
 
@@ -742,11 +741,11 @@ class _DownloadPreviewCard extends StatelessWidget {
                     onPressed: canPreview
                         ? () => Navigator.of(context).push(
                               MaterialPageRoute<void>(
-                                builder: (_) => ResourcePreviewScreen.file(
+                                builder: (_) => PlayerScreen(
                                   filePath: state.downloadManager
                                       .previewPathFor(task),
                                   title: task.resource.title,
-                                  subtitle: '${_phaseLabel(task)} · $percent',
+                                  allowPartial: true,
                                 ),
                               ),
                             )

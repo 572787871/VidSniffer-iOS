@@ -162,6 +162,28 @@ class _DownloadCard extends StatelessWidget {
                     task.status == DownloadStatus.failed ? '重试' : '继续',
                   ),
                 ),
+              if (task.tempPath.isNotEmpty &&
+                  task.status != DownloadStatus.canceled &&
+                  task.status != DownloadStatus.failed)
+                FutureBuilder<bool>(
+                  future: state.downloadManager.canPreviewPartial(task),
+                  builder: (context, snapshot) => OutlinedButton.icon(
+                    onPressed: snapshot.data == true
+                        ? () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => PlayerScreen(
+                                  title: task.resource.title,
+                                  filePath: state.downloadManager
+                                      .previewPathFor(task),
+                                  allowPartial: true,
+                                ),
+                              ),
+                            )
+                        : null,
+                    icon: const Icon(Icons.play_circle_outline_rounded),
+                    label: const Text('播放已下载部分'),
+                  ),
+                ),
               if (!isCompleted && !isMissing)
                 OutlinedButton.icon(
                   onPressed: () => state.downloadManager.cancel(task),
