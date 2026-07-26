@@ -10,6 +10,7 @@ import '../services/browser_data_store.dart';
 import '../services/ui_state.dart';
 import '../services/video_sniffer.dart';
 import '../services/video_sniffer_controller.dart';
+import '../widgets/home_sniffer.dart';
 
 class BrowserScreen extends StatefulWidget {
   const BrowserScreen({super.key});
@@ -39,6 +40,7 @@ class _BrowserScreenState extends State<BrowserScreen>
   bool canGoForward = false;
   bool deepCapture = false;
   bool directParsing = false;
+  String directParseUrl = '';
   bool showStartPage = true;
   int progress = 0;
   int handledBrowserRequestId = 0;
@@ -110,13 +112,69 @@ class _BrowserScreenState extends State<BrowserScreen>
         onRemoveBookmark: _removeBookmark,
       ),
       body: SafeArea(
-        child: showStartPage
-            ? _StartPage(
-                onOpen: _loadUrl,
-                onParseClipboard: _parseClipboardUrl,
-                parsing: directParsing,
-              )
-            : _browserBody(),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: showStartPage
+                  ? _StartPage(
+                      onOpen: _loadUrl,
+                      onParseClipboard: _parseClipboardUrl,
+                      parsing: directParsing,
+                    )
+                  : _browserBody(),
+            ),
+            if (directParsing && directParseUrl.isNotEmpty)
+              HomeSniffer(
+                key: ValueKey(directParseUrl),
+                initialUrl: directParseUrl,
+                onProgress: (_) {},
+                onFound: (record) {
+                  if (!mounted) return;
+                  setState(() {
+                    directParsing = false;
+                    directParseUrl = '';
+                    captured
+                      ..clear()
+                      ..addEntries(
+                        record.resources.map(
+                          (resource) => MapEntry(
+                            sniffer.dedupeKey(resource.url),
+                            resource,
+                          ),
+                        ),
+                      );
+                  });
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) {
+                      unawaited(
+                        _showDownloadPicker(title: record.pageTitle),
+                      );
+                    }
+                  });
+                },
+                onNotFound: (_, __) {
+                  if (!mounted) return;
+                  setState(() {
+                    directParsing = false;
+                    directParseUrl = '';
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('未直接解析到视频，请确认网址或稍后重试')),
+                  );
+                },
+                onFailed: (_, __, error) {
+                  if (!mounted) return;
+                  setState(() {
+                    directParsing = false;
+                    directParseUrl = '';
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('直接解析失败：$error')),
+                  );
+                },
+              ),
+          ],
+        ),
       ),
       floatingActionButton: showStartPage
           ? null
@@ -670,35 +728,52 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
     final url = _normalize(raw);
-    setState(() => directParsing = true);
+    setState(() {
+      directParsing = true;
+      directParseUrl = '';
+    });
     try {
-      final resources = await sniffer.parsePage(url);
+      final candidates = await sniffer.parsePage(url);
+      final probedGroups = await Future.wait(
+        candidates.map((candidate) async {
+          try {
+            return await sniffer.probeResource(candidate);
+          } catch (_) {
+            return const <VideoResource>[];
+          }
+        }),
+      );
+      final resources = sniffer
+          .prioritizeResources(probedGroups.expand((group) => group).where(
+            (resource) =>
+                resource.isPlayable &&
+                !resource.isFragment &&
+                !resource.isAdSuspect,
+          ).toList());
       if (!mounted) return;
-      if (resources.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('未直接解析到视频，该网站可能需要打开网页并播放')),
-        );
+      if (resources.isNotEmpty) {
+        setState(() {
+          directParsing = false;
+          captured
+            ..clear()
+            ..addEntries(
+              resources.map(
+                (resource) =>
+                    MapEntry(sniffer.dedupeKey(resource.url), resource),
+              ),
+            );
+        });
+        await _showDownloadPicker(title: resources.first.title);
         return;
       }
-      setState(() {
-        captured
-          ..clear()
-          ..addEntries(
-            resources.map(
-              (resource) =>
-                  MapEntry(sniffer.dedupeKey(resource.url), resource),
-            ),
-          );
-      });
-      await _showDownloadPicker(title: resources.first.title);
-    } catch (error) {
+
+      // Some sites construct the player only after JavaScript runs. Load a
+      // hidden one-pixel WebView as a fallback without navigating the browser.
+      setState(() => directParseUrl = url);
+    } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('直接解析失败：$error')),
-        );
+        setState(() => directParseUrl = url);
       }
-    } finally {
-      if (mounted) setState(() => directParsing = false);
     }
   }
 

@@ -32,8 +32,10 @@ class DownloadsScreen extends StatelessWidget {
         builder: (context, _) {
           final tasks = state.downloadManager.tasks
               .where(
-                (task) =>
-                    task.isActive || task.status == DownloadStatus.paused,
+                (task) => _showInCurrentDownloads(
+                  task,
+                  state.downloadManager.tasks,
+                ),
               )
               .toList(growable: false);
           if (tasks.isEmpty) {
@@ -71,8 +73,10 @@ class DownloadHistoryScreen extends StatelessWidget {
         builder: (context, _) {
           final tasks = state.downloadManager.tasks
               .where(
-                (task) =>
-                    !task.isActive && task.status != DownloadStatus.paused,
+                (task) => !_showInCurrentDownloads(
+                  task,
+                  state.downloadManager.tasks,
+                ),
               )
               .toList(growable: false);
           if (tasks.isEmpty) {
@@ -187,6 +191,7 @@ class _DownloadCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final manager = UiStateScope.of(context).downloadManager;
     final scheme = Theme.of(context).colorScheme;
+    final completed = task.status == DownloadStatus.completed;
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -197,10 +202,17 @@ class _DownloadCard extends StatelessWidget {
                 width: 46,
                 height: 46,
                 decoration: BoxDecoration(
-                  color: scheme.secondaryContainer,
+                  color: completed
+                      ? scheme.primaryContainer
+                      : scheme.secondaryContainer,
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(Icons.downloading_rounded, color: scheme.secondary),
+                child: Icon(
+                  completed
+                      ? Icons.check_circle_rounded
+                      : Icons.downloading_rounded,
+                  color: completed ? scheme.primary : scheme.secondary,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -272,11 +284,25 @@ class _DownloadCard extends StatelessWidget {
                     label: const Text('播放已下载部分'),
                   ),
                 ),
-              OutlinedButton.icon(
-                onPressed: () => manager.cancel(task),
-                icon: const Icon(Icons.close_rounded),
-                label: const Text('取消'),
-              ),
+              if (completed && task.localPath.isNotEmpty)
+                FilledButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => PlayerScreen(
+                        title: task.resource.title,
+                        filePath: task.localPath,
+                      ),
+                    ),
+                  ),
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: const Text('播放'),
+                )
+              else
+                OutlinedButton.icon(
+                  onPressed: () => manager.cancel(task),
+                  icon: const Icon(Icons.close_rounded),
+                  label: const Text('取消'),
+                ),
             ],
           ),
         ],
@@ -351,6 +377,21 @@ String _remaining(DownloadTask task) {
     return '剩余时间未知';
   }
   return '剩余 ${task.remaining}';
+}
+
+bool _showInCurrentDownloads(
+  DownloadTask task,
+  List<DownloadTask> allTasks,
+) {
+  if (task.isActive || task.status == DownloadStatus.paused) return true;
+  if (task.status != DownloadStatus.completed ||
+      task.completedAt == null) {
+    return false;
+  }
+  return !allTasks.any(
+    (item) =>
+        item.id != task.id && item.createdAt.isAfter(task.completedAt!),
+  );
 }
 
 String _historyStatus(DownloadStatus status) {

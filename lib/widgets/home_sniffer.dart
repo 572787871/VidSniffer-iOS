@@ -174,7 +174,7 @@ class _HomeSnifferState extends State<HomeSniffer> {
       (_) => unawaited(_scanTick()),
     );
     timeoutTimer = Timer(
-      const Duration(seconds: 5),
+      const Duration(seconds: 12),
       () => unawaited(_finishNotFound()),
     );
     unawaited(_scanTick());
@@ -309,6 +309,13 @@ class _HomeSnifferState extends State<HomeSniffer> {
   void _captureCandidate(_CapturedCandidate candidate) {
     if (completed) return;
     snifferController.updatePageUrl(currentUrl);
+    if (candidate.source == 'resource' ||
+        candidate.source == 'fetch' ||
+        candidate.source == 'xhr' ||
+        candidate.source == 'page') {
+      snifferController.captureNetwork(candidate.url, candidate.source);
+      return;
+    }
     snifferController.capture(
       candidate.url,
       candidate.source,

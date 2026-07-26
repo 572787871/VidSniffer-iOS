@@ -65,7 +65,21 @@ class VideoSniffer {
     String cookie = '',
     String source = 'dom',
   }) {
-    final title = _pageTitle(html) ?? pageUri.host;
+    final decodedHtml = html
+        .replaceAll(r'\/', '/')
+        .replaceAll('&amp;', '&')
+        .replaceAll(r'\u0026', '&');
+    // Player configurations often keep short pre-roll/post-roll media beside
+    // the real video. Do not offer those ad resources as download choices.
+    final scannableHtml = decodedHtml.replaceAll(
+      RegExp(
+        r'"(?:pre|post)_ads"\s*:\s*\[.*?\]\s*,',
+        caseSensitive: false,
+        dotAll: true,
+      ),
+      '',
+    );
+    final title = _pageTitle(decodedHtml) ?? pageUri.host;
     final candidates = <String>[];
     final patterns = <RegExp>[
       RegExp(
@@ -91,7 +105,7 @@ class VideoSniffer {
     ];
 
     for (final pattern in patterns) {
-      for (final match in pattern.allMatches(html)) {
+      for (final match in pattern.allMatches(scannableHtml)) {
         candidates.add(
           match.groupCount >= 1
               ? (match.group(1) ?? match.group(0)!)
@@ -238,21 +252,6 @@ class VideoSniffer {
         );
         return mp4 == null ? const [] : [mp4];
       }
-      if (contentType.contains('octet-stream') ||
-          contentType.contains('application/mp4')) {
-        return [
-          resource.copyWith(
-            url: response.realUri.toString(),
-            type: VideoResourceType.mp4,
-            size: length == null
-                ? '未知'
-                : _formatBytes(int.tryParse(length) ?? 0),
-            contentType: contentType,
-            container: 'direct mp4',
-            recommendation: '检测到的媒体响应',
-          ),
-        ];
-      }
       return _probeUnknownWithRange(resource);
     } catch (_) {
       return _probeUnknownWithRange(resource);
@@ -268,16 +267,19 @@ class VideoSniffer {
         options: Options(
           responseType: ResponseType.stream,
           followRedirects: true,
-          headers: {..._headersFor(resource), 'Range': 'bytes=0-1'},
+          headers: {..._headersFor(resource), 'Range': 'bytes=0-511'},
           validateStatus: (status) => status != null && status < 500,
         ),
       );
       final contentType =
           response.headers.value(Headers.contentTypeHeader)?.toLowerCase() ??
           '';
-      await response.data?.stream.first;
+      if ((response.statusCode ?? 0) >= 400) return const [];
+      final prefix = await response.data?.stream.first ?? const <int>[];
       final resolved = resource.copyWith(url: response.realUri.toString());
-      if (contentType.contains('mpegurl')) {
+      final prefixText = utf8.decode(prefix, allowMalformed: true).trimLeft();
+      if (contentType.contains('mpegurl') ||
+          prefixText.startsWith('#EXTM3U')) {
         return _probeHls(
           resolved.copyWith(
             type: VideoResourceType.hls,
@@ -285,17 +287,20 @@ class VideoSniffer {
           ),
         );
       }
-      if (contentType.startsWith('video/') ||
-          contentType.contains('mp4') ||
-          contentType.contains('octet-stream')) {
-        final length = response.headers.value(Headers.contentLengthHeader);
+      final length = int.tryParse(
+        response.headers.value(Headers.contentLengthHeader) ?? '',
+      );
+      final mp4Signature = _hasMp4Signature(prefix);
+      if ((contentType.startsWith('video/') ||
+              contentType.contains('mp4') ||
+              contentType.contains('octet-stream')) &&
+          (mp4Signature || length == null || length >= 1024) &&
+          (!contentType.contains('octet-stream') || mp4Signature)) {
         return [
           resolved.copyWith(
             type: VideoResourceType.mp4,
             contentType: contentType,
-            size: length == null
-                ? '未知'
-                : _formatBytes(int.tryParse(length) ?? 0),
+            size: length == null ? '未知' : _formatBytes(length),
             container: 'direct mp4',
             recommendation: '检测到的媒体响应',
           ),
@@ -489,12 +494,16 @@ class VideoSniffer {
           options: Options(
             responseType: ResponseType.stream,
             followRedirects: true,
-            headers: {..._headersFor(resource), 'Range': 'bytes=0-1'},
+            headers: {..._headersFor(resource), 'Range': 'bytes=0-511'},
             validateStatus: (status) => status != null && status < 500,
           ),
         );
-        await response.data?.stream.first;
-        return _resourceFromHeaders(resource, response.headers);
+        final prefix = await response.data?.stream.first ?? const <int>[];
+        return _resourceFromHeaders(
+          resource,
+          response.headers,
+          prefix: prefix,
+        );
       } catch (_) {
         return resource.copyWith(
           container: 'direct mp4',
@@ -504,7 +513,11 @@ class VideoSniffer {
     }
   }
 
-  VideoResource? _resourceFromHeaders(VideoResource resource, Headers headers) {
+  VideoResource? _resourceFromHeaders(
+    VideoResource resource,
+    Headers headers, {
+    List<int> prefix = const [],
+  }) {
     final contentType =
         headers.value(Headers.contentTypeHeader)?.toLowerCase() ?? '';
     if (contentType.contains('text/html')) {
@@ -513,6 +526,13 @@ class VideoSniffer {
     final length = int.tryParse(
       headers.value(Headers.contentLengthHeader) ?? '',
     );
+    if (length != null && length < 1024) {
+      return null;
+    }
+    if (contentType.contains('octet-stream') &&
+        !_hasMp4Signature(prefix)) {
+      return null;
+    }
     final acceptRanges = (headers.value(HttpHeaders.acceptRangesHeader) ?? '')
         .toLowerCase()
         .contains('bytes');
@@ -525,6 +545,14 @@ class VideoSniffer {
       acceptRanges: acceptRanges,
       recommendation: resource.isAdSuspect ? '' : '可能的视频资源',
     );
+  }
+
+  bool _hasMp4Signature(List<int> bytes) {
+    return bytes.length >= 8 &&
+        bytes[4] == 0x66 &&
+        bytes[5] == 0x74 &&
+        bytes[6] == 0x79 &&
+        bytes[7] == 0x70;
   }
 
   List<VideoResource> _parseHlsVariants(VideoResource resource, String body) {
