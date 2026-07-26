@@ -28,7 +28,10 @@ class DownloadsScreen extends StatelessWidget {
         ],
       ),
       body: AnimatedBuilder(
-        animation: state,
+        // Listen to the task source directly so inserting a new task archives
+        // the previously completed card immediately, even while this tab is
+        // already mounted in the shell's IndexedStack.
+        animation: state.downloadManager,
         builder: (context, _) {
           final tasks = state.downloadManager.tasks
               .where(
@@ -69,7 +72,7 @@ class DownloadHistoryScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('历史下载记录')),
       body: AnimatedBuilder(
-        animation: state,
+        animation: state.downloadManager,
         builder: (context, _) {
           final tasks = state.downloadManager.tasks
               .where(
