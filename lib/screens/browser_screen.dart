@@ -42,7 +42,6 @@ class _BrowserScreenState extends State<BrowserScreen>
   InAppWebViewController? controller;
   Timer? deepTimer;
   Timer? flushTimer;
-  Timer? scrollIdleTimer;
   String currentUrl = 'about:blank';
   String pageTitle = '新窗口';
   String userAgent = '';
@@ -95,7 +94,6 @@ class _BrowserScreenState extends State<BrowserScreen>
   void dispose() {
     deepTimer?.cancel();
     flushTimer?.cancel();
-    scrollIdleTimer?.cancel();
     snifferController.dispose();
     addressController.dispose();
     super.dispose();
@@ -253,14 +251,6 @@ class _BrowserScreenState extends State<BrowserScreen>
                     await _injectHooks();
                     await _scanDom();
                   },
-                  onScrollChanged: (_, __, ___) {
-                    snifferController.setSuspended(true);
-                    scrollIdleTimer?.cancel();
-                    scrollIdleTimer = Timer(
-                      const Duration(milliseconds: 900),
-                      () => snifferController.setSuspended(false),
-                    );
-                  },
                   onProgressChanged: (_, value) {
                     if (!mounted) return;
                     setState(() {
@@ -291,40 +281,12 @@ class _BrowserScreenState extends State<BrowserScreen>
                       snifferController.captureNetwork(url, 'resource');
                     }
                   },
-                  shouldInterceptRequest: (_, request) async {
-                    if (request.isForMainFrame != true &&
-                        _shouldBlockRequest(request.url.toString())) {
-                      return WebResourceResponse(
-                        contentType: 'text/plain',
-                        data: Uint8List(0),
-                      );
-                    }
-                    final url = request.url.toString();
-                    if (_looksLikeMediaRequest(url)) {
-                      snifferController.captureNetwork(url, 'net');
-                    }
-                    return null;
-                  },
                   shouldOverrideUrlLoading: (_, action) async {
                     final url = action.request.url?.toString() ?? '';
                     if (_shouldBlockNavigation(url)) {
                       return NavigationActionPolicy.CANCEL;
                     }
                     return NavigationActionPolicy.ALLOW;
-                  },
-                  shouldInterceptFetchRequest: (_, request) async {
-                    final url = request.url?.toString();
-                    if (url != null && _looksLikeMediaRequest(url)) {
-                      snifferController.captureNetwork(url, 'fetch');
-                    }
-                    return request;
-                  },
-                  shouldInterceptAjaxRequest: (_, request) async {
-                    final url = request.url?.toString();
-                    if (url != null && _looksLikeMediaRequest(url)) {
-                      snifferController.captureNetwork(url, 'xhr');
-                    }
-                    return request;
                   },
                 ),
               ),
@@ -376,9 +338,9 @@ class _BrowserScreenState extends State<BrowserScreen>
       javaScriptEnabled: true,
       mediaPlaybackRequiresUserGesture: false,
       allowsInlineMediaPlayback: true,
-      useShouldInterceptRequest: true,
-      useShouldInterceptAjaxRequest: true,
-      useShouldInterceptFetchRequest: true,
+      useShouldInterceptRequest: false,
+      useShouldInterceptAjaxRequest: false,
+      useShouldInterceptFetchRequest: false,
       useShouldOverrideUrlLoading: true,
       javaScriptCanOpenWindowsAutomatically: !blockPopups,
       supportZoom: true,

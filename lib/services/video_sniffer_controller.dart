@@ -82,22 +82,11 @@ class VideoSnifferController {
   Timer? _timer;
   Timer? _emitTimer;
   bool _processing = false;
-  bool _suspended = false;
   String _lastPageUrl = '';
   int _generation = 0;
 
   List<VideoResource> get resources =>
       sniffer.prioritizeResources(_resources.values, limit: maxResources);
-
-  void setSuspended(bool value) {
-    if (_suspended == value) return;
-    _suspended = value;
-    if (value) {
-      _timer?.cancel();
-    } else if (_pending.isNotEmpty && !_processing) {
-      _timer = Timer(debounce, () => unawaited(flush()));
-    }
-  }
 
   void updatePageUrl(String value) {
     _lastPageUrl = value;
@@ -221,7 +210,7 @@ class VideoSnifferController {
 
   Future<void> flush() async {
     _timer?.cancel();
-    if (_suspended || _processing || _pending.isEmpty) {
+    if (_processing || _pending.isEmpty) {
       return;
     }
     _processing = true;
@@ -255,7 +244,7 @@ class VideoSnifferController {
       _scheduleEmit();
     } finally {
       _processing = false;
-      if (!_suspended && _pending.isNotEmpty) {
+      if (_pending.isNotEmpty) {
         _timer = Timer(debounce, () => unawaited(flush()));
       }
     }
