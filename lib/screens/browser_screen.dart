@@ -543,20 +543,22 @@ class _BrowserScreenState extends State<BrowserScreen>
     await _injectHooks();
     await _scanDom();
     deepTimer?.cancel();
-    deepTimer = Timer(const Duration(seconds: 6), () async {
-      await web.setSettings(settings: _settings());
+    for (var attempt = 0; attempt < 10 && _downloadable.isEmpty; attempt++) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
       if (!mounted) return;
-      setState(() => deepCapture = false);
-      if (openPicker) {
-        if (_downloadable.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('请先播放视频，再点击下载按钮')),
-          );
-        } else {
-          _showDownloadPicker();
-        }
+    }
+    await web.setSettings(settings: _settings());
+    if (!mounted) return;
+    setState(() => deepCapture = false);
+    if (openPicker) {
+      if (_downloadable.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('暂未检测到视频，可播放后重试')),
+        );
+      } else {
+        unawaited(_showDownloadPicker());
       }
-    });
+    }
   }
 
   void _captureUrl(String url, String source) {
@@ -641,7 +643,6 @@ class _BrowserScreenState extends State<BrowserScreen>
       return;
     }
     final cover = await _currentPageCover();
-    final coverBytes = cover.isEmpty ? null : await _loadCoverBytes(cover);
     if (!mounted) return;
     if (cover.isNotEmpty) {
       resources = resources
@@ -660,7 +661,8 @@ class _BrowserScreenState extends State<BrowserScreen>
       builder: (context) => _DownloadPicker(
         title: title ?? pageTitle,
         resources: resources,
-        coverBytes: coverBytes,
+        coverUrl: cover,
+        loadCoverBytes: _loadCoverBytes,
         onProbe: (resource) async => sniffer.probeResource(
           await _withCurrentCredentials(resource),
         ),
@@ -2027,14 +2029,16 @@ class _DownloadPicker extends StatefulWidget {
   const _DownloadPicker({
     required this.title,
     required this.resources,
-    required this.coverBytes,
+    required this.coverUrl,
+    required this.loadCoverBytes,
     required this.onProbe,
     required this.onDownload,
   });
 
   final String title;
   final List<VideoResource> resources;
-  final Uint8List? coverBytes;
+  final String coverUrl;
+  final Future<Uint8List?> Function(String) loadCoverBytes;
   final Future<List<VideoResource>> Function(VideoResource) onProbe;
   final FutureOr<void> Function(VideoResource) onDownload;
 
@@ -2045,11 +2049,19 @@ class _DownloadPicker extends StatefulWidget {
 class _DownloadPickerState extends State<_DownloadPicker> {
   late List<VideoResource> resources = widget.resources.toList();
   late VideoResource selected = resources.first;
+  Uint8List? coverBytes;
 
   @override
   void initState() {
     super.initState();
+    unawaited(_loadCover());
     unawaited(_enrichResources());
+  }
+
+  Future<void> _loadCover() async {
+    if (widget.coverUrl.isEmpty) return;
+    final bytes = await widget.loadCoverBytes(widget.coverUrl);
+    if (mounted && bytes != null) setState(() => coverBytes = bytes);
   }
 
   Future<void> _enrichResources() async {
@@ -2113,7 +2125,7 @@ class _DownloadPickerState extends State<_DownloadPicker> {
                         padding: const EdgeInsets.only(bottom: 10),
                         child: _VideoChoiceTile(
                           resource: resource,
-                          coverBytes: widget.coverBytes,
+                          coverBytes: coverBytes,
                           selected: resource.url == selected.url,
                           fallbackTitle: widget.title,
                           onTap: () => setState(() => selected = resource),

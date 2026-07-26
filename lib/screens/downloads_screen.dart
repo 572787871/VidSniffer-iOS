@@ -294,9 +294,7 @@ class _DownloadCard extends StatelessWidget {
                         : null,
                     icon: const Icon(Icons.play_circle_outline_rounded),
                     label: Text(
-                      task.resource.isMergeRequired
-                          ? '边下边播'
-                          : '播放已下载部分',
+                      task.resource.isPlayable ? '边下边播' : '播放已下载部分',
                     ),
                   ),
                 ),

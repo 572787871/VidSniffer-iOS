@@ -130,6 +130,10 @@ class DownloadManager extends ChangeNotifier {
   }
 
   Future<bool> canPreviewPartial(DownloadTask task) async {
+    if (task.resource.isPlayable &&
+        (task.isActive || task.status == DownloadStatus.paused)) {
+      return true;
+    }
     final path = previewPathFor(task);
     if (path.isEmpty) return false;
     final file = File(path);

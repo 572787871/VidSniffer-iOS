@@ -66,13 +66,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final filePath = widget.filePath;
     if (filePath != null && filePath.isNotEmpty) {
       if (widget.allowPartial &&
-          widget.downloadTask?.resource.type == VideoResourceType.hls) {
+          widget.downloadTask?.resource.isPlayable == true) {
         _openStreamingPreview(widget.downloadTask!.resource);
       } else {
         _openFile(filePath);
       }
       if (widget.allowPartial &&
-          widget.downloadTask?.resource.type != VideoResourceType.hls) {
+          widget.downloadTask?.resource.isPlayable != true) {
         partialRefreshTimer = Timer.periodic(
           const Duration(seconds: 2),
           (_) => unawaited(_refreshGrowingFile()),
