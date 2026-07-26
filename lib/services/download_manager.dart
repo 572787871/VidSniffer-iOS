@@ -85,6 +85,9 @@ class DownloadManager extends ChangeNotifier {
       _restoring = false;
     }
     notifyListeners();
+    for (final task in tasks.where((item) => item.status == DownloadStatus.idle)) {
+      _startNextQueuedFor(task);
+    }
   }
 
   DownloadTask createTask(VideoResource resource) {
@@ -109,8 +112,14 @@ class DownloadManager extends ChangeNotifier {
 
   DownloadTask enqueue(VideoResource resource) {
     final task = createTask(resource);
+    final busy = _hasActiveDownloadFor(resource);
+    if (busy) {
+      task.status = DownloadStatus.idle;
+      task.message = '同站点任务排队中';
+      task.remaining = '等待前一个任务';
+    }
     addTask(task);
-    unawaited(start(task.id));
+    if (!busy) unawaited(start(task.id));
     return task;
   }
 
@@ -217,6 +226,7 @@ class DownloadManager extends ChangeNotifier {
         _partFiles.remove(task.id);
       }
       await _endBackgroundTask(backgroundId);
+      _startNextQueuedFor(task);
     }
   }
 
@@ -284,8 +294,54 @@ class DownloadManager extends ChangeNotifier {
       if (await file.exists()) {
         await file.delete().catchError((_) => file);
       }
+      for (var index = 0; index < 6; index++) {
+        final rangeFile = File('${task.tempPath}.range$index');
+        if (await rangeFile.exists()) {
+          await rangeFile.delete().catchError((_) => rangeFile);
+        }
+      }
     }
     notifyListeners();
+    _startNextQueuedFor(task);
+  }
+
+  bool _hasActiveDownloadFor(VideoResource resource) {
+    final group = _downloadGroup(resource.url);
+    return tasks.any(
+      (task) =>
+          task.isActive && _downloadGroup(task.resource.url) == group,
+    );
+  }
+
+  void _startNextQueuedFor(DownloadTask finished) {
+    final group = _downloadGroup(finished.resource.url);
+    if (tasks.any(
+      (task) =>
+          task.isActive &&
+          task.id != finished.id &&
+          _downloadGroup(task.resource.url) == group,
+    )) {
+      return;
+    }
+    DownloadTask? next;
+    for (final task in tasks.reversed) {
+      if (task.status == DownloadStatus.idle &&
+          _downloadGroup(task.resource.url) == group) {
+        next = task;
+        break;
+      }
+    }
+    if (next == null) return;
+    next.message = '排队结束，正在开始';
+    next.remaining = '剩余时间未知';
+    unawaited(start(next.id));
+  }
+
+  String _downloadGroup(String value) {
+    final host = Uri.tryParse(value)?.host.toLowerCase() ?? value;
+    final parts = host.split('.').where((part) => part.isNotEmpty).toList();
+    if (parts.length < 2) return host;
+    return parts.sublist(parts.length - 2).join('.');
   }
 
   Future<void> removeTask(DownloadTask task) async {
@@ -333,6 +389,16 @@ class DownloadManager extends ChangeNotifier {
     notifyListeners();
     debugPrint('[download] request url=${task.resource.url}');
     debugPrint('[download] save path=${finalFile.path}');
+
+    if (await _downloadMultipartDirect(
+      task,
+      finalFile,
+      partFile,
+      cancelToken,
+      startedAt,
+    )) {
+      return;
+    }
 
     late final Response<ResponseBody> response;
     try {
@@ -407,6 +473,128 @@ class DownloadManager extends ChangeNotifier {
     }
     await partFile.rename(finalFile.path);
     task.localPath = finalFile.path;
+  }
+
+  Future<bool> _downloadMultipartDirect(
+    DownloadTask task,
+    File finalFile,
+    File mergedPart,
+    CancelToken cancelToken,
+    DateTime startedAt,
+  ) async {
+    var multipartStarted = false;
+    try {
+      final head = await _dio.headUri(
+        Uri.parse(task.resource.url),
+        cancelToken: cancelToken,
+        options: Options(
+          headers: _headersFor(task.resource),
+          followRedirects: true,
+          validateStatus: (status) => status != null && status < 400,
+        ),
+      );
+      final total = int.tryParse(
+            head.headers.value(Headers.contentLengthHeader) ?? '',
+          ) ??
+          0;
+      final ranges = (head.headers.value(HttpHeaders.acceptRangesHeader) ?? '')
+          .toLowerCase()
+          .contains('bytes');
+      if (!ranges || total < 20 * 1024 * 1024) return false;
+      multipartStarted = true;
+
+      const partCount = 6;
+      final receivedByPart = List<int>.filled(partCount, 0);
+      final files = <File>[];
+      for (var index = 0; index < partCount; index++) {
+        files.add(File('${mergedPart.path}.range$index'));
+        if (await files[index].exists()) {
+          receivedByPart[index] = await files[index].length();
+        }
+      }
+      task.totalBytes = total;
+      task.message = '正在多段加速下载';
+      notifyListeners();
+
+      await Future.wait(
+        List.generate(partCount, (index) async {
+          final start = (total * index / partCount).floor();
+          final end = index == partCount - 1
+              ? total - 1
+              : (total * (index + 1) / partCount).floor() - 1;
+          final existing = receivedByPart[index];
+          if (start + existing > end) return;
+          final response = await _dio.get<ResponseBody>(
+            task.resource.url,
+            cancelToken: cancelToken,
+            options: Options(
+              responseType: ResponseType.stream,
+              headers: {
+                ..._headersFor(task.resource),
+                'Range': 'bytes=${start + existing}-$end',
+              },
+              validateStatus: (status) => status == 206,
+            ),
+          );
+          if (response.statusCode != 206 || response.data == null) {
+            throw StateError('站点未接受分段下载');
+          }
+          final sink = files[index].openWrite(
+            mode: existing > 0 ? FileMode.append : FileMode.write,
+          );
+          try {
+            await for (final chunk in response.data!.stream) {
+              if (cancelToken.isCancelled) break;
+              sink.add(chunk);
+              receivedByPart[index] += chunk.length;
+              final received = receivedByPart.fold<int>(
+                0,
+                (sum, value) => sum + value,
+              );
+              _updateProgress(task, received, total, startedAt);
+            }
+          } finally {
+            await sink.close();
+          }
+        }),
+      );
+      if (task.status == DownloadStatus.paused ||
+          task.status == DownloadStatus.canceled) {
+        return true;
+      }
+      for (var index = 0; index < partCount; index++) {
+        final start = (total * index / partCount).floor();
+        final end = index == partCount - 1
+            ? total - 1
+            : (total * (index + 1) / partCount).floor() - 1;
+        if (!await files[index].exists() ||
+            await files[index].length() != end - start + 1) {
+          throw StateError('分段下载不完整');
+        }
+      }
+      final sink = mergedPart.openWrite(mode: FileMode.write);
+      try {
+        for (final file in files) {
+          await sink.addStream(file.openRead());
+        }
+      } finally {
+        await sink.close();
+      }
+      if (await FileUtils.looksLikeHtml(mergedPart)) {
+        throw StateError('解析到的是网页，不是视频文件');
+      }
+      if (await finalFile.exists()) await finalFile.delete();
+      await mergedPart.rename(finalFile.path);
+      task.localPath = finalFile.path;
+      for (final file in files) {
+        await file.delete().catchError((_) => file);
+      }
+      return true;
+    } on DioException catch (error) {
+      if (CancelToken.isCancel(error)) return true;
+      if (!multipartStarted) return false;
+      rethrow;
+    }
   }
 
   Future<void> _downloadWithFFmpeg(DownloadTask task) async {

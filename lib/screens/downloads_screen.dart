@@ -399,7 +399,11 @@ bool _showInCurrentDownloads(
   DownloadTask task,
   List<DownloadTask> allTasks,
 ) {
-  if (task.isActive || task.status == DownloadStatus.paused) return true;
+  if (task.isActive ||
+      task.status == DownloadStatus.paused ||
+      task.status == DownloadStatus.idle) {
+    return true;
+  }
   if (task.status != DownloadStatus.completed ||
       task.completedAt == null) {
     return false;
