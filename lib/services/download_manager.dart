@@ -488,22 +488,46 @@ class DownloadManager extends ChangeNotifier {
   ) async {
     var multipartStarted = false;
     try {
-      final head = await _dio.headUri(
-        Uri.parse(task.resource.url),
-        cancelToken: cancelToken,
-        options: Options(
-          headers: _headersFor(task.resource),
-          followRedirects: true,
-          validateStatus: (status) => status != null && status < 400,
-        ),
-      );
-      final total = int.tryParse(
-            head.headers.value(Headers.contentLengthHeader) ?? '',
-          ) ??
-          0;
-      final ranges = (head.headers.value(HttpHeaders.acceptRangesHeader) ?? '')
-          .toLowerCase()
-          .contains('bytes');
+      var total = 0;
+      var ranges = false;
+      try {
+        final head = await _dio.headUri(
+          Uri.parse(task.resource.url),
+          cancelToken: cancelToken,
+          options: Options(
+            headers: _headersFor(task.resource),
+            followRedirects: true,
+            validateStatus: (status) => status != null && status < 400,
+          ),
+        );
+        total = int.tryParse(
+              head.headers.value(Headers.contentLengthHeader) ?? '',
+            ) ??
+            0;
+        ranges = (head.headers.value(HttpHeaders.acceptRangesHeader) ?? '')
+            .toLowerCase()
+            .contains('bytes');
+      } catch (_) {}
+      if (!ranges || total <= 0) {
+        final probe = await _dio.get<ResponseBody>(
+          task.resource.url,
+          cancelToken: cancelToken,
+          options: Options(
+            responseType: ResponseType.stream,
+            headers: {..._headersFor(task.resource), 'Range': 'bytes=0-0'},
+            validateStatus: (status) => status == 206,
+          ),
+        );
+        if (probe.statusCode == 206) {
+          final contentRange =
+              probe.headers.value(HttpHeaders.contentRangeHeader) ?? '';
+          total =
+              int.tryParse(RegExp(r'/(\d+)$').firstMatch(contentRange)?.group(1) ?? '') ??
+                  0;
+          ranges = total > 0;
+          await probe.data?.stream.drain<void>();
+        }
+      }
       if (!ranges || total < 20 * 1024 * 1024) return false;
       multipartStarted = true;
 

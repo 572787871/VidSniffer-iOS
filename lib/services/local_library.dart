@@ -108,6 +108,7 @@ class LocalLibrary {
         resource.pageUrl.isNotEmpty ? resource.pageUrl : resource.url,
       )
       ..['sourceSite'] = pageUri?.host ?? Uri.tryParse(resource.url)?.host ?? ''
+      ..['thumbnailUrl'] = resource.thumbnailUrl
       ..['codec'] = resource.codec
       ..['bitrate'] = resource.bitrate;
     final folderIds = <String>{
@@ -120,6 +121,10 @@ class LocalLibrary {
     }..removeWhere((item) => item.trim().isEmpty);
     metadata['folderIds'] = folderIds.toList();
     await _writeMetadata(file, metadata);
+    final thumbnail = await _thumbnailFile(file);
+    if (!await thumbnail.exists() && resource.thumbnailUrl.isNotEmpty) {
+      await _saveRemoteThumbnail(resource, thumbnail);
+    }
     await ensureDetails(LocalVideo(
       path: file.path,
       name: p.basename(file.path),
@@ -128,6 +133,54 @@ class LocalLibrary {
       modifiedAt: (await file.stat()).modified,
       createdAt: (await file.stat()).changed,
     ));
+  }
+
+  Future<bool> _saveRemoteThumbnail(
+    VideoResource resource,
+    File target,
+  ) async {
+    final uri = Uri.tryParse(resource.thumbnailUrl);
+    if (uri == null || !uri.hasScheme) return false;
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = await client.getUrl(uri);
+      if (resource.pageUrl.isNotEmpty) {
+        request.headers.set(HttpHeaders.refererHeader, resource.pageUrl);
+      }
+      if (resource.userAgent.isNotEmpty) {
+        request.headers.set(HttpHeaders.userAgentHeader, resource.userAgent);
+      }
+      if (resource.cookie.isNotEmpty) {
+        request.headers.set(HttpHeaders.cookieHeader, resource.cookie);
+      }
+      final response = await request.close().timeout(const Duration(seconds: 10));
+      if (response.statusCode < 200 || response.statusCode >= 300) return false;
+      final sink = target.openWrite(mode: FileMode.write);
+      var received = 0;
+      var tooLarge = false;
+      try {
+        await for (final chunk in response) {
+          received += chunk.length;
+          if (received > 8 * 1024 * 1024) {
+            tooLarge = true;
+            break;
+          }
+          sink.add(chunk);
+        }
+      } finally {
+        await sink.close();
+      }
+      if (received == 0 || tooLarge) {
+        await target.delete().catchError((_) => target);
+        return false;
+      }
+      return true;
+    } catch (_) {
+      await target.delete().catchError((_) => target);
+      return false;
+    } finally {
+      client.close(force: true);
+    }
   }
 
   Future<void> setFavorite(LocalVideo video, bool favorite) async {
