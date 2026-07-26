@@ -215,6 +215,8 @@ class VideoSniffer {
     if (resource.type == VideoResourceType.ts || resource.isFragment) {
       return [resource.copyWith(container: resource.displayFormat)];
     }
+    final jsonDefinitions = await _probeJsonMediaDefinitions(resource);
+    if (jsonDefinitions.isNotEmpty) return jsonDefinitions;
     try {
       final response = await _dio.headUri(
         Uri.parse(resource.url),
@@ -261,6 +263,64 @@ class VideoSniffer {
       return _probeUnknownWithRange(resource);
     } catch (_) {
       return _probeUnknownWithRange(resource);
+    }
+  }
+
+  Future<List<VideoResource>> _probeJsonMediaDefinitions(
+    VideoResource resource,
+  ) async {
+    final lower = resource.url.toLowerCase();
+    if (!lower.contains('get_media') &&
+        !lower.contains('media_definition') &&
+        !lower.contains('/video/')) {
+      return const [];
+    }
+    try {
+      final response = await _dio.get<String>(
+        resource.url,
+        options: Options(
+          responseType: ResponseType.plain,
+          followRedirects: true,
+          headers: _headersFor(resource),
+          validateStatus: (status) => status != null && status < 400,
+        ),
+      );
+      final decoded = jsonDecode(response.data ?? '');
+      final items = decoded is List
+          ? decoded
+          : decoded is Map && decoded['mediaDefinitions'] is List
+              ? decoded['mediaDefinitions'] as List
+              : const [];
+      final results = <VideoResource>[];
+      for (final raw in items.whereType<Map>()) {
+        final item = Map<String, dynamic>.from(raw);
+        final url =
+            item['videoUrl']?.toString() ?? item['video_url']?.toString() ?? '';
+        if (url.isEmpty || url == resource.url) continue;
+        final quality = _normalizeQuality(
+          item['quality']?.toString() ??
+              item['qualityText']?.toString() ??
+              '未知',
+        );
+        final child = resourceFromUrl(
+          url,
+          pageTitle: resource.title,
+          pageUrl: resource.pageUrl,
+          source: 'remote-media-definition',
+          referer: resource.referer,
+          userAgent: resource.userAgent,
+          cookie: resource.cookie,
+          quality: quality,
+          duration: resource.duration,
+          thumbnailUrl: resource.thumbnailUrl,
+          allowUnknown: true,
+        );
+        if (child == null) continue;
+        results.addAll(await probeResource(child));
+      }
+      return prioritizeResources(results, limit: results.length);
+    } catch (_) {
+      return const [];
     }
   }
 
@@ -531,11 +591,7 @@ class VideoSniffer {
           ? (bitrate * duration.inMilliseconds / 8000).round()
           : 0;
       return resource.copyWith(
-        quality: width > 0 && height > 0
-            ? '$width×$height'
-            : height > 0
-                ? '${height}p'
-                : resource.quality,
+        quality: height > 0 ? '${height}P' : _normalizeQuality(resource.quality),
         duration: duration,
         size: estimatedSize >= 1024 * 1024
             ? '约 ${_formatBytes(estimatedSize)}'
@@ -702,7 +758,7 @@ class VideoSniffer {
           url: variantUri.toString(),
           quality: height == null
               ? _qualityFromUrl(variantUri.toString())
-              : '${height}p',
+              : '${height}P',
           bitrate: bandwidth == null
               ? ''
               : '${(bandwidth / 1000).round()} kbps',
@@ -888,10 +944,22 @@ class VideoSniffer {
   String _qualityFromUrl(String value) {
     final lower = value.toLowerCase();
     final pMatch = RegExp(r'([1-9]\d{2,3})p').firstMatch(lower);
-    if (pMatch != null) return '${pMatch.group(1)}p';
+    if (pMatch != null) return '${pMatch.group(1)}P';
     final resMatch = RegExp(r'(\d{3,4})x([1-9]\d{2,3})').firstMatch(lower);
-    if (resMatch != null) return '${resMatch.group(2)}p';
+    if (resMatch != null) return '${resMatch.group(2)}P';
     return '未知';
+  }
+
+  String _normalizeQuality(String value) {
+    final p = RegExp(r'(\d{3,4})p', caseSensitive: false)
+        .firstMatch(value)
+        ?.group(1);
+    if (p != null) return '${p}P';
+    final resolution = RegExp(r'\d{3,4}\s*[x×]\s*(\d{3,4})')
+        .firstMatch(value)
+        ?.group(1);
+    if (resolution != null) return '${resolution}P';
+    return value;
   }
 
   String _containerFromUrl(String value) {

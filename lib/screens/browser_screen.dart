@@ -406,9 +406,24 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   List<VideoResource> get _downloadable {
-    final values = captured.values
+    var values = captured.values
         .where((item) => item.isPlayable && !item.isAdSuspect && !item.isFragment)
         .toList();
+    final longest = values.fold<int>(
+      0,
+      (current, item) => item.duration.inSeconds > current
+          ? item.duration.inSeconds
+          : current,
+    );
+    if (longest >= 90) {
+      values = values
+          .where(
+            (item) =>
+                item.duration == Duration.zero ||
+                item.duration.inSeconds >= longest * 0.55,
+          )
+          .toList();
+    }
     values.sort((a, b) {
       final current = b.isCurrentPlayback.toString().compareTo(
             a.isCurrentPlayback.toString(),
@@ -572,6 +587,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     final seconds = double.tryParse('${value['duration'] ?? ''}') ?? 0;
     final title = value['title']?.toString() ?? pageTitle;
     final poster = value['poster']?.toString() ?? '';
+    final quality = _qualityLabel(value['quality']?.toString() ?? '');
     final current = value['current'] == true;
     for (final item in [url, ...sources]) {
       _capture(
@@ -583,6 +599,7 @@ class _BrowserScreenState extends State<BrowserScreen>
             ? Duration(milliseconds: (seconds * 1000).round())
             : Duration.zero,
         poster: poster,
+        quality: quality,
       );
     }
   }
@@ -594,6 +611,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     required bool current,
     required Duration duration,
     required String poster,
+    String quality = '未知',
   }) {
     snifferController.capture(
       _absoluteUrl(url),
@@ -601,6 +619,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       title: title,
       duration: duration,
       thumbnailUrl: poster,
+      quality: quality,
       isCurrentPlayback: current,
     );
   }
@@ -687,6 +706,27 @@ class _BrowserScreenState extends State<BrowserScreen>
       final value = await controller?.evaluateJavascript(
         source: '''
           (() => {
+            const mediaPoster = Array.from(document.querySelectorAll('video'))
+              .map(video => video.poster || video.getAttribute('poster') || '')
+              .find(Boolean);
+            if (mediaPoster) return new URL(mediaPoster, location.href).href;
+            for (const key of Object.keys(window)) {
+              if (!/flashvars|player/i.test(key)) continue;
+              try {
+                const value = window[key];
+                const poster = value && (
+                  value.image_url || value.imageUrl || value.poster ||
+                  value.thumbnail_url
+                );
+                if (poster) return new URL(poster, location.href).href;
+              } catch (_) {}
+            }
+            const meta = document.querySelector(
+              'meta[property="og:image"],meta[name="twitter:image"]'
+            );
+            if (meta && meta.content) {
+              return new URL(meta.content, location.href).href;
+            }
             const player = document.querySelector('.dplayer,[data-config]');
             const images = Array.from(document.querySelectorAll(
               'img[z-image-loader-url], article img, .post-content img'
@@ -709,6 +749,17 @@ class _BrowserScreenState extends State<BrowserScreen>
     } catch (_) {
       return '';
     }
+  }
+
+  String _qualityLabel(String value) {
+    final text = value.trim().toLowerCase();
+    final direct = RegExp(r'(\d{3,4})p').firstMatch(text)?.group(1);
+    if (direct != null) return '${direct}P';
+    final resolution =
+        RegExp(r'\d{3,4}\s*[x×]\s*(\d{3,4})').firstMatch(text)?.group(1);
+    if (resolution != null) return '${resolution}P';
+    final number = int.tryParse(text);
+    return number != null && number >= 144 ? '${number}P' : '未知';
   }
 
   Future<SnifferPageContext> _snifferContext() async {
@@ -1506,7 +1557,7 @@ class _BrowserScreenState extends State<BrowserScreen>
 (() => {
   const title = document.querySelector('meta[property="og:title"],meta[name="twitter:title"]')?.content || document.title || '';
   const out = [];
-  const push = (url, source, media) => {
+  const push = (url, source, media, quality = '') => {
     if (!url) return;
     out.push({
       url,
@@ -1515,6 +1566,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       duration: media && Number.isFinite(media.duration) ? media.duration : 0,
       poster: media ? (media.poster || '') : '',
       current: !!(media && (!media.paused || media.currentTime > 0)),
+      quality,
       sources: media ? Array.from(media.querySelectorAll('source')).map(s => s.src || s.getAttribute('src') || '').filter(Boolean) : []
     });
   };
@@ -1544,6 +1596,29 @@ class _BrowserScreenState extends State<BrowserScreen>
       });
     } catch (_) {}
   });
+  Object.keys(window).filter(key => /flashvars|player/i.test(key)).forEach(key => {
+    try {
+      const config = window[key];
+      const definitions = config && config.mediaDefinitions;
+      if (!Array.isArray(definitions)) return;
+      const poster = config.image_url || config.imageUrl || config.poster || '';
+      const duration = Number(config.video_duration || config.duration || 0);
+      definitions.forEach(definition => {
+        const url = definition && (definition.videoUrl || definition.video_url);
+        if (!url) return;
+        out.push({
+          url,
+          source: 'player-media-definition',
+          title: config.video_title || title,
+          duration: Number.isFinite(duration) ? duration : 0,
+          poster,
+          current: false,
+          quality: definition.quality || definition.qualityText || '',
+          sources: []
+        });
+      });
+    } catch (_) {}
+  });
   Array.from(document.querySelectorAll('a[href]')).forEach(a => {
     const href = a.href || '';
     if (/\.(mp4|m4v|mov|webm|m3u8)(\?|#|$)/i.test(href)) push(href, 'link', null);
@@ -1558,16 +1633,17 @@ class _BrowserScreenState extends State<BrowserScreen>
   window.__videoDownloaderHooked = true;
   const title = () => document.querySelector('meta[property="og:title"],meta[name="twitter:title"]')?.content || document.title || '';
   const likely = u => typeof u === 'string' && /\.(mp4|m4v|mov|webm|m3u8)(\?|#|$)/i.test(u);
-  const post = (url, source, media) => {
+  const post = (url, source, media, quality = '', posterOverride = '', durationOverride = 0) => {
     try {
-      if (!url || !likely(url)) return;
+      if (!url || (!likely(url) && source !== 'player-media-definition')) return;
       window.flutter_inappwebview.callHandler('VideoDownloaderCapture', {
         url: new URL(url, location.href).href,
         source,
         title: title(),
-        duration: media && Number.isFinite(media.duration) ? media.duration : 0,
-        poster: media ? (media.poster || '') : '',
+        duration: media && Number.isFinite(media.duration) ? media.duration : durationOverride,
+        poster: posterOverride || (media ? (media.poster || '') : ''),
         current: !!(media && (!media.paused || media.currentTime > 0)),
+        quality,
         sources: media ? Array.from(media.querySelectorAll('source')).map(s => s.src || s.getAttribute('src') || '').filter(Boolean) : []
       });
     } catch (_) {}
@@ -1588,6 +1664,30 @@ class _BrowserScreenState extends State<BrowserScreen>
       }
     } catch (_) {}
   });
+  const postPlayerDefinitions = () => {
+    Object.keys(window).filter(key => /flashvars|player/i.test(key)).forEach(key => {
+      try {
+        const config = window[key];
+        const definitions = config && config.mediaDefinitions;
+        if (!Array.isArray(definitions)) return;
+        const poster = config.image_url || config.imageUrl || config.poster || '';
+        const duration = Number(config.video_duration || config.duration || 0);
+        definitions.forEach(definition => {
+          if (!definition) return;
+          post(
+            definition.videoUrl || definition.video_url,
+            'player-media-definition',
+            null,
+            definition.quality || definition.qualityText || '',
+            poster,
+            Number.isFinite(duration) ? duration : 0
+          );
+        });
+      } catch (_) {}
+    });
+  };
+  postPlayerDefinitions();
+  setTimeout(postPlayerDefinitions, 1200);
   const pendingRoots = new Set();
   let scanScheduled = false;
   const flushAddedMedia = () => {
@@ -2005,9 +2105,7 @@ class _VideoChoiceTile extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final title =
         resource.title.trim().isEmpty ? fallbackTitle : resource.title.trim();
-    final quality = resource.quality == '未知'
-        ? resource.displayFormat
-        : resource.quality;
+    final quality = _displayQuality(resource);
     final metadata = [
       quality.trim().isEmpty ? '分辨率未知' : quality,
       resource.size.trim().isEmpty ? '大小未知' : resource.size,
@@ -2101,6 +2199,19 @@ String _formatVideoDuration(Duration duration) {
     return '$hours小时$minutes分${seconds.toString().padLeft(2, '0')}秒';
   }
   return '$minutes分${seconds.toString().padLeft(2, '0')}秒';
+}
+
+String _displayQuality(VideoResource resource) {
+  final raw = resource.quality.trim();
+  final p = RegExp(r'(\d{3,4})p', caseSensitive: false)
+      .firstMatch(raw)
+      ?.group(1);
+  if (p != null) return '${p}P';
+  final resolution = RegExp(r'\d{3,4}\s*[x×]\s*(\d{3,4})')
+      .firstMatch(raw)
+      ?.group(1);
+  if (resolution != null) return '${resolution}P';
+  return raw == '未知' || raw.isEmpty ? resource.displayFormat : raw;
 }
 
 class _BrowserBottomControls extends StatelessWidget {

@@ -343,7 +343,7 @@ class DownloadManager extends ChangeNotifier {
           responseType: ResponseType.stream,
           headers: {
             ..._headersFor(task.resource),
-            if (resumeFrom > 0) 'Range': 'bytes=$resumeFrom-',
+            'Range': 'bytes=$resumeFrom-',
           },
         ),
       );

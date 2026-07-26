@@ -24,6 +24,7 @@ class _SnifferCandidate {
     this.title = '',
     this.duration = Duration.zero,
     this.thumbnailUrl = '',
+    this.quality = '未知',
     this.isCurrentPlayback = false,
     this.playerId = '',
   });
@@ -33,6 +34,7 @@ class _SnifferCandidate {
   final String title;
   final Duration duration;
   final String thumbnailUrl;
+  final String quality;
   final bool isCurrentPlayback;
   final String playerId;
 
@@ -45,6 +47,7 @@ class _SnifferCandidate {
       duration: other.duration > Duration.zero ? other.duration : duration,
       thumbnailUrl:
           other.thumbnailUrl.isNotEmpty ? other.thumbnailUrl : thumbnailUrl,
+      quality: other.quality != '未知' ? other.quality : quality,
       isCurrentPlayback: current,
       playerId: other.playerId.isNotEmpty ? other.playerId : playerId,
     );
@@ -110,6 +113,7 @@ class VideoSnifferController {
     String title = '',
     Duration duration = Duration.zero,
     String thumbnailUrl = '',
+    String quality = '未知',
     bool isCurrentPlayback = false,
     String playerId = '',
   }) {
@@ -124,6 +128,7 @@ class VideoSnifferController {
       title: title,
       duration: duration,
       thumbnailUrl: thumbnailUrl,
+      quality: quality,
       isCurrentPlayback: isCurrentPlayback,
       playerId: playerId,
     );
@@ -138,6 +143,7 @@ class VideoSnifferController {
                 title: existingResource.title,
                 duration: existingResource.duration,
                 thumbnailUrl: existingResource.thumbnailUrl,
+                quality: existingResource.quality,
                 isCurrentPlayback: existingResource.isCurrentPlayback,
                 playerId: existingResource.playerId,
               ),
@@ -149,6 +155,7 @@ class VideoSnifferController {
         thumbnailUrl: thumbnailUrl.isNotEmpty
             ? thumbnailUrl
             : existingResource.thumbnailUrl,
+        quality: quality != '未知' ? quality : existingResource.quality,
         isCurrentPlayback: existingResource.isCurrentPlayback ||
             isCurrentPlayback ||
             source.toLowerCase().contains('current') ||
@@ -265,6 +272,7 @@ class VideoSnifferController {
         cookie: context.cookie,
         duration: candidate.duration,
         thumbnailUrl: candidate.thumbnailUrl,
+        quality: candidate.quality,
         isCurrentPlayback: candidate.isCurrentPlayback,
         playerId: candidate.playerId,
         allowUnknown: true,
