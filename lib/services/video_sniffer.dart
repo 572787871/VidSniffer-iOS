@@ -991,9 +991,29 @@ class VideoSniffer {
     return {
       if (resource.userAgent.isNotEmpty) 'User-Agent': resource.userAgent,
       if (resource.referer.isNotEmpty) 'Referer': resource.referer,
-      if (resource.cookie.isNotEmpty) 'Cookie': resource.cookie,
+      if (resource.cookie.isNotEmpty && _cookieMatchesMediaHost(resource))
+        'Cookie': resource.cookie,
       'Accept': '*/*',
     };
+  }
+
+  bool _cookieMatchesMediaHost(VideoResource resource) {
+    final mediaHost = Uri.tryParse(resource.url)?.host.toLowerCase() ?? '';
+    final pageHost =
+        Uri.tryParse(
+          resource.pageUrl.isNotEmpty ? resource.pageUrl : resource.referer,
+        )?.host.toLowerCase() ??
+        '';
+    if (mediaHost.isEmpty || pageHost.isEmpty) return false;
+    if (mediaHost == pageHost) return true;
+    String site(String host) {
+      final labels = host.split('.');
+      return labels.length >= 2
+          ? labels.sublist(labels.length - 2).join('.')
+          : host;
+    }
+
+    return site(mediaHost) == site(pageHost);
   }
 
   List<VideoResource> _dedupe(Iterable<VideoResource> values) {

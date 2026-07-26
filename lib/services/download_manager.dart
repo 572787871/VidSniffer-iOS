@@ -1375,11 +1375,31 @@ class DownloadManager extends ChangeNotifier {
       'Referer':
           resource.referer.isNotEmpty ? resource.referer : resource.pageUrl,
       if (resource.origin.isNotEmpty) 'Origin': resource.origin,
-      if (resource.cookie.isNotEmpty) 'Cookie': resource.cookie,
+      if (resource.cookie.isNotEmpty && _cookieMatchesMediaHost(resource))
+        'Cookie': resource.cookie,
       'Accept': '*/*',
       'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
       'Connection': 'keep-alive',
     }..removeWhere((_, value) => value.trim().isEmpty);
+  }
+
+  bool _cookieMatchesMediaHost(VideoResource resource) {
+    final mediaHost = Uri.tryParse(resource.url)?.host.toLowerCase() ?? '';
+    final pageHost =
+        Uri.tryParse(
+          resource.pageUrl.isNotEmpty ? resource.pageUrl : resource.referer,
+        )?.host.toLowerCase() ??
+        '';
+    if (mediaHost.isEmpty || pageHost.isEmpty) return false;
+    if (mediaHost == pageHost) return true;
+    String site(String host) {
+      final labels = host.split('.');
+      return labels.length >= 2
+          ? labels.sublist(labels.length - 2).join('.')
+          : host;
+    }
+
+    return site(mediaHost) == site(pageHost);
   }
 
   bool _prefersSingleStream(VideoResource resource) {
