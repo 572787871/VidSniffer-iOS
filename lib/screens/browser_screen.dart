@@ -642,7 +642,12 @@ class _BrowserScreenState extends State<BrowserScreen>
       );
       return;
     }
-    final cover = await _currentPageCover();
+    final pageCover = await _currentPageCover();
+    final cover = pageCover.isNotEmpty
+        ? pageCover
+        : resources
+            .map((resource) => resource.thumbnailUrl)
+            .firstWhere((value) => value.isNotEmpty, orElse: () => '');
     if (!mounted) return;
     if (cover.isNotEmpty) {
       resources = resources
@@ -662,7 +667,15 @@ class _BrowserScreenState extends State<BrowserScreen>
         title: title ?? pageTitle,
         resources: resources,
         coverUrl: cover,
-        loadCoverBytes: _loadCoverBytes,
+        loadCoverBytes: (url) async {
+          final credentialed = await _withCurrentCredentials(resources.first);
+          return _loadCoverBytes(
+            url,
+            referer: credentialed.pageUrl,
+            coverUserAgent: credentialed.userAgent,
+            coverCookie: credentialed.cookie,
+          );
+        },
         onProbe: (resource) async => sniffer.probeResource(
           await _withCurrentCredentials(resource),
         ),
@@ -674,18 +687,30 @@ class _BrowserScreenState extends State<BrowserScreen>
     );
   }
 
-  Future<Uint8List?> _loadCoverBytes(String url) async {
+  Future<Uint8List?> _loadCoverBytes(
+    String url, {
+    String referer = '',
+    String coverUserAgent = '',
+    String coverCookie = '',
+  }) async {
     final uri = Uri.tryParse(url);
     if (uri == null || !uri.hasScheme) return null;
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
     try {
       final request = await client.getUrl(uri);
-      request.headers.set(HttpHeaders.refererHeader, currentUrl);
-      if (userAgent.isNotEmpty) {
-        request.headers.set(HttpHeaders.userAgentHeader, userAgent);
+      request.headers.set(
+        HttpHeaders.refererHeader,
+        referer.isNotEmpty ? referer : currentUrl,
+      );
+      final effectiveUserAgent =
+          coverUserAgent.isNotEmpty ? coverUserAgent : userAgent;
+      if (effectiveUserAgent.isNotEmpty) {
+        request.headers.set(HttpHeaders.userAgentHeader, effectiveUserAgent);
       }
-      if (currentCookie.isNotEmpty) {
-        request.headers.set(HttpHeaders.cookieHeader, currentCookie);
+      final effectiveCookie =
+          coverCookie.isNotEmpty ? coverCookie : currentCookie;
+      if (effectiveCookie.isNotEmpty) {
+        request.headers.set(HttpHeaders.cookieHeader, effectiveCookie);
       }
       final response = await request.close().timeout(const Duration(seconds: 10));
       if (response.statusCode < 200 || response.statusCode >= 300) return null;
@@ -757,12 +782,14 @@ class _BrowserScreenState extends State<BrowserScreen>
   String _qualityLabel(String value) {
     final text = value.trim().toLowerCase();
     final direct = RegExp(r'(\d{3,4})p').firstMatch(text)?.group(1);
-    if (direct != null) return '${direct}P';
+    if (direct != null) {
+      return '${_normalizedVideoHeight(int.tryParse(direct)) ?? direct}p';
+    }
     final resolution =
         RegExp(r'\d{3,4}\s*[x×]\s*(\d{3,4})').firstMatch(text)?.group(1);
-    if (resolution != null) return '${resolution}P';
-    final number = int.tryParse(text);
-    return number != null && number >= 144 ? '${number}P' : '未知';
+    if (resolution != null) return '${resolution}p';
+    final number = _normalizedVideoHeight(int.tryParse(text));
+    return number != null && number >= 144 ? '${number}p' : '未知';
   }
 
   Future<SnifferPageContext> _snifferContext() async {
@@ -876,19 +903,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       directParseUrl = '';
     });
     try {
-      List<VideoResource> resources = const [];
-      try {
-        resources = await _probeDirectCandidates(
-          await sniffer.parsePage(url),
-        );
-      } catch (_) {}
-      final headlessResources = await _parseWithHeadlessWebView(url);
-      if (headlessResources.isNotEmpty) {
-        resources = _collapseVideoQualities([
-          ...resources,
-          ...headlessResources,
-        ]);
-      }
+      final resources = await _parseWithHeadlessWebView(url);
       if (!mounted) return;
       if (resources.isNotEmpty) {
         setState(() {
@@ -992,8 +1007,9 @@ class _BrowserScreenState extends State<BrowserScreen>
                 ),
                 ...await _headlessPlayerResources(web, actualUrl),
               ];
-              final resources = await _probeDirectCandidates(candidates);
-              accumulated.addAll(resources);
+              accumulated.addAll(
+                candidates.where((resource) => resource.isPlayable),
+              );
               final collapsed = _collapseVideoQualities(accumulated);
               if (collapsed.any(
                 (resource) => resource.source.contains('media-definition'),
@@ -1032,6 +1048,17 @@ class _BrowserScreenState extends State<BrowserScreen>
       final payload = await web.evaluateJavascript(source: _scanScript);
       final decoded = payload is String ? jsonDecode(payload) : payload;
       if (decoded is! List) return const [];
+      final fallbackPoster = (await web.evaluateJavascript(
+            source: '''
+              document.querySelector('video')?.poster ||
+              document.querySelector(
+                'meta[property="og:image"],meta[name="twitter:image"]'
+              )?.content || ''
+            ''',
+          ))
+              ?.toString()
+              .replaceAll(RegExp(r'^"|"$'), '') ??
+          '';
       final resources = <VideoResource>[];
       for (final raw in decoded.whereType<Map>()) {
         final item = Map<String, dynamic>.from(raw);
@@ -1052,7 +1079,9 @@ class _BrowserScreenState extends State<BrowserScreen>
                     milliseconds: (durationSeconds * 1000).round(),
                   )
                 : Duration.zero,
-            thumbnailUrl: item['poster']?.toString() ?? '',
+            thumbnailUrl: item['poster']?.toString().isNotEmpty == true
+                ? item['poster'].toString()
+                : fallbackPoster,
             allowUnknown: true,
           );
           if (resource != null) resources.add(resource);
@@ -2065,28 +2094,27 @@ class _DownloadPickerState extends State<_DownloadPicker> {
   }
 
   Future<void> _enrichResources() async {
-    final groups = await Future.wait(
-      resources.map((resource) async {
+    for (final original in List<VideoResource>.from(resources)) {
+      unawaited(() async {
         try {
-          final probed = await widget.onProbe(resource);
-          return probed.isEmpty ? [resource] : probed;
-        } catch (_) {
-          return [resource];
-        }
-      }),
-    );
-    if (!mounted) return;
-    final enriched = _collapseVideoQualities(
-      groups.expand((items) => items).toList(growable: false),
-    );
-    final selectedUrl = selected.url;
-    setState(() {
-      resources = enriched;
-      selected = enriched.firstWhere(
-        (resource) => resource.url == selectedUrl,
-        orElse: () => enriched.first,
-      );
-    });
+          final probed = await widget.onProbe(original);
+          if (!mounted || probed.isEmpty) return;
+          final selectedQuality = _displayQuality(selected);
+          final enriched = _collapseVideoQualities([
+            ...resources.where((resource) => resource.url != original.url),
+            ...probed,
+          ]);
+          setState(() {
+            resources = enriched;
+            selected = enriched.firstWhere(
+              (resource) =>
+                  _displayQuality(resource) == selectedQuality,
+              orElse: () => enriched.first,
+            );
+          });
+        } catch (_) {}
+      }());
+    }
   }
 
   @override
@@ -2273,14 +2301,31 @@ String _displayQuality(VideoResource resource) {
   final p = RegExp(r'(\d{3,4})p', caseSensitive: false)
       .firstMatch(raw)
       ?.group(1);
-  if (p != null) return '${p}p';
+  if (p != null) {
+    return '${_normalizedVideoHeight(int.tryParse(p)) ?? p}p';
+  }
   final resolution = RegExp(r'\d{3,4}\s*[x×]\s*(\d{3,4})')
       .firstMatch(raw)
       ?.group(1);
   if (resolution != null) return '${resolution}p';
-  final number = int.tryParse(raw);
+  final number = _normalizedVideoHeight(int.tryParse(raw));
   if (number != null && number >= 144) return '${number}p';
   return raw == '未知' || raw.isEmpty ? resource.displayFormat : raw;
+}
+
+int? _normalizedVideoHeight(int? value) {
+  switch (value) {
+    case 1920:
+      return 1080;
+    case 1280:
+      return 720;
+    case 854:
+      return 480;
+    case 640:
+      return 360;
+    default:
+      return value;
+  }
 }
 
 List<VideoResource> _collapseVideoQualities(List<VideoResource> resources) {

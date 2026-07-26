@@ -298,10 +298,12 @@ class DownloadManager extends ChangeNotifier {
       if (await file.exists()) {
         await file.delete().catchError((_) => file);
       }
-      for (var index = 0; index < 6; index++) {
-        final rangeFile = File('${task.tempPath}.range$index');
-        if (await rangeFile.exists()) {
-          await rangeFile.delete().catchError((_) => rangeFile);
+      for (final prefix in ['range', 'range12-']) {
+        for (var index = 0; index < 12; index++) {
+          final rangeFile = File('${task.tempPath}.$prefix$index');
+          if (await rangeFile.exists()) {
+            await rangeFile.delete().catchError((_) => rangeFile);
+          }
         }
       }
     }
@@ -531,11 +533,11 @@ class DownloadManager extends ChangeNotifier {
       if (!ranges || total < 20 * 1024 * 1024) return false;
       multipartStarted = true;
 
-      const partCount = 6;
+      const partCount = 12;
       final receivedByPart = List<int>.filled(partCount, 0);
       final files = <File>[];
       for (var index = 0; index < partCount; index++) {
-        files.add(File('${mergedPart.path}.range$index'));
+        files.add(File('${mergedPart.path}.range12-$index'));
         if (await files[index].exists()) {
           receivedByPart[index] = await files[index].length();
         }
