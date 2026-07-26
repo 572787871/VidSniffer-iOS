@@ -684,7 +684,7 @@ class DownloadManager extends ChangeNotifier {
           lastError = HttpException('HTTP ${response.statusCode}');
         } catch (error) {
           lastError = error;
-          if (CancelToken.isCancel(error)) return true;
+          if (error is DioException && CancelToken.isCancel(error)) return true;
         }
         if (attempt < 2) {
           await Future<void>.delayed(Duration(seconds: 1 << attempt));
