@@ -112,7 +112,7 @@ class _SwipeToDelete extends StatefulWidget {
 }
 
 class _SwipeToDeleteState extends State<_SwipeToDelete> {
-  static const actionWidth = 88.0;
+  static const actionWidth = 72.0;
   double offset = 0;
   bool dragging = false;
 
@@ -120,8 +120,9 @@ class _SwipeToDeleteState extends State<_SwipeToDelete> {
   Widget build(BuildContext context) {
     final manager = UiStateScope.of(context).downloadManager;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final scheme = Theme.of(context).colorScheme;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(22),
       child: Stack(
         children: [
           Positioned.fill(
@@ -130,7 +131,7 @@ class _SwipeToDeleteState extends State<_SwipeToDelete> {
               child: SizedBox(
                 width: actionWidth,
                 child: Material(
-                  color: Theme.of(context).colorScheme.error,
+                  color: scheme.errorContainer,
                   child: InkWell(
                     onTap: () => manager.removeTask(widget.task),
                     child: Semantics(
@@ -139,9 +140,12 @@ class _SwipeToDeleteState extends State<_SwipeToDelete> {
                       child: const Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.delete_rounded, color: Colors.white),
+                          Icon(Icons.delete_outline_rounded),
                           SizedBox(height: 4),
-                          Text('删除', style: TextStyle(color: Colors.white)),
+                          Text(
+                            '删除',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
                         ],
                       ),
                     ),
@@ -158,6 +162,9 @@ class _SwipeToDeleteState extends State<_SwipeToDelete> {
             transform: Matrix4.translationValues(offset, 0, 0),
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
+              onTap: offset < 0
+                  ? () => setState(() => offset = 0)
+                  : null,
               onHorizontalDragStart: (_) => setState(() => dragging = true),
               onHorizontalDragUpdate: (details) {
                 setState(

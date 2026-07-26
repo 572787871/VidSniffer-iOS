@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart';
 
 import '../models/video_resource.dart';
 
@@ -15,6 +16,9 @@ class VideoSniffer {
       );
 
   final Dio _dio;
+  static const _defaultUserAgent =
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
+      'AppleWebKit/605.1.15';
 
   Future<List<VideoResource>> parsePage(
     String input, {
@@ -43,9 +47,8 @@ class VideoSniffer {
       options: Options(
         responseType: ResponseType.plain,
         followRedirects: true,
-        headers: const {
-          'User-Agent':
-              'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+        headers: {
+          'User-Agent': userAgent.isEmpty ? _defaultUserAgent : userAgent,
           'Accept':
               'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         },
@@ -55,7 +58,12 @@ class VideoSniffer {
     if (_looksLikeProtectedPage(html)) {
       return const [];
     }
-    return scanHtml(html, pageUri, userAgent: userAgent, cookie: cookie);
+    return scanHtml(
+      html,
+      pageUri,
+      userAgent: userAgent.isEmpty ? _defaultUserAgent : userAgent,
+      cookie: cookie,
+    );
   }
 
   List<VideoResource> scanHtml(
@@ -451,21 +459,23 @@ class VideoSniffer {
       }
       final variants = _parseHlsVariants(resource, body);
       if (variants.isNotEmpty) {
-        return prioritizeResources(variants, limit: variants.length);
+        final enriched = await Future.wait(
+          variants.map(_enrichHlsMetadata),
+        );
+        return prioritizeResources(enriched, limit: enriched.length);
       }
       final duration = _playlistDuration(body);
       final shortAd = duration > 0 && duration < 45;
-      return [
-        resource.copyWith(
-          container: 'media m3u8',
-          quality: resource.quality == '未知' ? '单清晰度 HLS' : resource.quality,
-          duration: duration > 0
-              ? Duration(milliseconds: (duration * 1000).round())
-              : resource.duration,
-          isAdSuspect: resource.isAdSuspect || shortAd,
-          recommendation: shortAd ? '' : '可能的视频资源',
-        ),
-      ];
+      final parsed = resource.copyWith(
+        container: 'media m3u8',
+        quality: resource.quality == '未知' ? '单清晰度 HLS' : resource.quality,
+        duration: duration > 0
+            ? Duration(milliseconds: (duration * 1000).round())
+            : resource.duration,
+        isAdSuspect: resource.isAdSuspect || shortAd,
+        recommendation: shortAd ? '' : '可能的视频资源',
+      );
+      return [await _enrichHlsMetadata(parsed)];
     } catch (_) {
       return [
         resource.copyWith(
@@ -473,6 +483,72 @@ class VideoSniffer {
           recommendation: resource.isAdSuspect ? '' : '可能的视频资源',
         ),
       ];
+    }
+  }
+
+  Future<VideoResource> _enrichHlsMetadata(VideoResource resource) async {
+    try {
+      final extraHeaders = [
+        if (resource.referer.isNotEmpty) 'Referer: ${resource.referer}',
+        if (resource.cookie.isNotEmpty) 'Cookie: ${resource.cookie}',
+      ].join('\r\n');
+      final session = await FFprobeKit.getMediaInformationFromCommandArguments([
+        '-v',
+        'error',
+        '-hide_banner',
+        '-user_agent',
+        resource.userAgent.isEmpty ? _defaultUserAgent : resource.userAgent,
+        if (extraHeaders.isNotEmpty) ...['-headers', '$extraHeaders\r\n'],
+        '-print_format',
+        'json',
+        '-show_format',
+        '-show_streams',
+        '-show_chapters',
+        '-i',
+        resource.url,
+      ]).timeout(const Duration(seconds: 15));
+      final information = session.getMediaInformation();
+      if (information == null) return resource;
+
+      final streams = information.getStreams();
+      final videoStreams = streams.where(
+        (stream) => stream.getType() == 'video',
+      );
+      final video = videoStreams.isEmpty ? null : videoStreams.first;
+      final width = video?.getWidth() ?? 0;
+      final height = video?.getHeight() ?? 0;
+      final durationSeconds =
+          double.tryParse(information.getDuration() ?? '') ?? 0;
+      final duration = durationSeconds > 0
+          ? Duration(milliseconds: (durationSeconds * 1000).round())
+          : resource.duration;
+      final exactSize = int.tryParse(information.getSize() ?? '') ?? 0;
+      final bitrate =
+          int.tryParse(information.getBitrate() ?? '') ??
+          int.tryParse(video?.getBitrate() ?? '') ??
+          0;
+      final estimatedSize = exactSize > 0
+          ? exactSize
+          : bitrate > 0 && duration > Duration.zero
+              ? (bitrate * duration.inMilliseconds / 8000).round()
+              : 0;
+      return resource.copyWith(
+        quality: width > 0 && height > 0
+            ? '${width}×$height'
+            : height > 0
+                ? '${height}p'
+                : resource.quality,
+        duration: duration,
+        size: estimatedSize > 0
+            ? '${exactSize > 0 ? '' : '约 '}${_formatBytes(estimatedSize)}'
+            : resource.size,
+        bitrate: bitrate > 0
+            ? '${(bitrate / 1000).round()} kbps'
+            : resource.bitrate,
+        codec: video?.getCodec() ?? resource.codec,
+      );
+    } catch (_) {
+      return resource;
     }
   }
 

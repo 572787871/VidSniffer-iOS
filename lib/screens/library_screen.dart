@@ -895,7 +895,11 @@ class _VideoInlineRow extends StatelessWidget {
                       icon: const Icon(Icons.drive_file_move_rounded),
                     ),
                     IconButton.outlined(
-                      onPressed: () => state.deleteVideo(video),
+                      onPressed: () => _confirmDeleteVideo(
+                        context,
+                        state,
+                        video,
+                      ),
                       icon: const Icon(Icons.delete_outline_rounded),
                     ),
                   ],
@@ -999,7 +1003,11 @@ class _VideoCard extends StatelessWidget {
                       icon: const Icon(Icons.drive_file_move_rounded),
                     ),
                     IconButton.outlined(
-                      onPressed: () => state.deleteVideo(video),
+                      onPressed: () => _confirmDeleteVideo(
+                        context,
+                        state,
+                        video,
+                      ),
                       icon: const Icon(Icons.delete_outline_rounded),
                     ),
                   ],
@@ -1019,6 +1027,21 @@ class _VideoCard extends StatelessWidget {
       if (video.sourceSite.isNotEmpty) video.sourceSite,
     ];
     return parts.join(' · ');
+  }
+}
+
+Future<void> _confirmDeleteVideo(
+  BuildContext context,
+  UiState state,
+  LocalVideo video,
+) async {
+  final confirmed = await _confirm(
+    context,
+    title: '删除视频？',
+    message: '视频文件和对应的下载任务记录都会被删除，此操作无法撤销。',
+  );
+  if (confirmed == true && context.mounted) {
+    await state.deleteVideo(video);
   }
 }
 

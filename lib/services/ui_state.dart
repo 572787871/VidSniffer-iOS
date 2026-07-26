@@ -204,6 +204,12 @@ class UiState extends ChangeNotifier {
 
   Future<void> deleteVideo(LocalVideo video) async {
     await library.delete(video);
+    final matchingTasks = downloadManager.tasks
+        .where((task) => task.localPath == video.path)
+        .toList(growable: false);
+    for (final task in matchingTasks) {
+      await downloadManager.removeTask(task);
+    }
     await refreshLibrary();
   }
 

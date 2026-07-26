@@ -124,54 +124,57 @@ class _BrowserScreenState extends State<BrowserScreen>
                   : _browserBody(),
             ),
             if (directParsing && directParseUrl.isNotEmpty)
-              HomeSniffer(
-                key: ValueKey(directParseUrl),
-                initialUrl: directParseUrl,
-                onProgress: (_) {},
-                onFound: (record) {
-                  if (!mounted) return;
-                  setState(() {
-                    directParsing = false;
-                    directParseUrl = '';
-                    captured
-                      ..clear()
-                      ..addEntries(
-                        record.resources.map(
-                          (resource) => MapEntry(
-                            sniffer.dedupeKey(resource.url),
-                            resource,
+              Offstage(
+                offstage: true,
+                child: HomeSniffer(
+                  key: ValueKey(directParseUrl),
+                  initialUrl: directParseUrl,
+                  onProgress: (_) {},
+                  onFound: (record) {
+                    if (!mounted) return;
+                    setState(() {
+                      directParsing = false;
+                      directParseUrl = '';
+                      captured
+                        ..clear()
+                        ..addEntries(
+                          record.resources.map(
+                            (resource) => MapEntry(
+                              sniffer.dedupeKey(resource.url),
+                              resource,
+                            ),
                           ),
-                        ),
-                      );
-                  });
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) {
-                      unawaited(
-                        _showDownloadPicker(title: record.pageTitle),
-                      );
-                    }
-                  });
-                },
-                onNotFound: (_, __) {
-                  if (!mounted) return;
-                  setState(() {
-                    directParsing = false;
-                    directParseUrl = '';
-                  });
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('未直接解析到视频，请确认网址或稍后重试')),
-                  );
-                },
-                onFailed: (_, __, error) {
-                  if (!mounted) return;
-                  setState(() {
-                    directParsing = false;
-                    directParseUrl = '';
-                  });
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('直接解析失败：$error')),
-                  );
-                },
+                        );
+                    });
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) {
+                        unawaited(
+                          _showDownloadPicker(title: record.pageTitle),
+                        );
+                      }
+                    });
+                  },
+                  onNotFound: (_, __) {
+                    if (!mounted) return;
+                    setState(() {
+                      directParsing = false;
+                      directParseUrl = '';
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('未直接解析到视频，请确认网址或稍后重试')),
+                    );
+                  },
+                  onFailed: (_, __, error) {
+                    if (!mounted) return;
+                    setState(() {
+                      directParsing = false;
+                      directParseUrl = '';
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('直接解析失败：$error')),
+                    );
+                  },
+                ),
               ),
           ],
         ),
@@ -1383,6 +1386,8 @@ class _DownloadPickerState extends State<_DownloadPicker> {
                             style: const TextStyle(fontWeight: FontWeight.w900),
                           ),
                           Text(resource.size),
+                          if (resource.duration > Duration.zero)
+                            Text(_formatVideoDuration(resource.duration)),
                         ],
                       ),
                     ),
@@ -1405,6 +1410,19 @@ class _DownloadPickerState extends State<_DownloadPicker> {
       ),
     );
   }
+}
+
+String _formatVideoDuration(Duration duration) {
+  final hours = duration.inHours;
+  final minutes = duration.inMinutes.remainder(60);
+  final seconds = duration.inSeconds.remainder(60);
+  if (hours > 0) {
+    return '${hours.toString().padLeft(2, '0')}:'
+        '${minutes.toString().padLeft(2, '0')}:'
+        '${seconds.toString().padLeft(2, '0')}';
+  }
+  return '${minutes.toString().padLeft(2, '0')}:'
+      '${seconds.toString().padLeft(2, '0')}';
 }
 
 class _BrowserBottomControls extends StatelessWidget {
