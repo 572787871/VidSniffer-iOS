@@ -681,7 +681,7 @@ class DownloadManager extends ChangeNotifier {
     DownloadTask task,
     File original,
     File resumed,
-    {bool allowPaused = false},
+    {bool allowPaused = false}
   ) async {
     if (!await original.exists() || !await resumed.exists()) {
       throw StateError('续传分片文件不存在');
