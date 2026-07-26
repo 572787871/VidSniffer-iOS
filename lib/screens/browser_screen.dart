@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,7 +11,6 @@ import '../services/browser_data_store.dart';
 import '../services/ui_state.dart';
 import '../services/video_sniffer.dart';
 import '../services/video_sniffer_controller.dart';
-import '../widgets/home_sniffer.dart';
 import 'downloads_screen.dart';
 
 class BrowserScreen extends StatefulWidget {
@@ -28,10 +28,16 @@ class _BrowserScreenState extends State<BrowserScreen>
   final List<BrowserPageRecord> history = [];
   final List<BrowserPageRecord> bookmarks = [];
   final List<_BrowserTabData> browserTabs = [
-    _BrowserTabData(id: 'initial', title: '新窗口', url: 'about:blank'),
+    _BrowserTabData(
+      id: 'initial',
+      title: '新窗口',
+      url: 'about:blank',
+      keepAlive: InAppWebViewKeepAlive(),
+    ),
   ];
   final List<_BrowserTabData> recentlyClosedTabs = [];
   final Map<String, VideoResource> captured = {};
+  final Map<String, InAppWebViewController> tabControllers = {};
   late final VideoSnifferController snifferController;
 
   InAppWebViewController? controller;
@@ -105,21 +111,6 @@ class _BrowserScreenState extends State<BrowserScreen>
 
     return Scaffold(
       appBar: showStartPage ? _startAppBar() : _browserAppBar(),
-      drawer: _TabsDrawer(
-        history: history,
-        bookmarks: bookmarks,
-        onOpen: (url) {
-          Navigator.pop(context);
-          unawaited(_loadUrl(url));
-        },
-        onClearHistory: () {
-          setState(() => history.clear());
-          unawaited(_saveBrowserData());
-          Navigator.pop(context);
-        },
-        onRemoveHistory: _removeHistory,
-        onRemoveBookmark: _removeBookmark,
-      ),
       body: SafeArea(
         child: Stack(
           children: [
@@ -132,59 +123,6 @@ class _BrowserScreenState extends State<BrowserScreen>
                     )
                   : _browserBody(),
             ),
-            if (directParsing && directParseUrl.isNotEmpty)
-              Offstage(
-                offstage: true,
-                child: HomeSniffer(
-                  key: ValueKey(directParseUrl),
-                  initialUrl: directParseUrl,
-                  onProgress: (_) {},
-                  onFound: (record) {
-                    if (!mounted) return;
-                    setState(() {
-                      directParsing = false;
-                      directParseUrl = '';
-                      captured
-                        ..clear()
-                        ..addEntries(
-                          record.resources.map(
-                            (resource) => MapEntry(
-                              sniffer.dedupeKey(resource.url),
-                              resource,
-                            ),
-                          ),
-                        );
-                    });
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (mounted) {
-                        unawaited(
-                          _showDownloadPicker(title: record.pageTitle),
-                        );
-                      }
-                    });
-                  },
-                  onNotFound: (_, __) {
-                    if (!mounted) return;
-                    setState(() {
-                      directParsing = false;
-                      directParseUrl = '';
-                    });
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('未直接解析到视频，请确认网址或稍后重试')),
-                    );
-                  },
-                  onFailed: (_, __, error) {
-                    if (!mounted) return;
-                    setState(() {
-                      directParsing = false;
-                      directParseUrl = '';
-                    });
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('直接解析失败：$error')),
-                    );
-                  },
-                ),
-              ),
           ],
         ),
       ),
@@ -293,7 +231,8 @@ class _BrowserScreenState extends State<BrowserScreen>
             children: [
               Positioned.fill(
                 child: InAppWebView(
-                  key: const PageStorageKey('video-downloader-browser'),
+                  key: ValueKey(browserTabs[activeBrowserTab].id),
+                  keepAlive: browserTabs[activeBrowserTab].keepAlive,
                   initialUrlRequest: currentUrl.startsWith('about:')
                       ? null
                       : URLRequest(url: WebUri(currentUrl)),
@@ -394,6 +333,16 @@ class _BrowserScreenState extends State<BrowserScreen>
                   onParse: () => _sniffPage(openPicker: true),
                 ),
               ),
+              if (MediaQuery.viewInsetsOf(context).bottom > 0)
+                Positioned(
+                  right: 16,
+                  bottom: 80,
+                  child: FilledButton.tonalIcon(
+                    onPressed: _dismissKeyboard,
+                    icon: const Icon(Icons.keyboard_hide_rounded),
+                    label: const Text('完成'),
+                  ),
+                ),
             ],
           ),
         ),
@@ -411,6 +360,7 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   Future<void> _onWebViewCreated(InAppWebViewController value) async {
     controller = value;
+    tabControllers[browserTabs[activeBrowserTab].id] = value;
     value.addJavaScriptHandler(
       handlerName: 'VideoDownloaderCapture',
       callback: (args) {
@@ -506,6 +456,11 @@ class _BrowserScreenState extends State<BrowserScreen>
   Future<void> _reload() async => controller?.reload();
 
   Future<void> _stopLoading() async => controller?.stopLoading();
+
+  void _dismissKeyboard() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+  }
 
   Future<void> _syncBrowserState() async {
     final web = controller;
@@ -800,14 +755,22 @@ class _BrowserScreenState extends State<BrowserScreen>
         await _showDownloadPicker(title: resources.first.title);
         return;
       }
-
-      // Some sites construct the player only after JavaScript runs. Load a
-      // hidden one-pixel WebView as a fallback without navigating the browser.
-      setState(() => directParseUrl = url);
-    } catch (_) {
-      if (mounted) {
-        setState(() => directParseUrl = url);
-      }
+      setState(() {
+        directParsing = false;
+        directParseUrl = '';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('未直接解析到视频，请检查网址或在网页中播放后检测')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        directParsing = false;
+        directParseUrl = '';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('直接解析失败：$error')),
+      );
     }
   }
 
@@ -908,7 +871,12 @@ class _BrowserScreenState extends State<BrowserScreen>
     if (notify && mounted) setState(() {});
   }
 
-  Future<void> _showBrowserTabs() {
+  Future<void> _showBrowserTabs() async {
+    try {
+      browserTabs[activeBrowserTab].thumbnail =
+          await controller?.takeScreenshot();
+    } catch (_) {}
+    if (!mounted) return;
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -944,72 +912,113 @@ class _BrowserScreenState extends State<BrowserScreen>
                   ),
                 ),
                 Expanded(
-                  child: ReorderableListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    buildDefaultDragHandles: false,
+                  child: GridView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      crossAxisSpacing: 14,
+                      mainAxisSpacing: 14,
+                      childAspectRatio: 0.72,
+                    ),
                     itemCount: browserTabs.length,
-                    onReorderItem: (oldIndex, newIndex) {
-                      setState(() {
-                        final activeId = browserTabs[activeBrowserTab].id;
-                        final item = browserTabs.removeAt(oldIndex);
-                        browserTabs.insert(newIndex, item);
-                        activeBrowserTab = browserTabs.indexWhere(
-                          (tab) => tab.id == activeId,
-                        );
-                      });
-                      setSheetState(() {});
-                    },
                     itemBuilder: (context, index) {
                       final tab = browserTabs[index];
-                      return Dismissible(
+                      return GestureDetector(
                         key: ValueKey(tab.id),
-                        direction: browserTabs.length > 1
-                            ? DismissDirection.endToStart
-                            : DismissDirection.none,
-                        background: Container(
-                          alignment: Alignment.centerRight,
-                          padding: const EdgeInsets.only(right: 24),
-                          color: Theme.of(context).colorScheme.errorContainer,
-                          child: const Icon(Icons.close_rounded),
-                        ),
-                        onDismissed: (_) {
-                          _closeBrowserTab(index);
-                          setSheetState(() {});
+                        onTap: () {
+                          _activateBrowserTab(index);
+                          Navigator.pop(sheetContext);
                         },
-                        child: ListTile(
-                          selected: index == activeBrowserTab,
-                          leading: const Icon(Icons.web_asset_rounded),
-                          title: Text(
-                            tab.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                        onLongPress: tab.url.startsWith('http')
+                            ? () {
+                                Clipboard.setData(
+                                  ClipboardData(text: tab.url),
+                                );
+                                ScaffoldMessenger.of(this.context).showSnackBar(
+                                  const SnackBar(content: Text('网址已复制')),
+                                );
+                              }
+                            : null,
+                        child: Card(
+                          clipBehavior: Clip.antiAlias,
+                          shape: RoundedRectangleBorder(
+                            side: index == activeBrowserTab
+                                ? BorderSide(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primary,
+                                    width: 2,
+                                  )
+                                : BorderSide.none,
+                            borderRadius: BorderRadius.circular(22),
                           ),
-                          subtitle: Text(
-                            tab.url == 'about:blank' ? '新标签页' : tab.url,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          onTap: () {
-                            _activateBrowserTab(index);
-                            Navigator.pop(sheetContext);
-                          },
-                          onLongPress: tab.url.startsWith('http')
-                              ? () {
-                                  Clipboard.setData(
-                                    ClipboardData(text: tab.url),
-                                  );
-                                  ScaffoldMessenger.of(this.context)
-                                      .showSnackBar(
-                                    const SnackBar(content: Text('网址已复制')),
-                                  );
-                                }
-                              : null,
-                          trailing: ReorderableDragStartListener(
-                            index: index,
-                            child: const Padding(
-                              padding: EdgeInsets.all(12),
-                              child: Icon(Icons.drag_handle_rounded),
-                            ),
+                          child: Stack(
+                            children: [
+                              Positioned.fill(
+                                child: tab.thumbnail == null
+                                    ? Container(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .surfaceContainerHighest,
+                                        child: const Icon(
+                                          Icons.language_rounded,
+                                          size: 42,
+                                        ),
+                                      )
+                                    : Image.memory(
+                                        tab.thumbnail!,
+                                        fit: BoxFit.cover,
+                                      ),
+                              ),
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    12,
+                                    24,
+                                    12,
+                                    12,
+                                  ),
+                                  decoration: const BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        Colors.transparent,
+                                        Colors.black87,
+                                      ],
+                                    ),
+                                  ),
+                                  child: Text(
+                                    tab.title,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                right: 6,
+                                top: 6,
+                                child: IconButton.filledTonal(
+                                  visualDensity: VisualDensity.compact,
+                                  tooltip: '关闭标签页',
+                                  onPressed: browserTabs.length > 1
+                                      ? () {
+                                          _closeBrowserTab(index);
+                                          setSheetState(() {});
+                                        }
+                                      : null,
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       );
@@ -1046,6 +1055,7 @@ class _BrowserScreenState extends State<BrowserScreen>
           id: DateTime.now().microsecondsSinceEpoch.toString(),
           title: '新窗口',
           url: 'about:blank',
+          keepAlive: InAppWebViewKeepAlive(),
         ),
       );
       activeBrowserTab = browserTabs.length - 1;
@@ -1067,13 +1077,14 @@ class _BrowserScreenState extends State<BrowserScreen>
       showStartPage = tab.url == 'about:blank';
       addressController.text = showStartPage ? '' : tab.url;
       captured.clear();
+      controller = tabControllers[tab.id];
     });
-    if (!showStartPage) unawaited(_loadUrl(tab.url));
   }
 
   void _closeBrowserTab(int index) {
     if (browserTabs.length <= 1) return;
     final closed = browserTabs.removeAt(index);
+    tabControllers.remove(closed.id);
     recentlyClosedTabs.insert(0, closed);
     if (recentlyClosedTabs.length > 10) recentlyClosedTabs.removeLast();
     activeBrowserTab =
@@ -1356,21 +1367,27 @@ class _BrowserScreenState extends State<BrowserScreen>
 }
 
 class _BrowserTabData {
-  const _BrowserTabData({
+  _BrowserTabData({
     required this.id,
     required this.title,
     required this.url,
+    required this.keepAlive,
+    this.thumbnail,
   });
 
   final String id;
   final String title;
   final String url;
+  final InAppWebViewKeepAlive keepAlive;
+  Uint8List? thumbnail;
 
   _BrowserTabData copyWith({String? title, String? url}) {
     return _BrowserTabData(
       id: id,
       title: title ?? this.title,
       url: url ?? this.url,
+      keepAlive: keepAlive,
+      thumbnail: thumbnail,
     );
   }
 }

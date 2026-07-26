@@ -120,7 +120,6 @@ class DownloadManager extends ChangeNotifier {
   }
 
   Future<bool> canPreviewPartial(DownloadTask task) async {
-    if (task.resource.isMergeRequired && task.isActive) return true;
     final path = previewPathFor(task);
     if (path.isEmpty) return false;
     final file = File(path);
@@ -128,10 +127,6 @@ class DownloadManager extends ChangeNotifier {
     if (await file.length() < 256 * 1024) return false;
     if (await FileUtils.looksLikeHtml(file)) return false;
     return true;
-  }
-
-  Map<String, String> playbackHeadersFor(DownloadTask task) {
-    return Map<String, String>.from(_headersFor(task.resource));
   }
 
   Future<void> start(String taskId) async {

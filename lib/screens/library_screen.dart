@@ -66,10 +66,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       body: AnimatedBuilder(
         animation: state,
         builder: (context, _) {
-          final activeTasks = state.downloadManager.tasks
-              .where((task) =>
-                  task.isActive || task.status == DownloadStatus.paused)
-              .toList();
+          // “已下载”只展示已经落盘并被媒体库扫描到的视频。
+          const activeTasks = <DownloadTask>[];
           final videos = _filteredVideos(state.videos);
           final entries = _filteredEntries(state.videos);
           final folderEntries = _folderEntries(state, videos);

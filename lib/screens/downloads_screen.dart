@@ -281,14 +281,7 @@ class _DownloadCard extends StatelessWidget {
                               MaterialPageRoute<void>(
                                 builder: (_) => PlayerScreen(
                                   title: task.resource.title,
-                                  filePath: task.resource.isMergeRequired
-                                      ? null
-                                      : manager.previewPathFor(task),
-                                  networkUrl: task.resource.isMergeRequired
-                                      ? task.resource.url
-                                      : null,
-                                  httpHeaders:
-                                      manager.playbackHeadersFor(task),
+                                  filePath: manager.previewPathFor(task),
                                   allowPartial: true,
                                 ),
                               ),
