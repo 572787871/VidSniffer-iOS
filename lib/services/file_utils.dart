@@ -26,6 +26,18 @@ class FileUtils {
 
   static Future<Directory> videoPageDirectory(VideoResource resource) async {
     final root = await videosDirectory();
+    final categoryName = resource.preferredFolderName.trim();
+    final categoryRoot = categoryName.isEmpty
+        ? root
+        : Directory(
+            p.join(
+              root.path,
+              safeFileName(categoryName, fallback: '默认文件夹'),
+            ),
+          );
+    if (!await categoryRoot.exists()) {
+      await categoryRoot.create(recursive: true);
+    }
     final pageUrl =
         resource.pageUrl.isNotEmpty ? resource.pageUrl : resource.url;
     final uri = Uri.tryParse(pageUrl);
@@ -33,7 +45,7 @@ class FileUtils {
     final baseTitle = resource.title.trim().isEmpty ? host : resource.title;
     final safeTitle = safeFileName(baseTitle, fallback: host);
     final key = stableKey(pageUrl).substring(0, 8);
-    final dir = Directory(p.join(root.path, '$safeTitle-$key'));
+    final dir = Directory(p.join(categoryRoot.path, '$safeTitle-$key'));
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }

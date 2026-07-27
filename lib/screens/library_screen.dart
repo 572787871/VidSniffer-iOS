@@ -27,7 +27,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   final searchController = TextEditingController();
   final searchFocus = FocusNode();
   _LibrarySort sort = _LibrarySort.newest;
-  _LibraryView view = _LibraryView.all;
+  _LibraryView view = _LibraryView.folders;
 
   @override
   void dispose() {
@@ -225,7 +225,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       case _LibraryView.favorites:
         return videos.isEmpty && activeTasks.isEmpty;
       case _LibraryView.folders:
-        return folders.isEmpty;
+        return folders.isEmpty && videos.isEmpty;
       case _LibraryView.sites:
         return sites.isEmpty;
     }
@@ -271,11 +271,44 @@ class _LibraryScreenState extends State<LibraryScreen> {
               videos.length,
         );
       case _LibraryView.folders:
-        return ListView.separated(
+        return ListView(
           padding: const EdgeInsets.fromLTRB(18, 0, 18, 96),
-          itemBuilder: (context, index) => _FolderCard(entry: folders[index]),
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemCount: folders.length,
+          children: [
+            _AllVideosCard(
+              videos: videos,
+              onTap: () => setState(() => view = _LibraryView.all),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '文件夹',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () => _createFolder(context),
+                  icon: const Icon(Icons.create_new_folder_rounded, size: 19),
+                  label: const Text('新建'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 1.18,
+              ),
+              itemBuilder: (context, index) =>
+                  _FolderGridCard(entry: folders[index]),
+              itemCount: folders.length,
+            ),
+          ],
         );
       case _LibraryView.sites:
         return ListView.separated(
@@ -296,6 +329,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }).toList();
     final byDirectory = <String, List<LocalVideo>>{};
     for (final video in videos) {
+      if (video.folderIds.isNotEmpty) continue;
       byDirectory.putIfAbsent(p.dirname(video.path), () => []).add(video);
     }
     final now = DateTime.now();
@@ -406,6 +440,207 @@ class _ViewChip extends StatelessWidget {
         label: Text(label),
         selected: selected,
         onSelected: (_) => onSelected(),
+      ),
+    );
+  }
+}
+
+class _AllVideosCard extends StatelessWidget {
+  const _AllVideosCard({required this.videos, required this.onTap});
+
+  final List<LocalVideo> videos;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final previews = videos.take(3).toList();
+    return Material(
+      color: const Color(0xff1769f6),
+      borderRadius: BorderRadius.circular(24),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: SizedBox(
+          height: 150,
+          child: Stack(
+            children: [
+              Positioned(
+                right: -16,
+                bottom: -20,
+                child: Row(
+                  children: [
+                    for (var index = 0; index < previews.length; index++)
+                      Transform.translate(
+                        offset: Offset(index * -18, index.isEven ? 10 : -2),
+                        child: Transform.rotate(
+                          angle: (index - 1) * 0.07,
+                          child: Container(
+                            width: 84,
+                            height: 112,
+                            padding: const EdgeInsets.all(3),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(11),
+                              child: _Thumbnail(
+                                video: previews[index],
+                                width: 78,
+                                height: 106,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Positioned(
+                left: 20,
+                top: 23,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '全部视频',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${videos.length} 个视频',
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                    const SizedBox(height: 18),
+                    const CircleAvatar(
+                      radius: 18,
+                      backgroundColor: Color(0x33ffffff),
+                      child: Icon(Icons.play_arrow_rounded, color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FolderGridCard extends StatelessWidget {
+  const _FolderGridCard({required this.entry});
+
+  final _FolderEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = UiStateScope.of(context);
+    final previews = entry.videos.take(3).toList();
+    return AppCard(
+      padding: const EdgeInsets.all(12),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => _FolderDetailScreen(entry: entry),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.folder_rounded,
+                color: Color(0xffffb81c),
+                size: 27,
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  entry.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+              if (entry.folder.type == LibraryFolderType.manual)
+                PopupMenuButton<String>(
+                  padding: EdgeInsets.zero,
+                  iconSize: 20,
+                  onSelected: (value) async {
+                    if (value == 'rename') {
+                      final name = await _askText(
+                        context,
+                        title: '重命名文件夹',
+                        label: '文件夹名称',
+                        initialValue: entry.folder.name,
+                      );
+                      if (name != null && context.mounted) {
+                        await state.renameFolder(entry.folder, name);
+                      }
+                    } else if (value == 'delete') {
+                      final ok = await _confirm(
+                        context,
+                        title: '删除文件夹',
+                        message: '视频会保留在“全部视频”中。',
+                      );
+                      if (ok == true && context.mounted) {
+                        await state.deleteFolder(entry.folder);
+                      }
+                    }
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'rename', child: Text('重命名')),
+                    PopupMenuItem(value: 'delete', child: Text('删除文件夹')),
+                  ],
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Expanded(
+            child: Row(
+              children: [
+                for (var index = 0; index < 3; index++) ...[
+                  Expanded(
+                    child: index < previews.length
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: _Thumbnail(
+                              video: previews[index],
+                              width: 60,
+                              height: 58,
+                            ),
+                          )
+                        : Container(
+                            decoration: BoxDecoration(
+                              color: const Color(0xfff2f4f8),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(
+                              Icons.video_library_outlined,
+                              size: 18,
+                              color: Color(0xffadb3bf),
+                            ),
+                          ),
+                  ),
+                  if (index < 2) const SizedBox(width: 4),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${entry.videos.length} 个视频',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 12,
+            ),
+          ),
+        ],
       ),
     );
   }

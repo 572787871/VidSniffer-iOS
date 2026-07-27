@@ -19,131 +19,217 @@ Future<VideoResource?> showDownloadConfirmDialog(
   LibraryFolder? selectedFolder =
       state.folders.isEmpty ? null : state.folders.first;
   try {
-    return showDialog<VideoResource>(
+    return await showModalBottomSheet<VideoResource>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
+      isScrollControlled: true,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (sheetContext) => StatefulBuilder(
         builder: (context, setState) {
           final uri = Uri.tryParse(
             resource.pageUrl.isNotEmpty ? resource.pageUrl : resource.url,
           );
           final site = uri?.host ?? '未知来源';
-          return AlertDialog(
-            title: const Text('确认下载'),
-            content: SingleChildScrollView(
+          Future<void> finish() async {
+            final folder = await _resolveFolder(
+              sheetContext,
+              state,
+              resource,
+              target,
+              selectedFolder,
+            );
+            if (folder == null && target == DownloadSaveTarget.create) return;
+            final name = FileUtils.safeFileName(
+              nameController.text,
+              fallback: resource.title,
+            );
+            if (!sheetContext.mounted) return;
+            Navigator.pop(
+              sheetContext,
+              resource.copyWith(
+                title: name,
+                preferredFolderId: folder?.folderId ?? '',
+                preferredFolderName: folder?.name ?? '',
+              ),
+            );
+          }
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              18,
+              0,
+              18,
+              16 + MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _InfoLine('标题', resource.title),
-                  _InfoLine('来源网站', site),
-                  _InfoLine('格式', resource.displayFormat),
-                  _InfoLine('清晰度', resource.quality),
-                  if (resource.codec.isNotEmpty)
-                    _InfoLine('编码', resource.codec),
-                  if (resource.bitrate.isNotEmpty)
-                    _InfoLine('码率', resource.bitrate),
-                  _InfoLine('大小', resource.size),
-                  const _InfoLine('实际位置', 'Documents/videos/页面合集/'),
+                  const Text(
+                    '保存到',
+                    style: TextStyle(fontSize: 25, fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '选择视频的保存位置',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _FolderChoice(
+                    title: '最近下载',
+                    subtitle: '不加入文件夹',
+                    selected: target == DownloadSaveTarget.recent,
+                    onTap: () => setState(
+                      () => target = DownloadSaveTarget.recent,
+                    ),
+                  ),
+                  _FolderChoice(
+                    title: '当前页面',
+                    subtitle: resource.title,
+                    selected: target == DownloadSaveTarget.page,
+                    onTap: () =>
+                        setState(() => target = DownloadSaveTarget.page),
+                  ),
+                  _FolderChoice(
+                    title: site,
+                    subtitle: '来源网站',
+                    selected: target == DownloadSaveTarget.site,
+                    onTap: () =>
+                        setState(() => target = DownloadSaveTarget.site),
+                  ),
+                  for (final folder in state.folders)
+                    _FolderChoice(
+                      title: folder.name,
+                      subtitle: '自定义文件夹',
+                      selected: target == DownloadSaveTarget.custom &&
+                          selectedFolder?.folderId == folder.folderId,
+                      onTap: () => setState(() {
+                        target = DownloadSaveTarget.custom;
+                        selectedFolder = folder;
+                      }),
+                    ),
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                    leading: const Icon(
+                      Icons.create_new_folder_rounded,
+                      color: Color(0xff1769f6),
+                    ),
+                    title: const Text(
+                      '新建文件夹',
+                      style: TextStyle(
+                        color: Color(0xff1769f6),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () async {
+                      final name = await _askFolderName(sheetContext);
+                      if (name == null || name.trim().isEmpty) return;
+                      final folder = await state.createFolder(name);
+                      setState(() {
+                        target = DownloadSaveTarget.custom;
+                        selectedFolder = folder;
+                      });
+                    },
+                  ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: nameController,
-                    decoration: const InputDecoration(labelText: '文件名'),
+                    decoration: const InputDecoration(
+                      labelText: '文件名',
+                      prefixIcon: Icon(Icons.movie_outlined),
+                    ),
                   ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<DownloadSaveTarget>(
-                    initialValue: target,
-                    decoration: const InputDecoration(labelText: '保存到'),
-                    items: const [
-                      DropdownMenuItem(
-                        value: DownloadSaveTarget.recent,
-                        child: Text('最近下载'),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${resource.quality} · ${resource.displayFormat} · ${resource.size}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(sheetContext),
+                          child: const Text('取消'),
+                        ),
                       ),
-                      DropdownMenuItem(
-                        value: DownloadSaveTarget.site,
-                        child: Text('来源网站文件夹'),
-                      ),
-                      DropdownMenuItem(
-                        value: DownloadSaveTarget.page,
-                        child: Text('当前页面文件夹'),
-                      ),
-                      DropdownMenuItem(
-                        value: DownloadSaveTarget.custom,
-                        child: Text('自定义文件夹'),
-                      ),
-                      DropdownMenuItem(
-                        value: DownloadSaveTarget.create,
-                        child: Text('新建文件夹'),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: FilledButton.icon(
+                          onPressed: finish,
+                          icon: const Icon(Icons.download_rounded),
+                          label: const Text('保存并下载'),
+                        ),
                       ),
                     ],
-                    onChanged: (value) {
-                      if (value != null) setState(() => target = value);
-                    },
                   ),
-                  if (target == DownloadSaveTarget.custom) ...[
-                    const SizedBox(height: 10),
-                    DropdownButtonFormField<LibraryFolder>(
-                      initialValue: selectedFolder,
-                      decoration: const InputDecoration(labelText: '自定义文件夹'),
-                      items: state.folders
-                          .map(
-                            (folder) => DropdownMenuItem(
-                              value: folder,
-                              child: Text(folder.name),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) =>
-                          setState(() => selectedFolder = value),
-                    ),
-                    if (state.folders.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 8),
-                        child: Text('还没有自定义文件夹，可以选择“新建文件夹”。'),
-                      ),
-                  ],
                 ],
               ),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('取消'),
-              ),
-              FilledButton(
-                onPressed: () async {
-                  final folder = await _resolveFolder(
-                    dialogContext,
-                    state,
-                    resource,
-                    target,
-                    selectedFolder,
-                  );
-                  if (folder == null && target == DownloadSaveTarget.create) {
-                    return;
-                  }
-                  final name = FileUtils.safeFileName(
-                    nameController.text,
-                    fallback: resource.title,
-                  );
-                  if (!dialogContext.mounted) return;
-                  Navigator.pop(
-                    dialogContext,
-                    resource.copyWith(
-                      title: name,
-                      preferredFolderId: folder?.folderId ?? '',
-                      preferredFolderName: folder?.name ?? '',
-                    ),
-                  );
-                },
-                child: const Text('下载'),
-              ),
-            ],
           );
         },
       ),
     );
   } finally {
     nameController.dispose();
+  }
+}
+
+class _FolderChoice extends StatelessWidget {
+  const _FolderChoice({
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected
+          ? const Color(0xffeaf1ff)
+          : Theme.of(context).colorScheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(14),
+      child: ListTile(
+        onTap: onTap,
+        leading: const Icon(
+          Icons.folder_rounded,
+          color: Color(0xffffb81c),
+        ),
+        title: Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+        subtitle: Text(
+          subtitle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: Icon(
+          selected
+              ? Icons.radio_button_checked_rounded
+              : Icons.radio_button_off_rounded,
+          color: selected ? const Color(0xff1769f6) : null,
+        ),
+      ),
+    );
   }
 }
 

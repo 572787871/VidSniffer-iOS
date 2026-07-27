@@ -102,30 +102,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         MediaQuery.orientationOf(context) == Orientation.landscape;
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: isLandscape
-          ? null
-          : AppBar(
-              backgroundColor: Colors.black,
-              foregroundColor: Colors.white,
-              title: Text(
-                widget.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              actions: [
-                IconButton(
-                  onPressed: _toggleFit,
-                  icon: Icon(
-                    coverFit
-                        ? Icons.fit_screen_rounded
-                        : Icons.aspect_ratio_rounded,
-                  ),
-                ),
-              ],
-            ),
       body: SafeArea(
-        top: !isLandscape,
-        bottom: !isLandscape,
+        top: false,
+        bottom: false,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: locked
@@ -172,11 +151,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ),
                   ),
                 ),
+              if (controlsVisible && !locked)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  child: _topControls(isLandscape),
+                ),
+              if (controlsVisible && !locked)
+                Center(child: _centerControls(isLandscape)),
               Positioned(
                 right: 14,
-                top: isLandscape ? 14 : 8,
-                child: IconButton.filledTonal(
+                top: isLandscape ? 56 : 76,
+                child: IconButton.filled(
                   onPressed: () => setState(() => locked = !locked),
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.black.withValues(alpha: 0.48),
+                    foregroundColor: Colors.white,
+                  ),
                   icon: Icon(
                     locked ? Icons.lock_rounded : Icons.lock_open_rounded,
                   ),
@@ -193,6 +185,100 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _topControls(bool isLandscape) {
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        isLandscape ? 18 : 10,
+        MediaQuery.paddingOf(context).top + 8,
+        isLandscape ? 18 : 10,
+        34,
+      ),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xcc000000), Color(0x00000000)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: '返回',
+            onPressed: Navigator.of(context).pop,
+            icon: const Icon(Icons.arrow_back_ios_new_rounded),
+            color: Colors.white,
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              widget.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: isLandscape ? 16 : 15,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: coverFit ? '完整显示' : '填充画面',
+            onPressed: _toggleFit,
+            icon: Icon(
+              coverFit ? Icons.fit_screen_rounded : Icons.aspect_ratio_rounded,
+            ),
+            color: Colors.white,
+          ),
+          IconButton(
+            tooltip: '更多',
+            onPressed: _showPlayerMenu,
+            icon: const Icon(Icons.more_horiz_rounded),
+            color: Colors.white,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _centerControls(bool isLandscape) {
+    final diameter = isLandscape ? 70.0 : 64.0;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _GlassControlButton(
+          tooltip: '后退 10 秒',
+          icon: Icons.replay_10_rounded,
+          onPressed: () => _seekBy(-10),
+        ),
+        SizedBox(width: isLandscape ? 28 : 18),
+        SizedBox(
+          width: diameter,
+          height: diameter,
+          child: IconButton.filled(
+            tooltip: controller?.value.isPlaying == true ? '暂停' : '播放',
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.black.withValues(alpha: 0.56),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: _togglePlay,
+            iconSize: 38,
+            icon: Icon(
+              controller?.value.isPlaying == true
+                  ? Icons.pause_rounded
+                  : Icons.play_arrow_rounded,
+            ),
+          ),
+        ),
+        SizedBox(width: isLandscape ? 28 : 18),
+        _GlassControlButton(
+          tooltip: '前进 10 秒',
+          icon: Icons.forward_10_rounded,
+          onPressed: () => _seekBy(10),
+        ),
+      ],
     );
   }
 
@@ -258,30 +344,56 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Widget _controls(bool isLandscape) {
     final player = controller;
     final value = player?.value;
+    final downloaded = widget.downloadTask?.progress.clamp(0, 1).toDouble() ??
+        _bufferedFraction();
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Colors.transparent, Colors.black.withValues(alpha: 0.82)],
+          colors: [Colors.transparent, Colors.black.withValues(alpha: 0.94)],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
         ),
       ),
       child: Padding(
         padding: EdgeInsets.fromLTRB(
-          isLandscape ? 28 : 18,
-          46,
-          isLandscape ? 28 : 18,
-          isLandscape ? 18 : 24,
+          isLandscape ? 34 : 18,
+          isLandscape ? 58 : 50,
+          isLandscape ? 34 : 18,
+          MediaQuery.paddingOf(context).bottom + (isLandscape ? 12 : 18),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (widget.downloadTask != null)
+              Align(
+                alignment: Alignment.center,
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(99),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: Text(
+                    '已缓存 ${_formatPosition(Duration(milliseconds: (_displayDuration().inMilliseconds * downloaded).round()))}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
             SliderTheme(
               data: SliderTheme.of(context).copyWith(
-                trackHeight: 6,
-                thumbColor: const Color(0xff246bfd),
-                overlayColor: const Color(0x33246bfd),
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+                trackHeight: 5,
+                thumbColor: Colors.white,
+                overlayColor: const Color(0x44246bfd),
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
               ),
               child: Stack(
                 alignment: Alignment.center,
@@ -290,9 +402,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     child: _PreviewProgressTrack(
                       played: _positionFraction(),
                       buffered: _bufferedFraction(),
-                      downloaded:
-                          widget.downloadTask?.progress.clamp(0, 1).toDouble() ??
-                              _bufferedFraction(),
+                      downloaded: downloaded,
                     ),
                   ),
                   SliderTheme(
@@ -312,54 +422,57 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ],
               ),
             ),
-            Row(
-              children: [
-                Text(
-                  _formatPosition(value?.position ?? Duration.zero),
-                  style: const TextStyle(color: Colors.white70),
-                ),
-                const Spacer(),
-                Text(
-                  _formatPosition(_displayDuration()),
-                  style: const TextStyle(color: Colors.white70),
-                ),
-              ],
+            Transform.translate(
+              offset: const Offset(0, -4),
+              child: Row(
+                children: [
+                  Text(
+                    _formatPosition(value?.position ?? Duration.zero),
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                  const Spacer(),
+                  Text(
+                    _formatPosition(_displayDuration()),
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 2),
             Row(
               children: [
-                IconButton.filled(
-                  onPressed: _togglePlay,
+                IconButton(
+                  tooltip: volume == 0 ? '开启声音' : '静音',
+                  onPressed: _toggleMute,
                   icon: Icon(
-                    controller?.value.isPlaying ?? false
-                        ? Icons.pause_rounded
-                        : Icons.play_arrow_rounded,
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => _seekBy(-10),
-                  icon: const Icon(
-                    Icons.replay_10_rounded,
+                    volume == 0
+                        ? Icons.volume_off_rounded
+                        : Icons.volume_up_rounded,
                     color: Colors.white,
                   ),
                 ),
-                IconButton(
-                  onPressed: () => _seekBy(10),
-                  icon: const Icon(
-                    Icons.forward_10_rounded,
-                    color: Colors.white,
+                if (isLandscape)
+                  SizedBox(
+                    width: 110,
+                    child: Slider(
+                      value: volume,
+                      onChanged: (newVolume) {
+                        setState(() => volume = newVolume);
+                        controller?.setVolume(newVolume);
+                      },
+                    ),
                   ),
-                ),
-                IconButton(
-                  onPressed: _toggleFit,
-                  icon: Icon(
-                    coverFit
-                        ? Icons.fit_screen_rounded
-                        : Icons.aspect_ratio_rounded,
-                    color: Colors.white,
-                  ),
-                ),
                 const Spacer(),
+                TextButton(
+                  onPressed: _toggleFit,
+                  child: Text(
+                    _qualityLabel(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
                 DropdownButton<double>(
                   value: speed,
                   dropdownColor: const Color(0xff222222),
@@ -377,6 +490,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     controller?.setPlaybackSpeed(speed);
                     _scheduleControlsHide();
                   },
+                ),
+                IconButton(
+                  tooltip: isLandscape ? '退出全屏' : '全屏',
+                  onPressed: _toggleFullscreen,
+                  icon: Icon(
+                    isLandscape
+                        ? Icons.fullscreen_exit_rounded
+                        : Icons.fullscreen_rounded,
+                    color: Colors.white,
+                  ),
                 ),
               ],
             ),
@@ -443,6 +566,88 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _toggleFit() {
     setState(() => coverFit = !coverFit);
     _showOverlay(coverFit ? '画面填充' : '完整显示');
+    _scheduleControlsHide();
+  }
+
+  void _toggleMute() {
+    setState(() => volume = volume > 0 ? 0 : 1);
+    controller?.setVolume(volume);
+    _showOverlay(volume == 0 ? '已静音' : '音量 100%');
+  }
+
+  void _toggleFullscreen() {
+    final landscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+    SystemChrome.setPreferredOrientations(
+      landscape
+          ? [DeviceOrientation.portraitUp]
+          : [
+              DeviceOrientation.landscapeLeft,
+              DeviceOrientation.landscapeRight,
+            ],
+    );
+  }
+
+  String _qualityLabel() {
+    final size = controller?.value.size;
+    if (size == null || size.height <= 0) return '视频';
+    final height = size.height.round();
+    if (height >= 2160) return '4K';
+    if (height >= 1440) return '1440P';
+    if (height >= 1080) return '1080P';
+    if (height >= 720) return '720P';
+    if (height >= 480) return '480P';
+    return '${height}P';
+  }
+
+  Future<void> _showPlayerMenu() async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.restart_alt_rounded),
+              title: const Text('从头播放'),
+              onTap: () => Navigator.pop(context, 'restart'),
+            ),
+            ListTile(
+              leading: Icon(
+                coverFit
+                    ? Icons.fit_screen_rounded
+                    : Icons.aspect_ratio_rounded,
+              ),
+              title: Text(coverFit ? '完整显示画面' : '填充屏幕'),
+              onTap: () => Navigator.pop(context, 'fit'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.speed_rounded),
+              title: const Text('恢复正常速度'),
+              subtitle: Text('当前 ${speed.toStringAsFixed(2)}×'),
+              onTap: () => Navigator.pop(context, 'speed'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.info_outline_rounded),
+              title: Text('${_qualityLabel()} · ${_formatPosition(_displayDuration())}'),
+              subtitle: const Text('双击快进/后退，长按 2 倍速播放'),
+              onTap: () => Navigator.pop(context),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (selected == 'restart') {
+      await controller?.seekTo(Duration.zero);
+      await controller?.play();
+    } else if (selected == 'fit') {
+      _toggleFit();
+    } else if (selected == 'speed') {
+      setState(() => speed = 1);
+      await controller?.setPlaybackSpeed(1);
+    }
     _scheduleControlsHide();
   }
 
@@ -694,6 +899,32 @@ class _PlayerScreenState extends State<PlayerScreen> {
         position: value.position,
         duration: value.duration,
       ),
+    );
+  }
+}
+
+class _GlassControlButton extends StatelessWidget {
+  const _GlassControlButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton.filled(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      style: IconButton.styleFrom(
+        backgroundColor: Colors.black.withValues(alpha: 0.48),
+        foregroundColor: Colors.white,
+        minimumSize: const Size(52, 52),
+      ),
+      icon: Icon(icon, size: 28),
     );
   }
 }
