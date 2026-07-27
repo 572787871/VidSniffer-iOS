@@ -18,28 +18,18 @@ class GradientButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final button = DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: onPressed == null ? null : AppTheme.primaryGradient,
-        color: onPressed == null
-            ? Theme.of(context).disabledColor.withValues(alpha: 0.2)
-            : null,
-        borderRadius: BorderRadius.circular(18),
+    final button = FilledButton.icon(
+      style: FilledButton.styleFrom(
+        backgroundColor: AppTheme.blue,
+        disabledBackgroundColor:
+            Theme.of(context).disabledColor.withValues(alpha: 0.16),
+        shadowColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
       ),
-      child: FilledButton.icon(
-        style: FilledButton.styleFrom(
-          backgroundColor: Colors.transparent,
-          shadowColor: Colors.transparent,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-          ),
-        ),
-        onPressed: onPressed,
-        icon: Icon(icon, size: 20),
-        label: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
-      ),
+      onPressed: onPressed,
+      icon: Icon(icon, size: 19),
+      label: Text(label),
     );
     return expanded ? SizedBox(width: double.infinity, child: button) : button;
   }

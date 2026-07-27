@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 
 class AppTextField extends StatelessWidget {
   const AppTextField({
@@ -20,10 +21,18 @@ class AppTextField extends StatelessWidget {
       textInputAction: TextInputAction.go,
       autocorrect: false,
       enableSuggestions: false,
+      onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
       onSubmitted: onSubmitted,
       decoration: InputDecoration(
         hintText: hintText,
-        prefixIcon: const Icon(Icons.link_rounded),
+        prefixIcon: const Icon(CupertinoIcons.link),
+        suffixIcon: controller.text.isEmpty
+            ? null
+            : IconButton(
+                tooltip: '清除',
+                onPressed: controller.clear,
+                icon: const Icon(CupertinoIcons.clear_thick_circled),
+              ),
       ),
     );
   }

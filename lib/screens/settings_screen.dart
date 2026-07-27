@@ -1,7 +1,9 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../services/ui_state.dart';
-import '../widgets/app_card.dart';
+import '../theme/app_theme.dart';
+import '../widgets/apple_ui.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -9,100 +11,115 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = UiStateScope.of(context);
-    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('设置')),
+      appBar: AppBar(
+        leading: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: Navigator.of(context).pop,
+          child: const Icon(CupertinoIcons.back),
+        ),
+        title: const Text('设置'),
+      ),
       body: AnimatedBuilder(
         animation: state,
         builder: (context, _) => ListView(
-          padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 32),
           children: [
-            AppCard(
-              child: Row(
-                children: [
-                  Container(
-                    width: 52,
-                    height: 52,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xff2563eb), Color(0xff7c3aed)],
-                      ),
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: const Icon(
-                      Icons.folder_rounded,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '默认保存路径',
-                          style: TextStyle(fontWeight: FontWeight.w900),
-                        ),
-                        SizedBox(height: 4),
-                        Text('文件 App / 本 App / Documents / videos'),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            AppCard(
-              child: SwitchListTile(
-                value: state.onlyWifi,
-                onChanged: state.toggleWifi,
-                contentPadding: EdgeInsets.zero,
-                title: const Text(
-                  '仅 Wi-Fi 下载',
-                  style: TextStyle(fontWeight: FontWeight.w800),
+            const AppleSectionHeader(title: '下载'),
+            AppleListGroup(
+              footer: '下载的视频可在“文件”App 的本 App 文件夹中找到。',
+              children: [
+                const AppleListTile(
+                  title: '默认保存位置',
+                  subtitle: 'Documents / videos',
+                  icon: CupertinoIcons.folder_fill,
+                  iconColor: AppTheme.blue,
                 ),
-                subtitle: const Text('避免移动网络消耗过多流量'),
-              ),
+                ListTile(
+                  leading: const AppleIconTile(
+                    icon: CupertinoIcons.wifi,
+                    color: AppTheme.green,
+                  ),
+                  title: const Text('仅 Wi-Fi 下载'),
+                  subtitle: const Text('避免使用移动数据下载大文件'),
+                  trailing: CupertinoSwitch(
+                    value: state.onlyWifi,
+                    activeTrackColor: AppTheme.green,
+                    onChanged: state.toggleWifi,
+                  ),
+                  onTap: () => state.toggleWifi(!state.onlyWifi),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            AppCard(
-              child: Column(
-                children: [
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.cleaning_services_rounded),
-                    title: const Text('清理缓存'),
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () {},
-                  ),
-                  Divider(color: scheme.outlineVariant),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.info_outline_rounded),
-                    title: const Text('关于 App'),
-                    subtitle: const Text('网页视频解析下载器 1.0.0'),
-                  ),
-                ],
-              ),
+            const SizedBox(height: 20),
+            const AppleSectionHeader(title: '存储'),
+            AppleListGroup(
+              children: [
+                AppleListTile(
+                  title: '清理缓存',
+                  subtitle: '移除网页与临时解析文件',
+                  icon: CupertinoIcons.trash_fill,
+                  iconColor: AppTheme.orange,
+                  onTap: () => _showCacheNotice(context),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            AppCard(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.verified_user_outlined, color: scheme.primary),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text(
-                      '合规提示：仅下载自己有权访问的视频内容。本 App 不绕过 DRM、付费墙或加密版权保护。',
-                      style: TextStyle(height: 1.45),
-                    ),
-                  ),
-                ],
-              ),
+            const SizedBox(height: 20),
+            const AppleSectionHeader(title: '关于'),
+            AppleListGroup(
+              children: [
+                const AppleListTile(
+                  title: '网页视频下载器',
+                  subtitle: '版本 1.0.0',
+                  icon: CupertinoIcons.info_circle_fill,
+                  iconColor: AppTheme.blue,
+                ),
+                AppleListTile(
+                  title: '使用与版权说明',
+                  icon: CupertinoIcons.checkmark_shield_fill,
+                  iconColor: AppTheme.green,
+                  onTap: () => _showCompliance(context),
+                ),
+              ],
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  static void _showCacheNotice(BuildContext context) {
+    showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('清理缓存'),
+        content: const Text('\n当前没有需要清理的临时缓存。已下载视频不会被删除。'),
+        actions: [
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: Navigator.of(context).pop,
+            child: const Text('好'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static void _showCompliance(BuildContext context) {
+    showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('使用与版权说明'),
+        content: const Text(
+          '\n请仅下载自己有权访问和保存的视频。本 App 不绕过 DRM、付费墙或加密版权保护。',
+        ),
+        actions: [
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: Navigator.of(context).pop,
+            child: const Text('我知道了'),
+          ),
+        ],
       ),
     );
   }

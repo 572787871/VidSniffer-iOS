@@ -1,9 +1,12 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../models/library_folder.dart';
 import '../models/video_resource.dart';
 import '../services/file_utils.dart';
 import '../services/ui_state.dart';
+import '../theme/app_theme.dart';
+import 'apple_ui.dart';
 
 enum DownloadSaveTarget { recent, site, page, custom, create }
 
@@ -68,7 +71,12 @@ Future<VideoResource?> showDownloadConfirmDialog(
                 children: [
                   const Text(
                     '保存到',
-                    style: TextStyle(fontSize: 25, fontWeight: FontWeight.w900),
+                    style: TextStyle(
+                      fontSize: 28,
+                      height: 1.1,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.5,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -113,18 +121,22 @@ Future<VideoResource?> showDownloadConfirmDialog(
                     ),
                   ListTile(
                     contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                    leading: const Icon(
-                      Icons.create_new_folder_rounded,
-                      color: Color(0xff1769f6),
+                    leading: const AppleIconTile(
+                      icon: CupertinoIcons.folder_badge_plus,
+                      color: AppTheme.blue,
                     ),
                     title: const Text(
                       '新建文件夹',
                       style: TextStyle(
-                        color: Color(0xff1769f6),
-                        fontWeight: FontWeight.w800,
+                        color: AppTheme.blue,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    trailing: const Icon(Icons.chevron_right_rounded),
+                    trailing: const Icon(
+                      CupertinoIcons.chevron_forward,
+                      size: 17,
+                      color: CupertinoColors.systemGrey,
+                    ),
                     onTap: () async {
                       final name = await _askFolderName(sheetContext);
                       if (name == null || name.trim().isEmpty) return;
@@ -140,7 +152,7 @@ Future<VideoResource?> showDownloadConfirmDialog(
                     controller: nameController,
                     decoration: const InputDecoration(
                       labelText: '文件名',
-                      prefixIcon: Icon(Icons.movie_outlined),
+                      prefixIcon: Icon(CupertinoIcons.film),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -167,7 +179,8 @@ Future<VideoResource?> showDownloadConfirmDialog(
                         flex: 2,
                         child: FilledButton.icon(
                           onPressed: finish,
-                          icon: const Icon(Icons.download_rounded),
+                          icon:
+                              const Icon(CupertinoIcons.arrow_down_to_line),
                           label: const Text('保存并下载'),
                         ),
                       ),
@@ -200,33 +213,41 @@ class _FolderChoice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: selected
-          ? const Color(0xffeaf1ff)
-          : Theme.of(context).colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(14),
-      child: ListTile(
-        onTap: onTap,
-        leading: const Icon(
-          Icons.folder_rounded,
-          color: Color(0xffffb81c),
-        ),
-        title: Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w800),
-        ),
-        subtitle: Text(
-          subtitle,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        trailing: Icon(
-          selected
-              ? Icons.radio_button_checked_rounded
-              : Icons.radio_button_off_rounded,
-          color: selected ? const Color(0xff1769f6) : null,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: ApplePressable(
+        onPressed: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: selected
+                ? AppTheme.blue.withValues(alpha: 0.1)
+                : Theme.of(context).colorScheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: ListTile(
+            leading: const AppleIconTile(
+              icon: CupertinoIcons.folder_fill,
+              color: AppTheme.orange,
+            ),
+            title: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: Icon(
+              selected
+                  ? CupertinoIcons.checkmark_circle_fill
+                  : CupertinoIcons.circle,
+              color: selected ? AppTheme.blue : CupertinoColors.systemGrey,
+            ),
+          ),
         ),
       ),
     );
@@ -276,21 +297,26 @@ Future<LibraryFolder?> _resolveFolder(
 Future<String?> _askFolderName(BuildContext context) async {
   final controller = TextEditingController();
   try {
-    return showDialog<String>(
+    return showCupertinoDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => CupertinoAlertDialog(
         title: const Text('新建文件夹'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: '文件夹名称'),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: CupertinoTextField(
+            controller: controller,
+            autofocus: true,
+            placeholder: '文件夹名称',
+            clearButtonMode: OverlayVisibilityMode.editing,
+          ),
         ),
         actions: [
-          TextButton(
+          CupertinoDialogAction(
             onPressed: () => Navigator.pop(context),
             child: const Text('取消'),
           ),
-          FilledButton(
+          CupertinoDialogAction(
+            isDefaultAction: true,
             onPressed: () => Navigator.pop(context, controller.text.trim()),
             child: const Text('创建'),
           ),

@@ -1,6 +1,10 @@
+import 'dart:ui';
+
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../services/ui_state.dart';
+import '../theme/app_theme.dart';
 import 'browser_screen.dart';
 import 'downloads_screen.dart';
 import 'library_screen.dart';
@@ -30,40 +34,51 @@ class _AppShellState extends State<AppShell> {
       ),
       bottomNavigationBar: AnimatedBuilder(
         animation: state,
-        builder: (context, _) => DecoratedBox(
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            border: Border(
-              top: BorderSide(color: Theme.of(context).dividerColor),
+        builder: (context, _) => ClipRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Theme.of(context)
+                    .colorScheme
+                    .surface
+                    .withValues(alpha: 0.86),
+                border: Border(
+                  top: BorderSide(
+                    color: Theme.of(context).dividerColor,
+                    width: 0.5,
+                  ),
+                ),
+              ),
+              child: CupertinoTabBar(
+                currentIndex: state.selectedTab,
+                onTap: state.selectTab,
+                activeColor: AppTheme.blue,
+                inactiveColor: CupertinoColors.systemGrey,
+                backgroundColor: Colors.transparent,
+                border: null,
+                height: 52,
+                iconSize: 24,
+                items: const [
+                  BottomNavigationBarItem(
+                    icon: Icon(CupertinoIcons.globe),
+                    activeIcon: Icon(CupertinoIcons.globe),
+                    label: '浏览器',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(CupertinoIcons.arrow_down_circle),
+                    activeIcon:
+                        Icon(CupertinoIcons.arrow_down_circle_fill),
+                    label: '下载中',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(CupertinoIcons.folder),
+                    activeIcon: Icon(CupertinoIcons.folder_fill),
+                    label: '已下载',
+                  ),
+                ],
+              ),
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.035),
-                blurRadius: 18,
-                offset: const Offset(0, -5),
-              ),
-            ],
-          ),
-          child: NavigationBar(
-            selectedIndex: state.selectedTab,
-            onDestinationSelected: state.selectTab,
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.language_outlined),
-                selectedIcon: Icon(Icons.language_rounded),
-                label: '浏览器',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.arrow_circle_down_outlined),
-                selectedIcon: Icon(Icons.arrow_circle_down_rounded),
-                label: '下载中',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.folder_outlined),
-                selectedIcon: Icon(Icons.folder_rounded),
-                label: '已下载',
-              ),
-            ],
           ),
         ),
       ),

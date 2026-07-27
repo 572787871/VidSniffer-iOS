@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'apple_ui.dart';
+
 class AppCard extends StatelessWidget {
   const AppCard({
     required this.child,
@@ -14,11 +16,17 @@ class AppCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Padding(padding: padding, child: child),
+    return ApplePressable(
+      onPressed: onTap,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Padding(
+          padding: padding,
+          child: child,
+        ),
       ),
     );
   }

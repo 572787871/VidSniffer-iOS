@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
@@ -643,21 +644,22 @@ class _WebViewScreenState extends State<WebViewScreen> {
       autoStatus = '未自动发现视频资源';
       autoFoundCount = 0;
     });
-    await showDialog<void>(
+    await showCupertinoDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
+      builder: (context) => CupertinoAlertDialog(
         title: const Text('未自动发现视频'),
-        content: const Text('部分网站需要先播放视频，请进入网页播放后继续嗅探。'),
+        content: const Text('\n部分网站需要先播放视频，请进入网页播放后继续解析。'),
         actions: [
-          TextButton(
+          CupertinoDialogAction(
             onPressed: () {
               Navigator.pop(context);
               _retryAutoParse();
             },
             child: const Text('重试自动解析'),
           ),
-          FilledButton(
+          CupertinoDialogAction(
+            isDefaultAction: true,
             onPressed: () {
               Navigator.pop(context);
               setState(() {

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
@@ -151,15 +152,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ),
                   ),
                 ),
-              if (controlsVisible && !locked)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  top: 0,
-                  child: _topControls(isLandscape),
-                ),
-              if (controlsVisible && !locked)
-                Center(child: _centerControls(isLandscape)),
+              Positioned(
+                left: 0,
+                right: 0,
+                top: 0,
+                child: _animatedChrome(_topControls(isLandscape)),
+              ),
+              Center(child: _animatedChrome(_centerControls(isLandscape))),
               Positioned(
                 right: 14,
                 top: isLandscape ? 56 : 76,
@@ -170,20 +169,36 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     foregroundColor: Colors.white,
                   ),
                   icon: Icon(
-                    locked ? Icons.lock_rounded : Icons.lock_open_rounded,
+                    locked
+                        ? CupertinoIcons.lock_fill
+                        : CupertinoIcons.lock_open_fill,
                   ),
                 ),
               ),
-              if (controlsVisible && !locked)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: _controls(isLandscape),
-                ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: _animatedChrome(_controls(isLandscape)),
+              ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _animatedChrome(Widget child) {
+    final visible = controlsVisible && !locked;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    return IgnorePointer(
+      ignoring: !visible,
+      child: AnimatedOpacity(
+        opacity: visible ? 1 : 0,
+        duration:
+            reduceMotion ? Duration.zero : const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        child: child,
       ),
     );
   }
@@ -208,7 +223,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           IconButton(
             tooltip: '返回',
             onPressed: Navigator.of(context).pop,
-            icon: const Icon(Icons.arrow_back_ios_new_rounded),
+            icon: const Icon(CupertinoIcons.back),
             color: Colors.white,
           ),
           const SizedBox(width: 4),
@@ -228,14 +243,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
             tooltip: coverFit ? '完整显示' : '填充画面',
             onPressed: _toggleFit,
             icon: Icon(
-              coverFit ? Icons.fit_screen_rounded : Icons.aspect_ratio_rounded,
+              coverFit
+                  ? CupertinoIcons.rectangle_compress_vertical
+                  : CupertinoIcons.rectangle_expand_vertical,
             ),
             color: Colors.white,
           ),
           IconButton(
             tooltip: '更多',
             onPressed: _showPlayerMenu,
-            icon: const Icon(Icons.more_horiz_rounded),
+            icon: const Icon(CupertinoIcons.ellipsis),
             color: Colors.white,
           ),
         ],
@@ -250,7 +267,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       children: [
         _GlassControlButton(
           tooltip: '后退 10 秒',
-          icon: Icons.replay_10_rounded,
+          icon: CupertinoIcons.gobackward_10,
           onPressed: () => _seekBy(-10),
         ),
         SizedBox(width: isLandscape ? 28 : 18),
@@ -267,15 +284,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
             iconSize: 38,
             icon: Icon(
               controller?.value.isPlaying == true
-                  ? Icons.pause_rounded
-                  : Icons.play_arrow_rounded,
+                  ? CupertinoIcons.pause_fill
+                  : CupertinoIcons.play_fill,
             ),
           ),
         ),
         SizedBox(width: isLandscape ? 28 : 18),
         _GlassControlButton(
           tooltip: '前进 10 秒',
-          icon: Icons.forward_10_rounded,
+          icon: CupertinoIcons.goforward_10,
           onPressed: () => _seekBy(10),
         ),
       ],
@@ -390,10 +407,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
             SliderTheme(
               data: SliderTheme.of(context).copyWith(
-                trackHeight: 5,
+                trackHeight: 4,
                 thumbColor: Colors.white,
-                overlayColor: const Color(0x44246bfd),
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                overlayColor: const Color(0x44007aff),
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
               ),
               child: SizedBox(
                 height: 32,
@@ -403,7 +420,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     Positioned(
                       left: 0,
                       right: 0,
-                      height: 5,
+                      height: 4,
                       child: _PreviewProgressTrack(
                         played: _positionFraction(),
                         buffered: _bufferedFraction(),
@@ -452,8 +469,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   onPressed: _toggleMute,
                   icon: Icon(
                     volume == 0
-                        ? Icons.volume_off_rounded
-                        : Icons.volume_up_rounded,
+                        ? CupertinoIcons.volume_off
+                        : CupertinoIcons.volume_up,
                     color: Colors.white,
                   ),
                 ),
@@ -502,8 +519,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   onPressed: _toggleFullscreen,
                   icon: Icon(
                     isLandscape
-                        ? Icons.fullscreen_exit_rounded
-                        : Icons.fullscreen_rounded,
+                        ? CupertinoIcons.arrow_down_right_arrow_up_left
+                        : CupertinoIcons.arrow_up_left_arrow_down_right,
                     color: Colors.white,
                   ),
                 ),
@@ -866,17 +883,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (!mounted) return;
     if (resume.inSeconds > 10 &&
         resume < player.value.duration - const Duration(seconds: 10)) {
-      final shouldContinue = await showDialog<bool>(
+      final shouldContinue = await showCupertinoDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => CupertinoAlertDialog(
           title: const Text('继续播放？'),
-          content: Text('上次播放到 ${_formatPosition(resume)}'),
+          content: Text('\n上次播放到 ${_formatPosition(resume)}'),
           actions: [
-            TextButton(
+            CupertinoDialogAction(
               onPressed: () => Navigator.pop(context, false),
               child: const Text('从头播放'),
             ),
-            FilledButton(
+            CupertinoDialogAction(
+              isDefaultAction: true,
               onPressed: () => Navigator.pop(context, true),
               child: const Text('继续播放'),
             ),
@@ -954,14 +972,14 @@ class _PreviewProgressTrack extends StatelessWidget {
         builder: (context, constraints) => Stack(
           children: [
             const Positioned.fill(child: ColoredBox(color: Color(0x55ffffff))),
-            _bar(const Color(0xff91b3ff), downloaded, constraints.maxWidth),
+            _bar(const Color(0xff8bbcff), downloaded, constraints.maxWidth),
             _rangeBar(
               const Color(0xffd5e1ff),
               downloaded,
               buffered,
               constraints.maxWidth,
             ),
-            _bar(const Color(0xff246bfd), played, constraints.maxWidth),
+            _bar(const Color(0xff007aff), played, constraints.maxWidth),
           ],
         ),
       ),

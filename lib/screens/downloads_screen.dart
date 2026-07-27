@@ -1,9 +1,11 @@
 import 'dart:io';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../models/download_task.dart';
 import '../services/ui_state.dart';
+import '../theme/app_theme.dart';
 import '../widgets/app_card.dart';
 import '../widgets/empty_state.dart';
 import 'player_screen.dart';
@@ -97,9 +99,9 @@ class _DownloadSummaryBar extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Icon(
-                  Icons.bolt_rounded,
+                  CupertinoIcons.bolt_fill,
                   size: 18,
-                  color: Color(0xff246bfd),
+                  color: AppTheme.blue,
                 ),
                 const SizedBox(width: 5),
                 Text(
@@ -196,9 +198,8 @@ class _SwipeToDeleteState extends State<_SwipeToDelete> {
   Widget build(BuildContext context) {
     final manager = UiStateScope.of(context).downloadManager;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final scheme = Theme.of(context).colorScheme;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(18),
       child: Stack(
         children: [
           Positioned.fill(
@@ -207,20 +208,51 @@ class _SwipeToDeleteState extends State<_SwipeToDelete> {
               child: SizedBox(
                 width: actionWidth,
                 child: Material(
-                  color: scheme.errorContainer,
+                  color: AppTheme.red,
                   child: InkWell(
-                    onTap: () => manager.removeTask(widget.task),
+                    onTap: () async {
+                      final confirmed = await showCupertinoDialog<bool>(
+                        context: context,
+                        builder: (dialogContext) => CupertinoAlertDialog(
+                          title: const Text('删除下载任务？'),
+                          content: const Text('\n任务记录和未完成的临时文件将被删除。'),
+                          actions: [
+                            CupertinoDialogAction(
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, false),
+                              child: const Text('取消'),
+                            ),
+                            CupertinoDialogAction(
+                              isDestructiveAction: true,
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, true),
+                              child: const Text('删除'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirmed == true) {
+                        await manager.removeTask(widget.task);
+                      }
+                      if (mounted) setState(() => offset = 0);
+                    },
                     child: Semantics(
                       button: true,
                       label: '删除下载任务',
                       child: const Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.delete_outline_rounded),
+                          Icon(
+                            CupertinoIcons.delete,
+                            color: Colors.white,
+                          ),
                           SizedBox(height: 4),
                           Text(
                             '删除',
-                            style: TextStyle(fontWeight: FontWeight.w700),
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ],
                       ),

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
@@ -8,7 +9,9 @@ import '../models/download_task.dart';
 import '../models/library_folder.dart';
 import '../models/local_video.dart';
 import '../services/ui_state.dart';
+import '../theme/app_theme.dart';
 import '../widgets/app_card.dart';
+import '../widgets/apple_ui.dart';
 import '../widgets/empty_state.dart';
 import 'player_screen.dart';
 
@@ -53,7 +56,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
               ),
             ),
-            icon: const Icon(Icons.search_rounded),
+            icon: const Icon(CupertinoIcons.search),
           ),
           PopupMenuButton<_LibrarySort>(
             initialValue: sort,
@@ -64,12 +67,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
               PopupMenuItem(value: _LibrarySort.duration, child: Text('时长')),
               PopupMenuItem(value: _LibrarySort.name, child: Text('文件名')),
             ],
-            icon: const Icon(Icons.sort_by_alpha_rounded),
+            icon: const Icon(CupertinoIcons.arrow_up_arrow_down),
           ),
           IconButton(
             tooltip: '刷新',
             onPressed: state.refreshLibrary,
-            icon: const Icon(Icons.more_horiz_rounded),
+            icon: const Icon(CupertinoIcons.refresh),
           ),
         ],
       ),
@@ -78,7 +81,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         onPressed: () => _createFolder(context),
         backgroundColor: Theme.of(context).colorScheme.primary,
         foregroundColor: Colors.white,
-        child: const Icon(Icons.add_rounded),
+        child: const Icon(CupertinoIcons.add),
       ),
       body: AnimatedBuilder(
         animation: state,
@@ -380,10 +383,10 @@ class _AllVideosCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       child: Row(
         children: [
-          const CircleAvatar(
-            radius: 25,
-            backgroundColor: Color(0xff1769f6),
-            child: Icon(Icons.video_library_rounded, color: Colors.white),
+          const AppleIconTile(
+            icon: CupertinoIcons.play_rectangle_fill,
+            color: AppTheme.blue,
+            size: 50,
           ),
           const SizedBox(width: 13),
           Expanded(
@@ -404,7 +407,11 @@ class _AllVideosCard extends StatelessWidget {
               ],
             ),
           ),
-          const Icon(Icons.chevron_right_rounded),
+          const Icon(
+            CupertinoIcons.chevron_forward,
+            size: 17,
+            color: CupertinoColors.systemGrey,
+          ),
         ],
       ),
     );
@@ -431,12 +438,12 @@ class _FolderCard extends StatelessWidget {
             width: 64,
             height: 58,
             decoration: BoxDecoration(
-              color: const Color(0xfffff5dc),
-              borderRadius: BorderRadius.circular(16),
+              color: AppTheme.orange.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(14),
             ),
             child: const Icon(
-              Icons.folder_rounded,
-              color: Color(0xffffbd2e),
+              CupertinoIcons.folder_fill,
+              color: AppTheme.orange,
               size: 34,
             ),
           ),
@@ -493,7 +500,8 @@ class _FolderCard extends StatelessWidget {
             )
           else
             Icon(
-              Icons.chevron_right_rounded,
+              CupertinoIcons.chevron_forward,
+              size: 17,
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
         ],
@@ -784,21 +792,26 @@ Future<String?> _askText(
 }) async {
   final controller = TextEditingController(text: initialValue);
   try {
-    return showDialog<String>(
+    return showCupertinoDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => CupertinoAlertDialog(
         title: Text(title),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(labelText: label),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: CupertinoTextField(
+            controller: controller,
+            autofocus: true,
+            placeholder: label,
+            clearButtonMode: OverlayVisibilityMode.editing,
+          ),
         ),
         actions: [
-          TextButton(
+          CupertinoDialogAction(
             onPressed: () => Navigator.pop(context),
             child: const Text('取消'),
           ),
-          FilledButton(
+          CupertinoDialogAction(
+            isDefaultAction: true,
             onPressed: () => Navigator.pop(context, controller.text.trim()),
             child: const Text('确定'),
           ),
@@ -815,19 +828,20 @@ Future<bool?> _confirm(
   required String title,
   required String message,
 }) {
-  return showDialog<bool>(
+  return showCupertinoDialog<bool>(
     context: context,
-    builder: (context) => AlertDialog(
+    builder: (context) => CupertinoAlertDialog(
       title: Text(title),
       content: Text(message),
       actions: [
-        TextButton(
+        CupertinoDialogAction(
           onPressed: () => Navigator.pop(context, false),
           child: const Text('取消'),
         ),
-        FilledButton(
+        CupertinoDialogAction(
+          isDestructiveAction: true,
           onPressed: () => Navigator.pop(context, true),
-          child: const Text('确定'),
+          child: const Text('删除'),
         ),
       ],
     ),

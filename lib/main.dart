@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import 'screens/app_shell.dart';
@@ -34,9 +35,21 @@ class _VideoDownloaderAppState extends State<VideoDownloaderApp> {
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light(),
         darkTheme: AppTheme.dark(),
-        themeMode: ThemeMode.light,
+        themeMode: ThemeMode.system,
+        scrollBehavior: const _AppleScrollBehavior(),
         home: const AppShell(),
       ),
+    );
+  }
+}
+
+class _AppleScrollBehavior extends CupertinoScrollBehavior {
+  const _AppleScrollBehavior();
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) {
+    return const BouncingScrollPhysics(
+      parent: AlwaysScrollableScrollPhysics(),
     );
   }
 }

@@ -3,7 +3,9 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -13,6 +15,8 @@ import '../services/browser_data_store.dart';
 import '../services/ui_state.dart';
 import '../services/video_sniffer.dart';
 import '../services/video_sniffer_controller.dart';
+import '../theme/app_theme.dart';
+import '../widgets/apple_ui.dart';
 import '../widgets/download_confirm_dialog.dart';
 import 'downloads_screen.dart';
 
@@ -165,8 +169,8 @@ class _BrowserScreenState extends State<BrowserScreen>
           tooltip: '智能解析',
           onPressed: directParsing ? null : _parseClipboardUrl,
           icon: const Icon(
-            Icons.auto_awesome_rounded,
-            color: Color(0xffffc52f),
+            CupertinoIcons.sparkles,
+            color: AppTheme.orange,
           ),
         ),
         IconButton(
@@ -207,20 +211,12 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   Widget _browserMenu({required bool startPage}) {
-    final scheme = Theme.of(context).colorScheme;
     return PopupMenuButton<String>(
       tooltip: '更多',
       position: PopupMenuPosition.under,
-      offset: const Offset(-8, 10),
-      elevation: 16,
-      color: scheme.surface,
-      surfaceTintColor: Colors.transparent,
-      shadowColor: Colors.black.withValues(alpha: 0.18),
+      offset: const Offset(-8, 8),
       constraints: const BoxConstraints(minWidth: 220, maxWidth: 238),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-      ),
-      icon: const Icon(Icons.more_horiz_rounded),
+      icon: const Icon(CupertinoIcons.ellipsis),
       onSelected: _handleMenu,
       itemBuilder: (context) => startPage
           ? [
@@ -1574,13 +1570,16 @@ class _BrowserScreenState extends State<BrowserScreen>
   }
 
   void _showHelp() {
-    showDialog<void>(
+    showCupertinoDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => CupertinoAlertDialog(
         title: const Text('使用方法'),
-        content: const Text('打开网页并播放视频，右下角会出现下载按钮。未检测到时，先播放几秒再点击下载。'),
+        content: const Text(
+          '\n打开网页并播放视频，工具栏会显示检测结果。未检测到时，先播放几秒再重新解析。',
+        ),
         actions: [
-          TextButton(
+          CupertinoDialogAction(
+            isDefaultAction: true,
             onPressed: () => Navigator.pop(context),
             child: const Text('知道了'),
           ),
@@ -2040,10 +2039,10 @@ class _StartPageState extends State<_StartPage> {
           textInputAction: TextInputAction.go,
           decoration: InputDecoration(
             hintText: '搜索或输入网址',
-            prefixIcon: const Icon(Icons.search_rounded),
+            prefixIcon: const Icon(CupertinoIcons.search),
             suffixIcon: IconButton(
               tooltip: '打开',
-              icon: const Icon(Icons.arrow_forward_rounded),
+              icon: const Icon(CupertinoIcons.arrow_right_circle_fill),
               onPressed: () => widget.onOpen(controller.text),
             ),
           ),
@@ -2111,7 +2110,7 @@ class _StartPageState extends State<_StartPage> {
           children: [
             Expanded(
               child: _QuickTool(
-                icon: Icons.bookmark_border_rounded,
+                icon: CupertinoIcons.bookmark,
                 label: '收藏夹',
                 onTap: widget.onFavorites,
               ),
@@ -2119,7 +2118,7 @@ class _StartPageState extends State<_StartPage> {
             const SizedBox(width: 10),
             Expanded(
               child: _QuickTool(
-                icon: Icons.history_rounded,
+                icon: CupertinoIcons.time,
                 label: '历史记录',
                 onTap: widget.onHistory,
               ),
@@ -2127,7 +2126,7 @@ class _StartPageState extends State<_StartPage> {
             const SizedBox(width: 10),
             Expanded(
               child: _QuickTool(
-                icon: Icons.download_done_rounded,
+                icon: CupertinoIcons.arrow_down_circle,
                 label: '下载记录',
                 onTap: widget.onDownloadHistory,
               ),
@@ -2135,7 +2134,7 @@ class _StartPageState extends State<_StartPage> {
             const SizedBox(width: 10),
             Expanded(
               child: _QuickTool(
-                icon: Icons.tune_rounded,
+                icon: CupertinoIcons.settings,
                 label: '设置',
                 onTap: widget.onSettings,
               ),
@@ -2166,7 +2165,7 @@ class _StartPageState extends State<_StartPage> {
                   borderRadius: BorderRadius.circular(18),
                 ),
                 child: Icon(
-                  Icons.bolt_rounded,
+                  CupertinoIcons.bolt_fill,
                   color: scheme.primary,
                   size: 32,
                 ),
@@ -2197,7 +2196,7 @@ class _StartPageState extends State<_StartPage> {
                 ),
               ),
               Icon(
-                Icons.arrow_forward_ios_rounded,
+                CupertinoIcons.chevron_forward,
                 color: scheme.primary,
                 size: 16,
               ),
@@ -2868,29 +2867,37 @@ class _BrowserBottomControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Container(
-      height: 58,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
-      ),
-      child: Row(
-        children: [
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          height: 54,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: scheme.surface.withValues(alpha: 0.88),
+            border: Border(
+              top: BorderSide(
+                color: Theme.of(context).dividerColor,
+                width: 0.5,
+              ),
+            ),
+          ),
+          child: Row(
+            children: [
           _BrowserToolSlot(
             tooltip: '后退',
             onPressed: canGoBack ? onBack : null,
-            icon: const Icon(Icons.arrow_back_rounded),
+            icon: const Icon(CupertinoIcons.back),
           ),
           _BrowserToolSlot(
             tooltip: '主页',
             onPressed: onHome,
-            icon: const Icon(Icons.home_rounded),
+            icon: const Icon(CupertinoIcons.house_fill),
           ),
           _BrowserToolSlot(
             tooltip: '前进',
             onPressed: canGoForward ? onForward : null,
-            icon: const Icon(Icons.arrow_forward_rounded),
+            icon: const Icon(CupertinoIcons.forward),
           ),
           _BrowserToolSlot(
             tooltip: '标签页',
@@ -2917,15 +2924,17 @@ class _BrowserBottomControls extends StatelessWidget {
                     label: Text('$videoCount'),
                     child: Icon(
                       videoCount > 0
-                          ? Icons.video_library_rounded
+                          ? CupertinoIcons.play_rectangle_fill
                           : notice.isNotEmpty
-                              ? Icons.info_outline_rounded
-                              : Icons.video_file_rounded,
+                              ? CupertinoIcons.info_circle
+                              : CupertinoIcons.play_rectangle,
                       color: notice.isNotEmpty ? scheme.tertiary : null,
                     ),
                   ),
           ),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -2979,15 +2988,15 @@ PopupMenuItem<String> _browserMenuItem(
           width: 34,
           height: 34,
           decoration: BoxDecoration(
-            color: const Color(0xff246bfd).withValues(alpha: 0.08),
+            color: AppTheme.blue.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Icon(icon, size: 19, color: const Color(0xff246bfd)),
+          child: Icon(icon, size: 19, color: AppTheme.blue),
         ),
         const SizedBox(width: 12),
         Text(
           label,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
         ),
       ],
     ),
@@ -3092,33 +3101,74 @@ class _SettingsSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: ListView(
-        shrinkWrap: true,
-        children: [
-          const ListTile(
-            title: Text('浏览器设置', style: TextStyle(fontSize: 22)),
-          ),
-          SwitchListTile(
-            value: adBlockEnabled,
-            onChanged: onAdBlockChanged,
-            title: const Text('广告拦截'),
-            subtitle: const Text('隐藏横幅、广告脚本和常见广告框架'),
-          ),
-          SwitchListTile(
-            value: blockPopups,
-            onChanged: onPopupsChanged,
-            title: const Text('阻止弹窗与自动跳转'),
-          ),
-          SwitchListTile(
-            value: blockTrackers,
-            onChanged: adBlockEnabled ? onTrackersChanged : null,
-            title: const Text('隐私追踪过滤'),
-          ),
-          const ListTile(
-            title: Text('过滤模式'),
-            subtitle: Text('基础过滤 + 去弹窗 + 去追踪'),
-          ),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const AppleSectionHeader(title: '浏览器设置'),
+            AppleListGroup(
+              footer: '过滤在页面加载前启用；个别网站可能需要关闭过滤后重新载入。',
+              children: [
+                ListTile(
+                  leading: const AppleIconTile(
+                    icon: CupertinoIcons.shield_fill,
+                    color: AppTheme.blue,
+                  ),
+                  title: const Text('广告拦截'),
+                  subtitle: const Text('横幅、广告脚本与常见广告框架'),
+                  trailing: CupertinoSwitch(
+                    value: adBlockEnabled,
+                    activeTrackColor: AppTheme.green,
+                    onChanged: onAdBlockChanged,
+                  ),
+                  onTap: () => onAdBlockChanged(!adBlockEnabled),
+                ),
+                ListTile(
+                  leading: const AppleIconTile(
+                    icon: CupertinoIcons.rectangle_on_rectangle_angled,
+                    color: AppTheme.orange,
+                  ),
+                  title: const Text('阻止弹窗与自动跳转'),
+                  trailing: CupertinoSwitch(
+                    value: blockPopups,
+                    activeTrackColor: AppTheme.green,
+                    onChanged: onPopupsChanged,
+                  ),
+                  onTap: () => onPopupsChanged(!blockPopups),
+                ),
+                ListTile(
+                  enabled: adBlockEnabled,
+                  leading: const AppleIconTile(
+                    icon: CupertinoIcons.hand_raised_fill,
+                    color: AppTheme.purple,
+                  ),
+                  title: const Text('隐私追踪过滤'),
+                  trailing: CupertinoSwitch(
+                    value: blockTrackers,
+                    activeTrackColor: AppTheme.green,
+                    onChanged:
+                        adBlockEnabled ? onTrackersChanged : null,
+                  ),
+                  onTap: adBlockEnabled
+                      ? () => onTrackersChanged(!blockTrackers)
+                      : null,
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const AppleListGroup(
+              children: [
+                AppleListTile(
+                  title: '过滤模式',
+                  subtitle: '基础过滤 · 去弹窗 · 去追踪',
+                  icon: CupertinoIcons.slider_horizontal_3,
+                  iconColor: AppTheme.green,
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
