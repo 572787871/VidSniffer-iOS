@@ -173,36 +173,14 @@ class _BrowserScreenState extends State<BrowserScreen>
           onPressed: _showBrowserTabs,
           icon: _TabCountBadge(count: browserTabs.length),
         ),
-        PopupMenuButton<String>(
-          onSelected: _handleMenu,
-          itemBuilder: (context) => const [
-            PopupMenuItem(
-              value: 'parsePaste',
-              child: Text('粘贴网址直接解析'),
-            ),
-            PopupMenuItem(value: 'paste', child: Text('粘贴并打开')),
-            PopupMenuItem(value: 'favorites', child: Text('收藏夹')),
-            PopupMenuItem(value: 'history', child: Text('历史记录')),
-            PopupMenuItem(value: 'downloadHistory', child: Text('下载记录')),
-            PopupMenuItem(value: 'help', child: Text('帮助')),
-            PopupMenuItem(value: 'settings', child: Text('浏览器设置')),
-          ],
-        ),
+        _browserMenu(startPage: true),
       ],
     );
   }
 
   PreferredSizeWidget _browserAppBar() {
     return AppBar(
-      leadingWidth: 40,
-      leading: Builder(
-        builder: (context) => IconButton(
-          tooltip: '收藏与历史',
-          onPressed: _showBrowserTabs,
-          icon: _TabCountBadge(count: browserTabs.length),
-        ),
-      ),
-      titleSpacing: 0,
+      titleSpacing: 14,
       title: _AddressBar(
         controller: addressController,
         onSubmitted: _loadUrl,
@@ -222,23 +200,103 @@ class _BrowserScreenState extends State<BrowserScreen>
           onPressed: loading ? _stopLoading : _reload,
           icon: Icon(loading ? Icons.close_rounded : Icons.refresh_rounded),
         ),
-        PopupMenuButton<String>(
-          onSelected: _handleMenu,
-          itemBuilder: (context) => const [
-            PopupMenuItem(value: 'home', child: Text('主页')),
-            PopupMenuItem(value: 'sniff', child: Text('重新解析视频')),
-            PopupMenuItem(value: 'favorites', child: Text('收藏夹')),
-            PopupMenuItem(value: 'history', child: Text('历史记录')),
-            PopupMenuItem(value: 'downloadHistory', child: Text('下载记录')),
-            PopupMenuItem(
-              value: 'parsePaste',
-              child: Text('粘贴网址直接解析'),
-            ),
-            PopupMenuItem(value: 'copy', child: Text('复制网址')),
-            PopupMenuItem(value: 'settings', child: Text('浏览器设置')),
-          ],
-        ),
+        _browserMenu(startPage: false),
       ],
+    );
+  }
+
+  Widget _browserMenu({required bool startPage}) {
+    final scheme = Theme.of(context).colorScheme;
+    return PopupMenuButton<String>(
+      tooltip: '更多',
+      position: PopupMenuPosition.under,
+      offset: const Offset(-8, 10),
+      elevation: 16,
+      color: scheme.surface,
+      surfaceTintColor: Colors.transparent,
+      shadowColor: Colors.black.withValues(alpha: 0.18),
+      constraints: const BoxConstraints(minWidth: 220, maxWidth: 238),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+      ),
+      icon: const Icon(Icons.more_horiz_rounded),
+      onSelected: _handleMenu,
+      itemBuilder: (context) => startPage
+          ? [
+              _browserMenuItem(
+                'parsePaste',
+                Icons.auto_awesome_rounded,
+                '粘贴网址直接解析',
+              ),
+              _browserMenuItem(
+                'paste',
+                Icons.content_paste_go_rounded,
+                '粘贴并打开',
+              ),
+              _browserMenuItem(
+                'favorites',
+                Icons.bookmark_border_rounded,
+                '收藏夹',
+              ),
+              _browserMenuItem(
+                'history',
+                Icons.history_rounded,
+                '历史记录',
+              ),
+              _browserMenuItem(
+                'downloadHistory',
+                Icons.download_done_rounded,
+                '下载记录',
+              ),
+              _browserMenuItem(
+                'help',
+                Icons.help_outline_rounded,
+                '帮助',
+              ),
+              _browserMenuItem(
+                'settings',
+                Icons.tune_rounded,
+                '浏览器设置',
+              ),
+            ]
+          : [
+              _browserMenuItem('home', Icons.home_outlined, '主页'),
+              _browserMenuItem(
+                'sniff',
+                Icons.video_search_rounded,
+                '重新解析视频',
+              ),
+              _browserMenuItem(
+                'favorites',
+                Icons.bookmark_border_rounded,
+                '收藏夹',
+              ),
+              _browserMenuItem(
+                'history',
+                Icons.history_rounded,
+                '历史记录',
+              ),
+              _browserMenuItem(
+                'downloadHistory',
+                Icons.download_done_rounded,
+                '下载记录',
+              ),
+              _browserMenuItem(
+                'parsePaste',
+                Icons.auto_awesome_rounded,
+                '粘贴网址直接解析',
+              ),
+              _browserMenuItem(
+                'copy',
+                Icons.content_copy_rounded,
+                '复制网址',
+              ),
+              _browserMenuItem(
+                'settings',
+                Icons.tune_rounded,
+                '浏览器设置',
+              ),
+            ],
     );
   }
 
@@ -348,6 +406,8 @@ class _BrowserScreenState extends State<BrowserScreen>
           onBack: _goBack,
           onForward: _goForward,
           onHome: _goHome,
+          tabCount: browserTabs.length,
+          onTabs: _showBrowserTabs,
           videoCount: _downloadable.length,
           detectingVideo: deepCapture,
           notice: detectionNotice,
@@ -2353,10 +2413,21 @@ class _AddressBar extends StatelessWidget {
       controller: controller,
       minLines: 1,
       maxLines: 1,
+      autocorrect: false,
+      enableSuggestions: false,
+      keyboardType: TextInputType.url,
       textInputAction: TextInputAction.go,
-      decoration: const InputDecoration(
+      decoration: InputDecoration(
         isDense: true,
-        prefixIcon: Icon(Icons.lock_rounded, size: 18),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+        prefixIconConstraints:
+            const BoxConstraints(minWidth: 38, minHeight: 38),
+        prefixIcon: Icon(
+          Icons.lock_rounded,
+          size: 17,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
         hintText: '搜索或输入网址',
       ),
       onSubmitted: onSubmitted,
@@ -2729,6 +2800,8 @@ class _BrowserBottomControls extends StatelessWidget {
     required this.onBack,
     required this.onForward,
     required this.onHome,
+    required this.tabCount,
+    required this.onTabs,
     required this.videoCount,
     required this.detectingVideo,
     required this.notice,
@@ -2740,6 +2813,8 @@ class _BrowserBottomControls extends StatelessWidget {
   final VoidCallback onBack;
   final VoidCallback onForward;
   final VoidCallback onHome;
+  final int tabCount;
+  final VoidCallback onTabs;
   final int videoCount;
   final bool detectingVideo;
   final String notice;
@@ -2747,37 +2822,49 @@ class _BrowserBottomControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Theme.of(context).colorScheme.surface,
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      height: 58,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
+      ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          IconButton(
+          _BrowserToolSlot(
             tooltip: '后退',
             onPressed: canGoBack ? onBack : null,
             icon: const Icon(Icons.arrow_back_rounded),
           ),
-          IconButton(
+          _BrowserToolSlot(
             tooltip: '主页',
             onPressed: onHome,
             icon: const Icon(Icons.home_rounded),
           ),
-          IconButton(
+          _BrowserToolSlot(
             tooltip: '前进',
             onPressed: canGoForward ? onForward : null,
             icon: const Icon(Icons.arrow_forward_rounded),
           ),
-          IconButton(
+          _BrowserToolSlot(
+            tooltip: '标签页',
+            onPressed: onTabs,
+            emphasized: true,
+            icon: _TabCountBadge(count: tabCount),
+          ),
+          _BrowserToolSlot(
             tooltip: notice.isNotEmpty
                 ? notice
                 : videoCount > 0
                     ? '发现 $videoCount 个视频'
                     : '检测视频',
             onPressed: detectingVideo ? null : onDetectVideo,
+            emphasized: videoCount > 0,
             icon: detectingVideo
                 ? const SizedBox(
-                    width: 22,
-                    height: 22,
+                    width: 21,
+                    height: 21,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : Badge(
@@ -2789,9 +2876,7 @@ class _BrowserBottomControls extends StatelessWidget {
                           : notice.isNotEmpty
                               ? Icons.info_outline_rounded
                               : Icons.video_file_rounded,
-                      color: notice.isNotEmpty
-                          ? Theme.of(context).colorScheme.tertiary
-                          : null,
+                      color: notice.isNotEmpty ? scheme.tertiary : null,
                     ),
                   ),
           ),
@@ -2799,6 +2884,69 @@ class _BrowserBottomControls extends StatelessWidget {
       ),
     );
   }
+}
+
+class _BrowserToolSlot extends StatelessWidget {
+  const _BrowserToolSlot({
+    required this.tooltip,
+    required this.onPressed,
+    required this.icon,
+    this.emphasized = false,
+  });
+
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final Widget icon;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Expanded(
+      child: Center(
+        child: IconButton(
+          tooltip: tooltip,
+          onPressed: onPressed,
+          style: IconButton.styleFrom(
+            backgroundColor: emphasized
+                ? scheme.primary.withValues(alpha: 0.09)
+                : Colors.transparent,
+            foregroundColor: emphasized ? scheme.primary : null,
+          ),
+          icon: icon,
+        ),
+      ),
+    );
+  }
+}
+
+PopupMenuItem<String> _browserMenuItem(
+  String value,
+  IconData icon,
+  String label,
+) {
+  return PopupMenuItem<String>(
+    value: value,
+    height: 50,
+    child: Row(
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: const Color(0xff246bfd).withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, size: 19, color: const Color(0xff246bfd)),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+        ),
+      ],
+    ),
+  );
 }
 
 class _BrowserRecordList extends StatelessWidget {
@@ -2864,14 +3012,17 @@ class _TabCountBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 28,
-      height: 28,
+      width: 27,
+      height: 27,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        border: Border.all(width: 2),
-        borderRadius: BorderRadius.circular(4),
+        border: Border.all(width: 1.8),
+        borderRadius: BorderRadius.circular(7),
       ),
-      child: Text('$count', style: const TextStyle(fontWeight: FontWeight.w900)),
+      child: Text(
+        '$count',
+        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+      ),
     );
   }
 }
