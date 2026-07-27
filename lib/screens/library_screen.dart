@@ -45,7 +45,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
         actions: [
           IconButton(
             tooltip: '搜索',
-            onPressed: searchFocus.requestFocus,
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => _AllVideosScreen(
+                  videos: state.videos,
+                  autofocus: true,
+                ),
+              ),
+            ),
             icon: const Icon(Icons.search_rounded),
           ),
           PopupMenuButton<_LibrarySort>(
@@ -85,81 +92,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
           final visibleVideos = view == _LibraryView.favorites
               ? videos.where((item) => item.isFavorite).toList()
               : videos;
-          return Column(
-            children: [
-              SizedBox(
-                height: 46,
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(18, 6, 18, 4),
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    _ViewChip(
-                      label: '全部 ${state.videos.length}',
-                      selected: view == _LibraryView.all,
-                      onSelected: () => setState(() => view = _LibraryView.all),
-                    ),
-                    _ViewChip(
-                      label: '最近下载',
-                      selected: view == _LibraryView.recent,
-                      onSelected: () =>
-                          setState(() => view = _LibraryView.recent),
-                    ),
-                    _ViewChip(
-                      label: '文件夹 ${folderEntries.length}',
-                      selected: view == _LibraryView.folders,
-                      onSelected: () =>
-                          setState(() => view = _LibraryView.folders),
-                    ),
-                    _ViewChip(
-                      label: '来源网站 ${siteEntries.length}',
-                      selected: view == _LibraryView.sites,
-                      onSelected: () =>
-                          setState(() => view = _LibraryView.sites),
-                    ),
-                    _ViewChip(
-                      label: '收藏 ${state.videos.where((item) => item.isFavorite).length}',
-                      selected: view == _LibraryView.favorites,
-                      onSelected: () =>
-                          setState(() => view = _LibraryView.favorites),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 8, 18, 10),
-                child: TextField(
-                  controller: searchController,
-                  focusNode: searchFocus,
-                  onChanged: (_) => setState(() {}),
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search_rounded),
-                    hintText: '搜索标题或文件名',
-                  ),
-                ),
-              ),
-              Expanded(
-                child: _isEmptyForView(
-                  activeTasks: activeTasks,
-                  entries: entries,
-                  videos: visibleVideos,
-                  folders: folderEntries,
-                  sites: siteEntries,
+          return _isEmptyForView(
+            activeTasks: activeTasks,
+            entries: entries,
+            videos: visibleVideos,
+            folders: folderEntries,
+            sites: siteEntries,
+          )
+              ? const EmptyState(
+                  icon: Icons.folder_outlined,
+                  title: '还没有已下载视频',
+                  message: '下载完成的视频会在这里显示和播放。',
                 )
-                    ? const EmptyState(
-                        icon: Icons.folder_outlined,
-                        title: '还没有已下载视频',
-                        message: '下载完成的视频会在这里显示和播放。',
-                      )
-                    : _buildListForView(
-                        activeTasks,
-                        entries,
-                        visibleVideos,
-                        folderEntries,
-                        siteEntries,
-                      ),
-              ),
-            ],
-          );
+              : _buildListForView(
+                  activeTasks,
+                  entries,
+                  visibleVideos,
+                  folderEntries,
+                  siteEntries,
+                );
         },
       ),
     );
@@ -276,7 +227,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
           children: [
             _AllVideosCard(
               videos: videos,
-              onTap: () => setState(() => view = _LibraryView.all),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => _AllVideosScreen(videos: videos),
+                ),
+              ),
             ),
             const SizedBox(height: 20),
             Row(
@@ -295,19 +250,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 1.18,
-              ),
-              itemBuilder: (context, index) =>
-                  _FolderGridCard(entry: folders[index]),
-              itemCount: folders.length,
-            ),
+            for (var index = 0; index < folders.length; index++) ...[
+              _FolderCard(entry: folders[index]),
+              if (index < folders.length - 1) const SizedBox(height: 10),
+            ],
           ],
         );
       case _LibraryView.sites:
@@ -421,30 +367,6 @@ class _FolderEntry {
   }
 }
 
-class _ViewChip extends StatelessWidget {
-  const _ViewChip({
-    required this.label,
-    required this.selected,
-    required this.onSelected,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: ChoiceChip(
-        label: Text(label),
-        selected: selected,
-        onSelected: (_) => onSelected(),
-      ),
-    );
-  }
-}
-
 class _AllVideosCard extends StatelessWidget {
   const _AllVideosCard({required this.videos, required this.onTap});
 
@@ -454,192 +376,45 @@ class _AllVideosCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final previews = videos.take(3).toList();
-    return Material(
-      color: const Color(0xff1769f6),
-      borderRadius: BorderRadius.circular(24),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: SizedBox(
-          height: 150,
-          child: Stack(
-            children: [
-              Positioned(
-                right: -16,
-                bottom: -20,
-                child: Row(
-                  children: [
-                    for (var index = 0; index < previews.length; index++)
-                      Transform.translate(
-                        offset: Offset(index * -18, index.isEven ? 10 : -2),
-                        child: Transform.rotate(
-                          angle: (index - 1) * 0.07,
-                          child: Container(
-                            width: 84,
-                            height: 112,
-                            padding: const EdgeInsets.all(3),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(11),
-                              child: _Thumbnail(
-                                video: previews[index],
-                                width: 78,
-                                height: 106,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              Positioned(
-                left: 20,
-                top: 23,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      '全部视频',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${videos.length} 个视频',
-                      style: const TextStyle(color: Colors.white70),
-                    ),
-                    const SizedBox(height: 18),
-                    const CircleAvatar(
-                      radius: 18,
-                      backgroundColor: Color(0x33ffffff),
-                      child: Icon(Icons.play_arrow_rounded, color: Colors.white),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _FolderGridCard extends StatelessWidget {
-  const _FolderGridCard({required this.entry});
-
-  final _FolderEntry entry;
-
-  @override
-  Widget build(BuildContext context) {
-    final state = UiStateScope.of(context);
-    final previews = entry.videos.take(3).toList();
     return AppCard(
-      padding: const EdgeInsets.all(12),
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => _FolderDetailScreen(entry: entry),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      onTap: onTap,
+      padding: const EdgeInsets.all(14),
+      child: Row(
         children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.folder_rounded,
-                color: Color(0xffffb81c),
-                size: 27,
-              ),
-              const SizedBox(width: 7),
-              Expanded(
-                child: Text(
-                  entry.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w900),
-                ),
-              ),
-              if (entry.folder.type == LibraryFolderType.manual)
-                PopupMenuButton<String>(
-                  padding: EdgeInsets.zero,
-                  iconSize: 20,
-                  onSelected: (value) async {
-                    if (value == 'rename') {
-                      final name = await _askText(
-                        context,
-                        title: '重命名文件夹',
-                        label: '文件夹名称',
-                        initialValue: entry.folder.name,
-                      );
-                      if (name != null && context.mounted) {
-                        await state.renameFolder(entry.folder, name);
-                      }
-                    } else if (value == 'delete') {
-                      final ok = await _confirm(
-                        context,
-                        title: '删除文件夹',
-                        message: '视频会保留在“全部视频”中。',
-                      );
-                      if (ok == true && context.mounted) {
-                        await state.deleteFolder(entry.folder);
-                      }
-                    }
-                  },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'rename', child: Text('重命名')),
-                    PopupMenuItem(value: 'delete', child: Text('删除文件夹')),
-                  ],
-                ),
-            ],
+          const CircleAvatar(
+            radius: 25,
+            backgroundColor: Color(0xff1769f6),
+            child: Icon(Icons.video_library_rounded, color: Colors.white),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(width: 13),
           Expanded(
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (var index = 0; index < 3; index++) ...[
-                  Expanded(
-                    child: index < previews.length
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: _Thumbnail(
-                              video: previews[index],
-                              width: 60,
-                              height: 58,
-                            ),
-                          )
-                        : Container(
-                            decoration: BoxDecoration(
-                              color: const Color(0xfff2f4f8),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Icon(
-                              Icons.video_library_outlined,
-                              size: 18,
-                              color: Color(0xffadb3bf),
-                            ),
-                          ),
+                const Text(
+                  '全部视频',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${videos.length} 个视频',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
-                  if (index < 2) const SizedBox(width: 4),
-                ],
+                ),
               ],
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            '${entry.videos.length} 个视频',
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontSize: 12,
+          for (final video in previews)
+            Padding(
+              padding: const EdgeInsets.only(left: 3),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(7),
+                child: _Thumbnail(video: video, width: 38, height: 48),
+              ),
             ),
-          ),
+          const SizedBox(width: 6),
+          const Icon(Icons.chevron_right_rounded),
         ],
       ),
     );
@@ -766,12 +541,205 @@ class _FolderDetailScreen extends StatelessWidget {
               title: '文件夹为空',
               message: '可以在视频卡片里选择“移动到文件夹”。',
             )
-          : ListView.separated(
+          : GridView.builder(
               padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
-              itemBuilder: (context, index) => _VideoCard(video: videos[index]),
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 14,
+                childAspectRatio: 0.72,
+              ),
+              itemBuilder: (context, index) =>
+                  _FolderVideoTile(video: videos[index]),
               itemCount: videos.length,
             ),
+    );
+  }
+}
+
+class _AllVideosScreen extends StatefulWidget {
+  const _AllVideosScreen({required this.videos, this.autofocus = false});
+
+  final List<LocalVideo> videos;
+  final bool autofocus;
+
+  @override
+  State<_AllVideosScreen> createState() => _AllVideosScreenState();
+}
+
+class _AllVideosScreenState extends State<_AllVideosScreen> {
+  final searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = searchController.text.trim().toLowerCase();
+    final videos = widget.videos
+        .where(
+          (video) =>
+              query.isEmpty ||
+              video.title.toLowerCase().contains(query) ||
+              video.name.toLowerCase().contains(query),
+        )
+        .toList()
+      ..sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt));
+    return Scaffold(
+      appBar: AppBar(title: const Text('全部视频')),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 4, 18, 12),
+            child: TextField(
+              controller: searchController,
+              autofocus: widget.autofocus,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search_rounded),
+                hintText: '搜索视频',
+              ),
+            ),
+          ),
+          Expanded(
+            child: GridView.builder(
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 14,
+                childAspectRatio: 0.72,
+              ),
+              itemBuilder: (context, index) =>
+                  _FolderVideoTile(video: videos[index]),
+              itemCount: videos.length,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FolderVideoTile extends StatelessWidget {
+  const _FolderVideoTile({required this.video});
+
+  final LocalVideo video;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = UiStateScope.of(context);
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      borderRadius: BorderRadius.circular(18),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => PlayerScreen(
+              title: video.title.isEmpty ? video.name : video.title,
+              filePath: video.path,
+            ),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _Thumbnail(video: video, width: 220, height: 220),
+                  Positioned(
+                    left: 8,
+                    top: 8,
+                    child: _LibraryTag(
+                      label: video.resolutionLabel,
+                      highlighted: true,
+                    ),
+                  ),
+                  Positioned(
+                    right: 8,
+                    bottom: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black87,
+                        borderRadius: BorderRadius.circular(7),
+                      ),
+                      child: Text(
+                        _formatDuration(video.duration),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 9, 4, 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _cleanDisplayTitle(
+                            video.title.isEmpty ? video.name : video.title,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${_formatBytes(video.size)} · ${_formatDate(video.modifiedAt)}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  PopupMenuButton<String>(
+                    padding: EdgeInsets.zero,
+                    onSelected: (value) async {
+                      if (value == 'move' && context.mounted) {
+                        await _showMoveToFolder(context, video);
+                      } else if (value == 'delete' && context.mounted) {
+                        await _confirmDeleteVideo(context, state, video);
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'move', child: Text('移动到文件夹')),
+                      PopupMenuItem(value: 'delete', child: Text('删除')),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

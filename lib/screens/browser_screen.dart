@@ -13,6 +13,7 @@ import '../services/browser_data_store.dart';
 import '../services/ui_state.dart';
 import '../services/video_sniffer.dart';
 import '../services/video_sniffer_controller.dart';
+import '../widgets/download_confirm_dialog.dart';
 import 'downloads_screen.dart';
 
 class BrowserScreen extends StatefulWidget {
@@ -773,7 +774,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => _DownloadPicker(
+      builder: (sheetContext) => _DownloadPicker(
         title: title ?? pageTitle,
         resources: resources,
         coverUrl: cover,
@@ -790,8 +791,17 @@ class _BrowserScreenState extends State<BrowserScreen>
           await _withCurrentCredentials(resource),
         ),
         onDownload: (resource) async {
-          Navigator.pop(context);
-          appState.downloadResource(await _withCurrentCredentials(resource));
+          final credentialed = await _withCurrentCredentials(resource);
+          if (!sheetContext.mounted) return;
+          Navigator.pop(sheetContext);
+          await Future<void>.delayed(const Duration(milliseconds: 180));
+          if (!mounted) return;
+          final selected = await showDownloadConfirmDialog(
+            this.context,
+            credentialed,
+          );
+          if (selected == null || !mounted) return;
+          appState.downloadResource(selected);
         },
       ),
     );
