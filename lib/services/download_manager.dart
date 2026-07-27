@@ -312,27 +312,27 @@ class DownloadManager extends ChangeNotifier {
   }
 
   bool _hasActiveDownloadFor(VideoResource resource) {
-    final group = _downloadGroup(resource.url);
+    final group = _downloadGroupFor(resource);
     return tasks.any(
       (task) =>
-          task.isActive && _downloadGroup(task.resource.url) == group,
+          task.isActive && _downloadGroupFor(task.resource) == group,
     );
   }
 
   void _startNextQueuedFor(DownloadTask finished) {
-    final group = _downloadGroup(finished.resource.url);
+    final group = _downloadGroupFor(finished.resource);
     if (tasks.any(
       (task) =>
           task.isActive &&
           task.id != finished.id &&
-          _downloadGroup(task.resource.url) == group,
+          _downloadGroupFor(task.resource) == group,
     )) {
       return;
     }
     DownloadTask? next;
     for (final task in tasks.reversed) {
       if (task.status == DownloadStatus.idle &&
-          _downloadGroup(task.resource.url) == group) {
+          _downloadGroupFor(task.resource) == group) {
         next = task;
         break;
       }
@@ -341,6 +341,28 @@ class DownloadManager extends ChangeNotifier {
     next.message = '排队结束，正在开始';
     next.remaining = '剩余时间未知';
     unawaited(start(next.id));
+  }
+
+  String _downloadGroupFor(VideoResource resource) {
+    final pageHost =
+        Uri.tryParse(
+          resource.pageUrl.isNotEmpty ? resource.pageUrl : resource.referer,
+        )?.host.toLowerCase() ??
+        '';
+    final mediaHost = Uri.tryParse(resource.url)?.host.toLowerCase() ?? '';
+    if (_isXHamsterHost(pageHost) ||
+        mediaHost.endsWith('.xhpingcdn.com') ||
+        mediaHost == 'xhpingcdn.com') {
+      return 'xhamster-media';
+    }
+    return _downloadGroup(resource.url);
+  }
+
+  bool _isXHamsterHost(String host) {
+    return host == 'xhchannel.com' ||
+        host.endsWith('.xhchannel.com') ||
+        host == 'xhamster.com' ||
+        host.endsWith('.xhamster.com');
   }
 
   String _downloadGroup(String value) {
@@ -799,6 +821,10 @@ class DownloadManager extends ChangeNotifier {
     final command = [
       '-y',
       '-headers ${_shellQuote(_ffmpegHeaders(task.resource))}',
+      '-rw_timeout 30000000',
+      '-reconnect 1',
+      '-reconnect_streamed 1',
+      '-reconnect_delay_max 3',
       if (isResume) '-ss ${_ffmpegDurationSeconds(resumeDuration)}',
       '-i ${_shellQuote(task.resource.url)}',
       if (remainingDuration > Duration.zero)
@@ -837,6 +863,10 @@ class DownloadManager extends ChangeNotifier {
       final fallback = [
         '-y',
         '-headers ${_shellQuote(_ffmpegHeaders(task.resource))}',
+        '-rw_timeout 30000000',
+        '-reconnect 1',
+        '-reconnect_streamed 1',
+        '-reconnect_delay_max 3',
         if (isResume) '-ss ${_ffmpegDurationSeconds(resumeDuration)}',
         '-i ${_shellQuote(task.resource.url)}',
         if (remainingDuration > Duration.zero)
@@ -927,7 +957,9 @@ class DownloadManager extends ChangeNotifier {
         if (message.isEmpty) return;
         logs.writeln(message);
         _appendFfmpegLog(task, message);
-        if (_looksLikeSegmentLog(message) && task.totalSegments > 0) {
+        if (_looksLikeSegmentLog(message) &&
+            task.totalSegments > 0 &&
+            task.phase != DownloadPhase.merging) {
           task.downloadedSegments = (task.downloadedSegments + 1).clamp(
             0,
             task.totalSegments,
@@ -965,9 +997,10 @@ class DownloadManager extends ChangeNotifier {
                 (timeMs / task.playlistDuration.inMilliseconds)
                     .clamp(0, 1)
                     .toDouble();
-            task.progress = ratio
-                .clamp(0, 0.95)
-                .toDouble();
+            final finalizing = ratio >= 0.995;
+            task.progress = finalizing
+                ? 0.99
+                : ratio.clamp(0, 0.95).toDouble();
             if (task.totalSegments > 0) {
               task.downloadedSegments =
                   (ratio * task.totalSegments).floor().clamp(
@@ -984,13 +1017,21 @@ class DownloadManager extends ChangeNotifier {
                     Duration(milliseconds: (remainingMs / speed).round()),
                   )
                 : '剩余时间未知';
+            if (finalizing) {
+              task.status = DownloadStatus.merging;
+              task.phase = DownloadPhase.merging;
+              task.message = '下载完成，正在封装视频';
+              task.remaining = '00:00';
+            }
           } else {
             task.isIndeterminate = true;
             task.remaining = '剩余时间未知';
           }
           final elapsed = _formatDuration(DateTime.now().difference(startedAt));
-          task.message =
-              '下载/合并中 time=${task.ffmpegTime} speed=${task.ffmpegSpeed}x 已用 $elapsed';
+          if (task.phase != DownloadPhase.merging) {
+            task.message =
+                '下载/合并中 time=${task.ffmpegTime} speed=${task.ffmpegSpeed}x 已用 $elapsed';
+          }
           notifyListeners();
         }
       },
@@ -1067,6 +1108,10 @@ class DownloadManager extends ChangeNotifier {
     task.status = DownloadStatus.downloading;
     task.isIndeterminate = true;
     task.message = '正在获取播放列表';
+    if (task.playlistDuration == Duration.zero &&
+        task.resource.duration > Duration.zero) {
+      task.playlistDuration = task.resource.duration;
+    }
     notifyListeners();
     try {
       final response = await _dio.get<String>(
@@ -1099,7 +1144,10 @@ class DownloadManager extends ChangeNotifier {
             .length;
         task.totalSegments = count;
         task.downloadedSegments = 0;
-        task.playlistDuration = _playlistDuration(body);
+        final playlistDuration = _playlistDuration(body);
+        task.playlistDuration = playlistDuration > Duration.zero
+            ? playlistDuration
+            : task.resource.duration;
       }
     } on StateError catch (error) {
       _appendFfmpegLog(task, 'playlist prefetch failed: $error');

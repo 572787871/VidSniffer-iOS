@@ -347,6 +347,7 @@ class _BrowserScreenState extends State<BrowserScreen>
                     unawaited(_refreshCurrentCookie());
                     await _injectHooks();
                     await _scanDom();
+                    unawaited(_captureEmbeddedPageResources());
                   },
                   onProgressChanged: (_, value) {
                     if (!mounted) return;
@@ -611,6 +612,35 @@ class _BrowserScreenState extends State<BrowserScreen>
     } catch (_) {}
   }
 
+  Future<void> _captureEmbeddedPageResources() async {
+    final pageUrl = currentUrl;
+    final host = Uri.tryParse(pageUrl)?.host.toLowerCase() ?? '';
+    final supported =
+        host == 'xhchannel.com' ||
+        host.endsWith('.xhchannel.com') ||
+        host == 'xhamster.com' ||
+        host.endsWith('.xhamster.com');
+    if (!supported) return;
+    try {
+      final resources = await sniffer.parsePage(
+        pageUrl,
+        userAgent: userAgent,
+        cookie: await _cookiesFor(pageUrl),
+      );
+      if (!mounted || pageUrl != currentUrl || resources.isEmpty) return;
+      setState(() {
+        for (final resource in resources.where(
+          (item) => item.isPlayable && !item.isAdSuspect && !item.isFragment,
+        )) {
+          captured[sniffer.dedupeKey(resource.url)] = resource;
+        }
+        detectionNotice = '';
+      });
+    } catch (error) {
+      debugPrint('[browser] embedded media parse failed: $error');
+    }
+  }
+
   Future<void> _sniffPage({required bool openPicker}) async {
     final web = controller;
     if (web == null) return;
@@ -618,6 +648,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     await web.setSettings(settings: _settings());
     await _injectHooks();
     await _scanDom();
+    await _captureEmbeddedPageResources();
     deepTimer?.cancel();
     for (var attempt = 0; attempt < 10 && _downloadable.isEmpty; attempt++) {
       await Future<void>.delayed(const Duration(milliseconds: 250));
@@ -2786,6 +2817,8 @@ int _downloadChoiceScore(VideoResource resource) {
   var score = 0;
   if (resource.type == VideoResourceType.mp4) score += 500;
   if (resource.type == VideoResourceType.hls) score += 300;
+  if (resource.source.toLowerCase().contains('h264')) score += 120;
+  if (resource.source.toLowerCase().contains('av1')) score -= 30;
   if (resource.size != '未知' && resource.size.trim().isNotEmpty) score += 250;
   if (resource.duration > Duration.zero) score += 100;
   if (resource.thumbnailUrl.isNotEmpty) score += 20;

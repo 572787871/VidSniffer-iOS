@@ -50,6 +50,7 @@ class VideoSniffer {
         followRedirects: true,
         headers: {
           'User-Agent': userAgent.isEmpty ? _defaultUserAgent : userAgent,
+          if (cookie.isNotEmpty) 'Cookie': cookie,
           'Accept':
               'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         },
@@ -1071,6 +1072,8 @@ class VideoSniffer {
     if (resource.source.toLowerCase().contains('current')) score += 5000;
     if (resource.source.toLowerCase().contains('video-play')) score += 4000;
     if (resource.source.toLowerCase().contains('media')) score += 2500;
+    if (resource.source.toLowerCase().contains('h264')) score += 600;
+    if (resource.source.toLowerCase().contains('av1')) score -= 200;
     if (resource.duration > Duration.zero) score += resource.duration.inSeconds;
     switch (resource.type) {
       case VideoResourceType.hls:
