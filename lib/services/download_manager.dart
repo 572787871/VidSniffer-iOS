@@ -796,6 +796,22 @@ class DownloadManager extends ChangeNotifier {
     final resumeDuration = await _mediaDuration(tempOutput);
     final resumeBytes =
         await tempOutput.exists() ? await tempOutput.length() : 0;
+    final resumeRatio = task.playlistDuration > Duration.zero
+        ? resumeDuration.inMilliseconds /
+            task.playlistDuration.inMilliseconds
+        : 0.0;
+    if (resumeRatio >= 0.995 && resumeBytes > 0) {
+      task.status = DownloadStatus.merging;
+      task.phase = DownloadPhase.merging;
+      task.progress = 0.99;
+      task.message = '正在保存已完成的视频';
+      task.remaining = '00:00';
+      notifyListeners();
+      if (await output.exists()) await output.delete();
+      await tempOutput.rename(output.path);
+      task.localPath = output.path;
+      return;
+    }
     final isResume = resumeDuration > const Duration(seconds: 1);
     final resumeOutput = File(
       p.join(tempDir.path, '${task.id}.resume.mp4'),
@@ -943,13 +959,21 @@ class DownloadManager extends ChangeNotifier {
     final logs = StringBuffer();
     final completer = Completer<String?>();
     final startedAt = DateTime.now();
+    Timer? endWatchdog;
+    var completedAtExpectedEnd = false;
     final session = await FFmpegKit.executeAsync(
       command,
       (session) async {
+        endWatchdog?.cancel();
         final returnCode = await session.getReturnCode();
-        completer.complete(
-          ReturnCode.isSuccess(returnCode) ? null : logs.toString().trim(),
-        );
+        _ffmpegSessions.remove(task.id);
+        if (!completer.isCompleted) {
+          completer.complete(
+            ReturnCode.isSuccess(returnCode) || completedAtExpectedEnd
+                ? null
+                : logs.toString().trim(),
+          );
+        }
       },
       (log) {
         if (_isTerminalOrPaused(task) || !trackProgress) return;
@@ -1020,8 +1044,25 @@ class DownloadManager extends ChangeNotifier {
             if (finalizing) {
               task.status = DownloadStatus.merging;
               task.phase = DownloadPhase.merging;
-              task.message = '下载完成，正在封装视频';
+              task.message = '正在完成最后分片';
               task.remaining = '00:00';
+              endWatchdog ??= Timer(const Duration(seconds: 20), () async {
+                final activeSession = _ffmpegSessions[task.id];
+                final sessionId = activeSession?.getSessionId();
+                if (sessionId == null ||
+                    completer.isCompleted ||
+                    _isTerminalOrPaused(task)) {
+                  return;
+                }
+                // HLS servers occasionally keep the final request open even
+                // after FFmpeg has reached the requested VOD duration. The
+                // output is fragmented MP4, so it is safe to stop this exact
+                // session after a grace period and retain the completed file.
+                completedAtExpectedEnd = true;
+                task.message = '正在保存视频';
+                notifyListeners();
+                await FFmpegKit.cancel(sessionId);
+              });
             }
           } else {
             task.isIndeterminate = true;
