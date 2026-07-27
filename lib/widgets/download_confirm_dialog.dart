@@ -301,32 +301,3 @@ Future<String?> _askFolderName(BuildContext context) async {
     controller.dispose();
   }
 }
-
-class _InfoLine extends StatelessWidget {
-  const _InfoLine(this.label, this.value);
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 76,
-            child: Text(
-              label,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          Expanded(child: Text(value.isEmpty ? '未知' : value)),
-        ],
-      ),
-    );
-  }
-}
