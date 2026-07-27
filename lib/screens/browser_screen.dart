@@ -797,7 +797,7 @@ class _BrowserScreenState extends State<BrowserScreen>
           await Future<void>.delayed(const Duration(milliseconds: 180));
           if (!mounted) return;
           final selected = await showDownloadConfirmDialog(
-            this.context,
+            context,
             credentialed,
           );
           if (selected == null || !mounted) return;
