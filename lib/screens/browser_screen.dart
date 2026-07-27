@@ -263,7 +263,7 @@ class _BrowserScreenState extends State<BrowserScreen>
               _browserMenuItem('home', Icons.home_outlined, '主页'),
               _browserMenuItem(
                 'sniff',
-                Icons.video_search_rounded,
+                Icons.video_library_outlined,
                 '重新解析视频',
               ),
               _browserMenuItem(
