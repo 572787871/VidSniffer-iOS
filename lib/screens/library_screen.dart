@@ -375,7 +375,6 @@ class _AllVideosCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final previews = videos.take(3).toList();
     return AppCard(
       onTap: onTap,
       padding: const EdgeInsets.all(14),
@@ -405,15 +404,6 @@ class _AllVideosCard extends StatelessWidget {
               ],
             ),
           ),
-          for (final video in previews)
-            Padding(
-              padding: const EdgeInsets.only(left: 3),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(7),
-                child: _Thumbnail(video: video, width: 38, height: 48),
-              ),
-            ),
-          const SizedBox(width: 6),
           const Icon(Icons.chevron_right_rounded),
         ],
       ),
@@ -463,19 +453,9 @@ class _FolderCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '${entry.videos.length} 个视频 · ${_formatBytes(entry.size)}',
+                  '${entry.videos.length} 个视频',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '更新 ${_formatDate(entry.updatedAt)}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontSize: 12,
                   ),
                 ),
               ],
@@ -708,7 +688,7 @@ class _FolderVideoTile extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${_formatBytes(video.size)} · ${_formatDate(video.modifiedAt)}',
+                          _formatBytes(video.size),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(

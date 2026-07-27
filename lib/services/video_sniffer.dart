@@ -96,6 +96,12 @@ class VideoSniffer {
       userAgent: userAgent,
       cookie: cookie,
     );
+    final noodleResources = _scanNoodlePlaylist(
+      decodedHtml,
+      pageUri,
+      userAgent: userAgent,
+      cookie: cookie,
+    );
     final candidates = <String>[];
     final patterns = <RegExp>[
       RegExp(
@@ -151,7 +157,74 @@ class VideoSniffer {
       }
       resources.add(resource);
     }
-    return prioritizeResources([...xHamsterResources, ...resources]);
+    return prioritizeResources([
+      ...xHamsterResources,
+      ...noodleResources,
+      ...resources,
+    ]);
+  }
+
+  List<VideoResource> _scanNoodlePlaylist(
+    String html,
+    Uri pageUri, {
+    String userAgent = '',
+    String cookie = '',
+  }) {
+    if (!pageUri.host.toLowerCase().contains('noodlemagazine.com')) {
+      return const [];
+    }
+    final jsonText = _extractAssignedJson(html, 'window.playlist');
+    if (jsonText.isEmpty) return const [];
+    try {
+      final decoded = jsonDecode(jsonText);
+      if (decoded is! Map) return const [];
+      final playlist = Map<String, dynamic>.from(decoded);
+      final rawSources = playlist['sources'];
+      final sources = rawSources is List
+          ? rawSources.whereType<Map>().toList()
+          : const <Map>[];
+      final title = _pageTitle(html) ?? pageUri.host;
+      final poster = playlist['image']?.toString() ?? '';
+      final durationSeconds = double.tryParse(
+            RegExp(
+                  r'''<meta[^>]+(?:property|name)=["']video:duration["'][^>]+content=["']([\d.]+)''',
+                  caseSensitive: false,
+                ).firstMatch(html)?.group(1) ??
+                '',
+          ) ??
+          0;
+      final resources = <VideoResource>[];
+      for (final raw in sources) {
+        final source = Map<String, dynamic>.from(raw);
+        final file = source['file']?.toString() ?? '';
+        if (file.isEmpty) continue;
+        final uri = file.startsWith('/')
+            ? Uri.parse('https://adult.noodlemagazine.com').resolve(file)
+            : pageUri.resolve(file);
+        final label = _normalizeQuality(source['label']?.toString() ?? '');
+        final resource = resourceFromUrl(
+          uri.toString(),
+          pageTitle: title,
+          pageUrl: pageUri.toString(),
+          source: 'noodle-playlist',
+          referer: pageUri.toString(),
+          userAgent: userAgent,
+          cookie: cookie,
+          quality: label,
+          duration: durationSeconds > 0
+              ? Duration(
+                  milliseconds: (durationSeconds * 1000).round(),
+                )
+              : Duration.zero,
+          thumbnailUrl: poster,
+          allowUnknown: true,
+        );
+        if (resource != null) resources.add(resource);
+      }
+      return prioritizeResources(resources, limit: resources.length);
+    } catch (_) {
+      return const [];
+    }
   }
 
   List<VideoResource> _scanXHamsterInitials(

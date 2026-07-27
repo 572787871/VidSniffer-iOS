@@ -620,7 +620,9 @@ class _BrowserScreenState extends State<BrowserScreen>
         host == 'xhchannel.com' ||
         host.endsWith('.xhchannel.com') ||
         host == 'xhamster.com' ||
-        host.endsWith('.xhamster.com');
+        host.endsWith('.xhamster.com') ||
+        host == 'noodlemagazine.com' ||
+        host.endsWith('.noodlemagazine.com');
     if (!supported) return;
     try {
       final resources = await sniffer.parsePage(
@@ -2498,7 +2500,8 @@ class _DownloadPicker extends StatefulWidget {
 }
 
 class _DownloadPickerState extends State<_DownloadPicker> {
-  late List<VideoResource> resources = widget.resources.toList();
+  late List<VideoResource> resources =
+      _collapseVideoQualities(widget.resources);
   late VideoResource selected = resources.first;
   Uint8List? coverBytes;
 
@@ -2516,27 +2519,26 @@ class _DownloadPickerState extends State<_DownloadPicker> {
   }
 
   Future<void> _enrichResources() async {
-    for (final original in List<VideoResource>.from(resources)) {
-      unawaited(() async {
-        try {
-          final probed = await widget.onProbe(original);
-          if (!mounted || probed.isEmpty) return;
-          final selectedQuality = _displayQuality(selected);
-          final enriched = _collapseVideoQualities([
-            ...resources.where((resource) => resource.url != original.url),
-            ...probed,
-          ]);
-          setState(() {
-            resources = enriched;
-            selected = enriched.firstWhere(
-              (resource) =>
-                  _displayQuality(resource) == selectedQuality,
-              orElse: () => enriched.first,
-            );
-          });
-        } catch (_) {}
-      }());
+    final originals = List<VideoResource>.from(resources);
+    final discovered = <VideoResource>[];
+    for (final original in originals) {
+      try {
+        final probed = await widget.onProbe(original);
+        discovered.addAll(probed.isEmpty ? [original] : probed);
+      } catch (_) {
+        discovered.add(original);
+      }
     }
+    if (!mounted || discovered.isEmpty) return;
+    final selectedQuality = _displayQuality(selected);
+    final enriched = _collapseVideoQualities(discovered);
+    setState(() {
+      resources = enriched;
+      selected = enriched.firstWhere(
+        (resource) => _displayQuality(resource) == selectedQuality,
+        orElse: () => enriched.first,
+      );
+    });
   }
 
   @override

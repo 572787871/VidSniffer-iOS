@@ -858,6 +858,23 @@ class DownloadManager extends ChangeNotifier {
       baseDuration: isResume ? resumeDuration : Duration.zero,
       baseBytes: isResume ? resumeBytes : 0,
     );
+    if (logs != null && await downloadOutput.exists()) {
+      final producedDuration = await _mediaDuration(downloadOutput);
+      final expectedDuration =
+          isResume ? remainingDuration : task.playlistDuration;
+      if (expectedDuration > Duration.zero &&
+          producedDuration.inMilliseconds >=
+              expectedDuration.inMilliseconds * 0.98) {
+        // Some HLS origins close the final request with an error after every
+        // advertised segment has already been written. Keep a verifiably
+        // complete fragmented MP4 instead of deleting it and reporting a
+        // failed download.
+        logs = null;
+        task.message = '视频已完整写入，正在保存';
+        task.progress = 0.99;
+        notifyListeners();
+      }
+    }
     if (task.status == DownloadStatus.paused) {
       if (isResume &&
           await resumeOutput.exists() &&

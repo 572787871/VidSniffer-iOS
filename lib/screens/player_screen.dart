@@ -395,31 +395,37 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 overlayColor: const Color(0x44246bfd),
                 thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
               ),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Positioned.fill(
-                    child: _PreviewProgressTrack(
-                      played: _positionFraction(),
-                      buffered: _bufferedFraction(),
-                      downloaded: downloaded,
+              child: SizedBox(
+                height: 32,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      height: 5,
+                      child: _PreviewProgressTrack(
+                        played: _positionFraction(),
+                        buffered: _bufferedFraction(),
+                        downloaded: downloaded,
+                      ),
                     ),
-                  ),
-                  SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      activeTrackColor: Colors.transparent,
-                      inactiveTrackColor: Colors.transparent,
-                      disabledActiveTrackColor: Colors.transparent,
-                      disabledInactiveTrackColor: Colors.transparent,
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        activeTrackColor: Colors.transparent,
+                        inactiveTrackColor: Colors.transparent,
+                        disabledActiveTrackColor: Colors.transparent,
+                        disabledInactiveTrackColor: Colors.transparent,
+                      ),
+                      child: Slider(
+                        value: _positionFraction(),
+                        onChanged: value == null || !value.isInitialized
+                            ? null
+                            : (position) => _seekToFraction(position),
+                      ),
                     ),
-                    child: Slider(
-                      value: _positionFraction(),
-                      onChanged: value == null || !value.isInitialized
-                          ? null
-                          : (position) => _seekToFraction(position),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
             Transform.translate(
