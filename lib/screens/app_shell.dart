@@ -55,43 +55,42 @@ class _FloatingPillTabBar extends StatelessWidget {
   final ValueChanged<int> onChanged;
 
   static const items = [
-    (CupertinoIcons.search, '搜索'),
-    (CupertinoIcons.arrow_down_to_line, '下载'),
-    (CupertinoIcons.folder, '文件'),
-    (CupertinoIcons.gear_alt, '设置'),
+    (CupertinoIcons.globe, '浏览器'),
+    (CupertinoIcons.arrow_down_to_line, '下载中'),
+    (CupertinoIcons.folder_fill, '已下载'),
+    (CupertinoIcons.gear, '设置'),
   ];
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final reduceTransparency =
-        MediaQuery.highContrastOf(context);
+    final highContrast = MediaQuery.highContrastOf(context);
     return SafeArea(
-      minimum: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+      minimum: const EdgeInsets.fromLTRB(22, 0, 22, 10),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(34),
+        borderRadius: BorderRadius.circular(32),
         child: BackdropFilter(
           filter: ImageFilter.blur(
-            sigmaX: reduceTransparency ? 0 : 24,
-            sigmaY: reduceTransparency ? 0 : 24,
+            sigmaX: highContrast ? 0 : 22,
+            sigmaY: highContrast ? 0 : 22,
           ),
           child: Container(
-            height: 72,
-            padding: const EdgeInsets.all(5),
+            height: 76,
+            padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
               color: scheme.surface.withValues(
-                alpha: reduceTransparency ? 1 : 0.82,
+                alpha: highContrast ? 1 : 0.9,
               ),
-              borderRadius: BorderRadius.circular(34),
+              borderRadius: BorderRadius.circular(32),
               border: Border.all(
-                color: Colors.white.withValues(alpha: 0.72),
-                width: 1,
+                color: scheme.outlineVariant.withValues(alpha: 0.32),
+                width: 0.7,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.12),
-                  blurRadius: 28,
-                  offset: const Offset(0, 12),
+                  color: Colors.black.withValues(alpha: 0.07),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
                 ),
               ],
             ),
@@ -157,19 +156,24 @@ class _PillTabItemState extends State<_PillTabItem> {
           curve: Curves.easeOutCubic,
           decoration: BoxDecoration(
             color: widget.selected
-                ? scheme.onSurface.withValues(alpha: 0.065)
+                ? scheme.primary.withValues(alpha: 0.11)
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(29),
+            borderRadius: BorderRadius.circular(26),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(widget.icon, size: 25, color: scheme.onSurface),
+              Icon(
+                widget.icon,
+                size: 25,
+                color: widget.selected ? scheme.primary : scheme.onSurface,
+              ),
               const SizedBox(height: 3),
               Text(
                 widget.label,
                 style: TextStyle(
-                  color: scheme.onSurface,
+                  color:
+                      widget.selected ? scheme.primary : scheme.onSurface,
                   fontSize: 11,
                   height: 1,
                   fontWeight:

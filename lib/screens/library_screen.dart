@@ -11,7 +11,6 @@ import '../models/local_video.dart';
 import '../services/ui_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_card.dart';
-import '../widgets/apple_ui.dart';
 import '../widgets/empty_state.dart';
 import 'player_screen.dart';
 
@@ -49,37 +48,35 @@ class _LibraryScreenState extends State<LibraryScreen> {
         titleTextStyle: Theme.of(context).textTheme.displaySmall,
         title: const Text('已下载'),
         actions: [
-          IconButton(
-            tooltip: '搜索',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => _AllVideosScreen(
-                  videos: state.videos,
-                  autofocus: true,
-                ),
-              ),
-            ),
-            icon: const Icon(CupertinoIcons.search),
-          ),
-          PopupMenuButton<_LibrarySort>(
-            initialValue: sort,
-            onSelected: (value) => setState(() => sort = value),
+          PopupMenuButton<String>(
+            tooltip: '更多',
+            onSelected: (value) {
+              if (value == 'search') {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => _AllVideosScreen(
+                      videos: state.videos,
+                      autofocus: true,
+                    ),
+                  ),
+                );
+              } else if (value == 'recent') {
+                setState(() => view = _LibraryView.recent);
+              } else if (value == 'sites') {
+                setState(() => view = _LibraryView.sites);
+              } else if (value == 'folders') {
+                setState(() => view = _LibraryView.folders);
+              }
+            },
             itemBuilder: (context) => const [
-              PopupMenuItem(value: _LibrarySort.newest, child: Text('最新')),
-              PopupMenuItem(value: _LibrarySort.size, child: Text('大小')),
-              PopupMenuItem(value: _LibrarySort.duration, child: Text('时长')),
-              PopupMenuItem(value: _LibrarySort.name, child: Text('文件名')),
+              PopupMenuItem(value: 'search', child: Text('搜索视频')),
+              PopupMenuItem(value: 'folders', child: Text('全部文件夹')),
+              PopupMenuItem(value: 'recent', child: Text('最近下载')),
+              PopupMenuItem(value: 'sites', child: Text('按来源网站')),
             ],
-            icon: const Icon(CupertinoIcons.ellipsis),
+            icon: const Icon(CupertinoIcons.ellipsis_circle),
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        tooltip: '新建文件夹',
-        onPressed: () => _createFolder(context),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        foregroundColor: Colors.white,
-        child: const Icon(CupertinoIcons.add),
       ),
       body: AnimatedBuilder(
         animation: state,
@@ -224,7 +221,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         );
       case _LibraryView.folders:
         return ListView(
-          padding: const EdgeInsets.fromLTRB(18, 0, 18, 96),
+          padding: const EdgeInsets.fromLTRB(24, 2, 24, 104),
           children: [
             _AllVideosCard(
               videos: videos,
@@ -234,26 +231,64 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 30),
             Row(
               children: [
                 const Expanded(
                   child: Text(
                     '文件夹',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.3,
+                    ),
                   ),
                 ),
-                TextButton.icon(
+                PopupMenuButton<_LibrarySort>(
+                  tooltip: '排序',
+                  initialValue: sort,
+                  onSelected: (value) => setState(() => sort = value),
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: _LibrarySort.newest,
+                      child: Text('最近更新'),
+                    ),
+                    PopupMenuItem(
+                      value: _LibrarySort.size,
+                      child: Text('占用空间'),
+                    ),
+                    PopupMenuItem(
+                      value: _LibrarySort.name,
+                      child: Text('文件夹名称'),
+                    ),
+                  ],
+                  icon: const Icon(CupertinoIcons.sort_down, size: 23),
+                ),
+                const SizedBox(width: 4),
+                CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(40, 40),
                   onPressed: () => _createFolder(context),
-                  icon: const Icon(Icons.create_new_folder_rounded, size: 19),
-                  label: const Text('新建'),
+                  child: Container(
+                    width: 38,
+                    height: 38,
+                    decoration: const BoxDecoration(
+                      color: AppTheme.blue,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      CupertinoIcons.add,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 16),
             for (var index = 0; index < folders.length; index++) ...[
               _FolderCard(entry: folders[index]),
-              if (index < folders.length - 1) const SizedBox(height: 10),
+              if (index < folders.length - 1) const SizedBox(height: 8),
             ],
           ],
         );
@@ -298,7 +333,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ),
       );
     }
-    entries.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    switch (sort) {
+      case _LibrarySort.newest:
+        entries.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      case _LibrarySort.size:
+        entries.sort((a, b) => b.size.compareTo(a.size));
+      case _LibrarySort.duration:
+        entries.sort(
+          (a, b) => b.videos
+              .fold<Duration>(Duration.zero, (sum, item) => sum + item.duration)
+              .compareTo(
+                a.videos.fold<Duration>(
+                  Duration.zero,
+                  (sum, item) => sum + item.duration,
+                ),
+              ),
+        );
+      case _LibrarySort.name:
+        entries.sort(
+          (a, b) =>
+              a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+        );
+    }
     return entries;
   }
 
@@ -378,24 +434,40 @@ class _AllVideosCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppCard(
       onTap: onTap,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
       child: Row(
         children: [
-          const AppleIconTile(
-            icon: CupertinoIcons.play_rectangle_fill,
-            color: AppTheme.blue,
-            size: 50,
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xff0a84ff), Color(0xff0066ed)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              CupertinoIcons.play_fill,
+              color: Colors.white,
+              size: 27,
+            ),
           ),
-          const SizedBox(width: 13),
+          const SizedBox(width: 18),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
                   '全部视频',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.25,
+                  ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 5),
                 Text(
                   '${videos.length} 个视频',
                   style: TextStyle(
@@ -425,6 +497,7 @@ class _FolderCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = UiStateScope.of(context);
     return AppCard(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => _FolderDetailScreen(entry: entry),
@@ -432,20 +505,16 @@ class _FolderCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Container(
-            width: 64,
+          const SizedBox(
+            width: 58,
             height: 58,
-            decoration: BoxDecoration(
-              color: AppTheme.orange.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Icon(
+            child: Icon(
               CupertinoIcons.folder_fill,
-              color: AppTheme.orange,
-              size: 34,
+              color: Color(0xff4c9cff),
+              size: 50,
             ),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -454,7 +523,11 @@ class _FolderCard extends StatelessWidget {
                   entry.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w900),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 Text(
@@ -466,6 +539,12 @@ class _FolderCard extends StatelessWidget {
               ],
             ),
           ),
+          const Icon(
+            CupertinoIcons.chevron_forward,
+            size: 17,
+            color: CupertinoColors.systemGrey2,
+          ),
+          const SizedBox(width: 4),
           if (entry.folder.type == LibraryFolderType.manual)
             PopupMenuButton<String>(
               onSelected: (value) async {
@@ -497,10 +576,20 @@ class _FolderCard extends StatelessWidget {
               ],
             )
           else
-            Icon(
-              CupertinoIcons.chevron_forward,
-              size: 17,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            PopupMenuButton<String>(
+              tooltip: '文件夹操作',
+              onSelected: (_) => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => _FolderDetailScreen(entry: entry),
+                ),
+              ),
+              itemBuilder: (context) => const [
+                PopupMenuItem(value: 'open', child: Text('打开文件夹')),
+              ],
+              icon: const Icon(
+                CupertinoIcons.ellipsis,
+                color: CupertinoColors.systemGrey,
+              ),
             ),
         ],
       ),

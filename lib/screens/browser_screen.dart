@@ -2138,7 +2138,7 @@ class _StartPageState extends State<_StartPage> {
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             color: scheme.surface,
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(24),
           ),
           child: Row(
             children: [
@@ -2223,12 +2223,12 @@ class _ParseHero extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return ApplePressable(
       onPressed: parsing ? null : onTap,
-      borderRadius: BorderRadius.circular(28),
+      borderRadius: BorderRadius.circular(24),
       child: Container(
         height: 94,
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(28),
+          borderRadius: BorderRadius.circular(24),
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),

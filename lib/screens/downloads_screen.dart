@@ -202,7 +202,7 @@ class _SwipeToDeleteState extends State<_SwipeToDelete> {
     final manager = UiStateScope.of(context).downloadManager;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     return ClipRRect(
-      borderRadius: BorderRadius.circular(28),
+      borderRadius: BorderRadius.circular(24),
       child: Stack(
         children: [
           Positioned.fill(

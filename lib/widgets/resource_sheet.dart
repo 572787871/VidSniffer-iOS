@@ -159,7 +159,7 @@ class _EmptyResources extends StatelessWidget {
         color: Theme.of(
           context,
         ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(24),
       ),
       child: const Text('未自动发现视频。部分网站需要先播放视频，请进入网页播放后再点发现视频。'),
     );
@@ -226,7 +226,7 @@ class _ResourceTile extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(24),
       ),
       padding: const EdgeInsets.all(14),
       child: Column(

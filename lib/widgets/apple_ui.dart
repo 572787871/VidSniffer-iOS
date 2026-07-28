@@ -8,7 +8,7 @@ class ApplePressable extends StatefulWidget {
   const ApplePressable({
     required this.child,
     required this.onPressed,
-    this.borderRadius = const BorderRadius.all(Radius.circular(28)),
+    this.borderRadius = const BorderRadius.all(Radius.circular(24)),
     this.semanticLabel,
     super.key,
   });
@@ -121,10 +121,10 @@ class AppleListGroup extends StatelessWidget {
         DecoratedBox(
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(24),
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(24),
             child: Column(
               children: [
                 for (var index = 0; index < children.length; index++) ...[
