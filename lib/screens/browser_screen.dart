@@ -163,28 +163,20 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   PreferredSizeWidget _startAppBar() {
     return AppBar(
+      toolbarHeight: 76,
+      titleSpacing: 24,
+      titleTextStyle: Theme.of(context).textTheme.displaySmall,
       title: const Text('浏览器'),
       actions: [
-        IconButton(
-          tooltip: '智能解析',
-          onPressed: directParsing ? null : _parseClipboardUrl,
-          icon: const Icon(
-            CupertinoIcons.sparkles,
-            color: AppTheme.orange,
-          ),
-        ),
-        IconButton(
-          tooltip: '标签页',
-          onPressed: _showBrowserTabs,
-          icon: _TabCountBadge(count: browserTabs.length),
-        ),
         _browserMenu(startPage: true),
+        const SizedBox(width: 10),
       ],
     );
   }
 
   PreferredSizeWidget _browserAppBar() {
     return AppBar(
+      toolbarHeight: 58,
       titleSpacing: 14,
       title: _AddressBar(
         controller: addressController,
@@ -2032,7 +2024,7 @@ class _StartPageState extends State<_StartPage> {
     final scheme = Theme.of(context).colorScheme;
     return ListView(
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 30),
+      padding: const EdgeInsets.fromLTRB(24, 6, 24, 42),
       children: [
         TextField(
           controller: controller,
@@ -2048,18 +2040,18 @@ class _StartPageState extends State<_StartPage> {
           ),
           onSubmitted: widget.onOpen,
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 22),
         _ParseHero(
           parsing: widget.parsing,
           onTap: widget.onParseClipboard,
         ),
         if (widget.notice.isNotEmpty) ...[
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
             decoration: BoxDecoration(
               color: scheme.surface,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(24),
             ),
             child: Row(
               children: [
@@ -2082,15 +2074,15 @@ class _StartPageState extends State<_StartPage> {
             ),
           ),
         ],
-        const SizedBox(height: 28),
+        const SizedBox(height: 34),
         const _SectionTitle(title: '热门平台'),
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         GridView.count(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           crossAxisCount: 4,
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
+          mainAxisSpacing: 14,
+          crossAxisSpacing: 14,
           childAspectRatio: 0.9,
           children: [
             _SiteShortcut(label: 'Facebook', color: const Color(0xff1877f2), text: 'f', url: 'https://www.facebook.com', onOpen: widget.onOpen),
@@ -2103,9 +2095,9 @@ class _StartPageState extends State<_StartPage> {
             _SiteShortcut(label: '更多', color: const Color(0xff7b8190), text: '•••', url: 'https://www.google.com', onOpen: widget.onOpen),
           ],
         ),
-        const SizedBox(height: 28),
+        const SizedBox(height: 34),
         const _SectionTitle(title: '快捷工具'),
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         Row(
           children: [
             Expanded(
@@ -2115,7 +2107,7 @@ class _StartPageState extends State<_StartPage> {
                 onTap: widget.onFavorites,
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 12),
             Expanded(
               child: _QuickTool(
                 icon: CupertinoIcons.time,
@@ -2123,7 +2115,7 @@ class _StartPageState extends State<_StartPage> {
                 onTap: widget.onHistory,
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 12),
             Expanded(
               child: _QuickTool(
                 icon: CupertinoIcons.arrow_down_circle,
@@ -2131,7 +2123,7 @@ class _StartPageState extends State<_StartPage> {
                 onTap: widget.onDownloadHistory,
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 12),
             Expanded(
               child: _QuickTool(
                 icon: CupertinoIcons.settings,
@@ -2141,19 +2133,12 @@ class _StartPageState extends State<_StartPage> {
             ),
           ],
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 24),
         Container(
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                const Color(0xffedf3ff),
-                const Color(0xfff7f8ff),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(20),
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(28),
           ),
           child: Row(
             children: [
@@ -2178,9 +2163,9 @@ class _StartPageState extends State<_StartPage> {
                     Text(
                       '三步下载视频',
                       style: TextStyle(
-                        color: scheme.primary,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 15,
+                        color: scheme.onSurface,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 17,
                       ),
                     ),
                     const SizedBox(height: 5),
@@ -2197,7 +2182,7 @@ class _StartPageState extends State<_StartPage> {
               ),
               Icon(
                 CupertinoIcons.chevron_forward,
-                color: scheme.primary,
+                color: scheme.onSurfaceVariant,
                 size: 16,
               ),
             ],
@@ -2217,10 +2202,11 @@ class _SectionTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       title,
-      style: const TextStyle(
-        fontSize: 18,
-        fontWeight: FontWeight.w900,
-        letterSpacing: -0.2,
+      style: TextStyle(
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+        letterSpacing: -0.1,
       ),
     );
   }
@@ -2234,53 +2220,40 @@ class _ParseHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(20),
-      clipBehavior: Clip.antiAlias,
-      child: Ink(
-        height: 92,
+    final scheme = Theme.of(context).colorScheme;
+    return ApplePressable(
+      onPressed: parsing ? null : onTap,
+      borderRadius: BorderRadius.circular(28),
+      child: Container(
+        height: 94,
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xff2567ed), Color(0xff5c8fff)],
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-          ),
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xff246bfd).withValues(alpha: 0.22),
-              blurRadius: 22,
-              offset: const Offset(0, 10),
-            ),
-          ],
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(28),
         ),
-        child: InkWell(
-          onTap: parsing ? null : onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
               children: [
                 Container(
-                  width: 52,
-                  height: 52,
+                  width: 54,
+                  height: 54,
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.17),
-                    borderRadius: BorderRadius.circular(16),
+                    color: scheme.onSurface.withValues(alpha: 0.055),
+                    borderRadius: BorderRadius.circular(18),
                   ),
                   child: Center(
                     child: parsing
-                        ? const SizedBox(
+                        ? SizedBox(
                             width: 24,
                             height: 24,
                             child: CircularProgressIndicator(
                               strokeWidth: 2.5,
-                              color: Colors.white,
+                              color: scheme.primary,
                             ),
                           )
-                        : const Icon(
-                            Icons.link_rounded,
-                            color: Colors.white,
+                        : Icon(
+                            CupertinoIcons.link,
+                            color: scheme.primary,
                             size: 29,
                           ),
                   ),
@@ -2293,31 +2266,30 @@ class _ParseHero extends StatelessWidget {
                     children: [
                       Text(
                         parsing ? '正在智能解析' : '智能解析',
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: scheme.onSurface,
                           fontSize: 18,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         parsing ? '正在读取视频信息…' : '粘贴网址，自动解析视频',
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.82),
+                          color: scheme.onSurfaceVariant,
                           fontSize: 13,
                         ),
                       ),
                     ],
                   ),
                 ),
-                const Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  color: Colors.white,
+                Icon(
+                  CupertinoIcons.chevron_forward,
+                  color: scheme.onSurfaceVariant,
                   size: 18,
                 ),
               ],
             ),
-          ),
         ),
       ),
     );
@@ -2340,12 +2312,12 @@ class _QuickTool extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Material(
       color: scheme.surface,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(24),
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
         onTap: onTap,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 82),
+          constraints: const BoxConstraints(minHeight: 88),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
             child: Column(
@@ -2355,7 +2327,7 @@ class _QuickTool extends StatelessWidget {
                   height: 38,
                   decoration: BoxDecoration(
                     color: scheme.primary.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(14),
                   ),
                   child: Icon(icon, color: scheme.primary, size: 21),
                 ),
@@ -2397,12 +2369,12 @@ class _SiteShortcut extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Theme.of(context).colorScheme.surface,
-      borderRadius: BorderRadius.circular(17),
+      borderRadius: BorderRadius.circular(24),
       child: InkWell(
-        borderRadius: BorderRadius.circular(17),
+        borderRadius: BorderRadius.circular(24),
         onTap: () => onOpen(url),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [

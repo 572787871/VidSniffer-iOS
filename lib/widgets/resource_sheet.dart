@@ -34,14 +34,14 @@ class ResourceSheet extends StatelessWidget {
       child: SizedBox(
         height: height,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 0, 18, 22),
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 '可下载视频',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.w700,
                     ),
               ),
               const SizedBox(height: 6),
@@ -60,14 +60,23 @@ class ResourceSheet extends StatelessWidget {
                     length: 4,
                     child: Column(
                       children: [
-                        TabBar(
-                          isScrollable: true,
-                          tabs: [
-                            Tab(text: '推荐资源 ${_groups.recommended.length}'),
-                            Tab(text: '全部资源 ${_groups.all.length}'),
-                            Tab(text: '广告嫌疑 ${_groups.ads.length}'),
-                            Tab(text: '分片/高级 ${_groups.fragments.length}'),
-                          ],
+                        Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          child: TabBar(
+                            isScrollable: true,
+                            tabs: [
+                              Tab(text: '推荐 ${_groups.recommended.length}'),
+                              Tab(text: '全部 ${_groups.all.length}'),
+                              Tab(text: '广告 ${_groups.ads.length}'),
+                              Tab(text: '高级 ${_groups.fragments.length}'),
+                            ],
+                          ),
                         ),
                         const SizedBox(height: 12),
                         Expanded(
@@ -150,7 +159,7 @@ class _EmptyResources extends StatelessWidget {
         color: Theme.of(
           context,
         ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(28),
       ),
       child: const Text('未自动发现视频。部分网站需要先播放视频，请进入网页播放后再点发现视频。'),
     );
@@ -216,8 +225,8 @@ class _ResourceTile extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(18),
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(28),
       ),
       padding: const EdgeInsets.all(14),
       child: Column(

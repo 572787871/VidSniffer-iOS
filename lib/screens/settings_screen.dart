@@ -6,18 +6,26 @@ import '../theme/app_theme.dart';
 import '../widgets/apple_ui.dart';
 
 class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({this.embedded = false, super.key});
+
+  final bool embedded;
 
   @override
   Widget build(BuildContext context) {
     final state = UiStateScope.of(context);
     return Scaffold(
       appBar: AppBar(
-        leading: CupertinoButton(
-          padding: EdgeInsets.zero,
-          onPressed: Navigator.of(context).pop,
-          child: const Icon(CupertinoIcons.back),
-        ),
+        toolbarHeight: 76,
+        titleSpacing: 24,
+        titleTextStyle: Theme.of(context).textTheme.displaySmall,
+        automaticallyImplyLeading: !embedded,
+        leading: embedded
+            ? null
+            : CupertinoButton(
+                padding: EdgeInsets.zero,
+                onPressed: Navigator.of(context).pop,
+                child: const Icon(CupertinoIcons.back),
+              ),
         title: const Text('设置'),
       ),
       body: AnimatedBuilder(
@@ -29,17 +37,25 @@ class SettingsScreen extends StatelessWidget {
             AppleListGroup(
               footer: '下载的视频可在“文件”App 的本 App 文件夹中找到。',
               children: [
-                const AppleListTile(
-                  title: '默认保存位置',
-                  subtitle: 'Documents / videos',
-                  icon: CupertinoIcons.folder_fill,
-                  iconColor: AppTheme.blue,
+                const ListTile(
+                  title: Text('默认保存位置'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Documents / videos',
+                        style: TextStyle(color: CupertinoColors.systemGrey),
+                      ),
+                      SizedBox(width: 8),
+                      Icon(
+                        CupertinoIcons.chevron_forward,
+                        size: 17,
+                        color: CupertinoColors.systemGrey,
+                      ),
+                    ],
+                  ),
                 ),
                 ListTile(
-                  leading: const AppleIconTile(
-                    icon: CupertinoIcons.wifi,
-                    color: AppTheme.green,
-                  ),
                   title: const Text('仅 Wi-Fi 下载'),
                   subtitle: const Text('避免使用移动数据下载大文件'),
                   trailing: CupertinoSwitch(
@@ -55,11 +71,14 @@ class SettingsScreen extends StatelessWidget {
             const AppleSectionHeader(title: '存储'),
             AppleListGroup(
               children: [
-                AppleListTile(
-                  title: '清理缓存',
-                  subtitle: '移除网页与临时解析文件',
-                  icon: CupertinoIcons.trash_fill,
-                  iconColor: AppTheme.orange,
+                ListTile(
+                  title: const Text('清理缓存'),
+                  subtitle: const Text('移除网页与临时解析文件'),
+                  trailing: const Icon(
+                    CupertinoIcons.chevron_forward,
+                    size: 17,
+                    color: CupertinoColors.systemGrey,
+                  ),
                   onTap: () => _showCacheNotice(context),
                 ),
               ],
@@ -68,16 +87,20 @@ class SettingsScreen extends StatelessWidget {
             const AppleSectionHeader(title: '关于'),
             AppleListGroup(
               children: [
-                const AppleListTile(
-                  title: '网页视频下载器',
-                  subtitle: '版本 1.0.0',
-                  icon: CupertinoIcons.info_circle_fill,
-                  iconColor: AppTheme.blue,
+                const ListTile(
+                  title: Text('版本'),
+                  trailing: Text(
+                    '1.0.0',
+                    style: TextStyle(color: CupertinoColors.systemGrey),
+                  ),
                 ),
-                AppleListTile(
-                  title: '使用与版权说明',
-                  icon: CupertinoIcons.checkmark_shield_fill,
-                  iconColor: AppTheme.green,
+                ListTile(
+                  title: const Text('使用与版权说明'),
+                  trailing: const Icon(
+                    CupertinoIcons.chevron_forward,
+                    size: 17,
+                    color: CupertinoColors.systemGrey,
+                  ),
                   onTap: () => _showCompliance(context),
                 ),
               ],

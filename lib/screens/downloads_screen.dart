@@ -18,6 +18,9 @@ class DownloadsScreen extends StatelessWidget {
     final state = UiStateScope.of(context);
     return Scaffold(
       appBar: AppBar(
+        toolbarHeight: 76,
+        titleSpacing: 24,
+        titleTextStyle: Theme.of(context).textTheme.displaySmall,
         title: const Text('下载中'),
         actions: [
           IconButton(
@@ -199,7 +202,7 @@ class _SwipeToDeleteState extends State<_SwipeToDelete> {
     final manager = UiStateScope.of(context).downloadManager;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     return ClipRRect(
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(28),
       child: Stack(
         children: [
           Positioned.fill(

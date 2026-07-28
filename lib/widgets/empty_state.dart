@@ -21,28 +21,19 @@ class EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 76,
-              height: 76,
-              decoration: BoxDecoration(
-                color: scheme.primary.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 34, color: scheme.primary),
-            ),
-            const SizedBox(height: 20),
             Text(
               title,
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    color: scheme.onSurface.withValues(alpha: 0.12),
+                    fontWeight: FontWeight.w700,
+                  ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             Text(
               message,
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: scheme.onSurfaceVariant,
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.72),
                 fontSize: 15,
                 height: 1.4,
               ),

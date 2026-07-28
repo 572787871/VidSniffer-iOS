@@ -8,7 +8,7 @@ class ApplePressable extends StatefulWidget {
   const ApplePressable({
     required this.child,
     required this.onPressed,
-    this.borderRadius = const BorderRadius.all(Radius.circular(18)),
+    this.borderRadius = const BorderRadius.all(Radius.circular(28)),
     this.semanticLabel,
     super.key,
   });
@@ -83,7 +83,10 @@ class AppleSectionHeader extends StatelessWidget {
           Expanded(
             child: Text(
               title,
-              style: Theme.of(context).textTheme.titleLarge,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
             ),
           ),
           if (action != null)
@@ -118,10 +121,10 @@ class AppleListGroup extends StatelessWidget {
         DecoratedBox(
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(28),
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(28),
             child: Column(
               children: [
                 for (var index = 0; index < children.length; index++) ...[

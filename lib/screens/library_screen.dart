@@ -44,6 +44,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final state = UiStateScope.of(context);
     return Scaffold(
       appBar: AppBar(
+        toolbarHeight: 76,
+        titleSpacing: 24,
+        titleTextStyle: Theme.of(context).textTheme.displaySmall,
         title: const Text('已下载'),
         actions: [
           IconButton(
@@ -67,12 +70,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               PopupMenuItem(value: _LibrarySort.duration, child: Text('时长')),
               PopupMenuItem(value: _LibrarySort.name, child: Text('文件名')),
             ],
-            icon: const Icon(CupertinoIcons.arrow_up_arrow_down),
-          ),
-          IconButton(
-            tooltip: '刷新',
-            onPressed: state.refreshLibrary,
-            icon: const Icon(CupertinoIcons.refresh),
+            icon: const Icon(CupertinoIcons.ellipsis),
           ),
         ],
       ),

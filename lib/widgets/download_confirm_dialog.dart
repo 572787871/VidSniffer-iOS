@@ -217,13 +217,13 @@ class _FolderChoice extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 8),
       child: ApplePressable(
         onPressed: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(24),
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: selected
                 ? AppTheme.blue.withValues(alpha: 0.1)
                 : Theme.of(context).colorScheme.surfaceContainerLow,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(24),
           ),
           child: ListTile(
             leading: const AppleIconTile(
