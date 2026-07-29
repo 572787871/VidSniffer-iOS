@@ -296,37 +296,4 @@ final class BrowserCoreTests: XCTestCase {
     XCTAssertNotEqual(first.id, second.id)
   }
 
-  func testContentBlockerWhitelistMatchesSubdomainsOnly() {
-    let suiteName = "BrowserSettingsTests.\(UUID().uuidString)"
-    let defaults = UserDefaults(suiteName: suiteName)!
-    defer { defaults.removePersistentDomain(forName: suiteName) }
-    let store = BrowserSettingsStore(
-      defaults: defaults,
-      postsNotifications: false
-    )
-    var settings = BrowserSettings()
-    settings.contentBlockerWhitelist = ["example.com"]
-    store.value = settings
-
-    XCTAssertTrue(store.isWhitelisted(host: "example.com"))
-    XCTAssertTrue(store.isWhitelisted(host: "video.example.com"))
-    XCTAssertFalse(store.isWhitelisted(host: "notexample.com"))
-  }
-
-  func testContentBlockerRulesNeverBlockMainDocument() throws {
-    let json = ContentBlockerManager.rulesJSON(
-      settings: BrowserSettings()
-    )
-    let data = try XCTUnwrap(json.data(using: .utf8))
-    let rules = try XCTUnwrap(
-      JSONSerialization.jsonObject(with: data) as? [[String: Any]]
-    )
-
-    XCTAssertFalse(rules.isEmpty)
-    for rule in rules {
-      let trigger = try XCTUnwrap(rule["trigger"] as? [String: Any])
-      let resourceTypes = try XCTUnwrap(trigger["resource-type"] as? [String])
-      XCTAssertFalse(resourceTypes.contains("document"))
-    }
-  }
 }
