@@ -596,7 +596,7 @@ extension LibraryViewController:
         countStyle: .file
       )
       content.image = manager.coverURL(for: file)
-        .flatMap(UIImage.init(contentsOfFile:))
+        .flatMap { UIImage(contentsOfFile: $0.path) }
         ?? UIImage(systemName: file.isFavorite ? "star.fill" : "film")
       content.imageProperties.tintColor =
         file.isFavorite ? .systemYellow : .systemBlue
