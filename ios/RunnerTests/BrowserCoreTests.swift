@@ -190,11 +190,12 @@ final class BrowserCoreTests: XCTestCase {
         tabs: [normal.makeSnapshot(), privateTab.makeSnapshot()]
       )
     }
+    let normalID = await MainActor.run { normal.id }
 
     try await manager.save(state)
     let restored = try await manager.restore()
 
-    XCTAssertEqual(restored?.selectedTabID, normal.id)
+    XCTAssertEqual(restored?.selectedTabID, normalID)
     XCTAssertEqual(restored?.tabs.count, 1)
     XCTAssertFalse(restored?.tabs.first?.isPrivate ?? true)
   }
