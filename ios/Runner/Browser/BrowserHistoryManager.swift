@@ -19,38 +19,41 @@ struct BrowserHistoryEntry: Codable, Identifiable, Equatable {
   }
 }
 
+enum BrowserHistoryPeriod: String, CaseIterable {
+  case today = "今天"
+  case yesterday = "昨天"
+  case lastSevenDays = "最近七天"
+  case earlier = "更早"
+}
+
 actor BrowserHistoryManager {
-  private let fileURL: URL
-  private var entries: [BrowserHistoryEntry] = []
+  private let repository: BrowserDataRepository
+  private let calendar: Calendar
 
-  init(fileManager: FileManager = .default) {
-    let directory = fileManager.urls(
-      for: .applicationSupportDirectory,
-      in: .userDomainMask
-    ).first!
-    fileURL = directory.appendingPathComponent("browser-history.json")
+  init(
+    repository: BrowserDataRepository = .shared,
+    calendar: Calendar = .current
+  ) {
+    self.repository = repository
+    self.calendar = calendar
   }
 
-  func load() throws -> [BrowserHistoryEntry] {
-    guard FileManager.default.fileExists(atPath: fileURL.path) else {
-      entries = []
-      return []
-    }
-    entries = try JSONDecoder().decode(
-      [BrowserHistoryEntry].self,
-      from: Data(contentsOf: fileURL)
-    )
-    return entries
+  func load() async throws -> [BrowserHistoryEntry] {
+    try await repository.history()
   }
 
-  func add(title: String, url: URL, isPrivate: Bool) throws {
+  func add(
+    title: String,
+    url: URL,
+    isPrivate: Bool
+  ) async throws {
     guard !isPrivate else { return }
-    entries.insert(BrowserHistoryEntry(title: title, url: url), at: 0)
-    try persist()
+    try await repository.addHistory(title: title, url: url)
   }
 
-  func search(_ query: String) -> [BrowserHistoryEntry] {
+  func search(_ query: String) async throws -> [BrowserHistoryEntry] {
     let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    let entries = try await repository.history()
     guard !value.isEmpty else { return entries }
     return entries.filter {
       $0.title.localizedCaseInsensitiveContains(value)
@@ -58,26 +61,59 @@ actor BrowserHistoryManager {
     }
   }
 
-  func remove(id: UUID) throws {
-    entries.removeAll { $0.id == id }
-    try persist()
-  }
-
-  func clear(from startDate: Date? = nil) throws {
-    if let startDate {
-      entries.removeAll { $0.visitedAt >= startDate }
+  func grouped(
+    entries: [BrowserHistoryEntry]? = nil,
+    now: Date = Date()
+  ) async throws -> [(BrowserHistoryPeriod, [BrowserHistoryEntry])] {
+    let values: [BrowserHistoryEntry]
+    if let entries {
+      values = entries
     } else {
-      entries.removeAll()
+      values = try await repository.history()
     }
-    try persist()
+    let startOfToday = calendar.startOfDay(for: now)
+    let startOfYesterday = calendar.date(
+      byAdding: .day,
+      value: -1,
+      to: startOfToday
+    )!
+    let startOfSevenDays = calendar.date(
+      byAdding: .day,
+      value: -7,
+      to: startOfToday
+    )!
+
+    var result: [BrowserHistoryPeriod: [BrowserHistoryEntry]] = [:]
+    for entry in values {
+      let period: BrowserHistoryPeriod
+      if entry.visitedAt >= startOfToday {
+        period = .today
+      } else if entry.visitedAt >= startOfYesterday {
+        period = .yesterday
+      } else if entry.visitedAt >= startOfSevenDays {
+        period = .lastSevenDays
+      } else {
+        period = .earlier
+      }
+      result[period, default: []].append(entry)
+    }
+    return BrowserHistoryPeriod.allCases.compactMap { period in
+      guard let entries = result[period], !entries.isEmpty else { return nil }
+      return (period, entries)
+    }
   }
 
-  private func persist() throws {
-    try FileManager.default.createDirectory(
-      at: fileURL.deletingLastPathComponent(),
-      withIntermediateDirectories: true
+  func remove(id: UUID) async throws {
+    try await repository.removeHistory(id: id)
+  }
+
+  func clear(
+    from startDate: Date? = nil,
+    through endDate: Date? = nil
+  ) async throws {
+    try await repository.clearHistory(
+      from: startDate,
+      through: endDate
     )
-    let data = try JSONEncoder().encode(entries)
-    try data.write(to: fileURL, options: .atomic)
   }
 }

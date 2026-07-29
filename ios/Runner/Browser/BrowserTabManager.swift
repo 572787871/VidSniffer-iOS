@@ -88,6 +88,15 @@ final class BrowserTabManager {
     }
   }
 
+  func normalSnapshots() -> [BrowserTabSnapshot] {
+    tabs.filter { !$0.isPrivate }.map { tab in
+      if let webView = tab.webView {
+        tab.captureState(from: webView)
+      }
+      return tab.makeSnapshot()
+    }
+  }
+
   func closeOtherTabs(keeping id: UUID) {
     let ids = tabs.filter { $0.id != id }.map(\.id)
     ids.forEach(closeTab(id:))
@@ -131,7 +140,10 @@ final class BrowserTabManager {
     return tab
   }
 
-  func replaceNormalTabs(with snapshots: [BrowserTabSnapshot]) {
+  func replaceNormalTabs(
+    with snapshots: [BrowserTabSnapshot],
+    selectedTabID preferredSelectedID: UUID? = nil
+  ) {
     for tab in tabs where !tab.isPrivate {
       tab.webView?.stopLoading()
       tab.webView?.removeFromSuperview()
@@ -143,10 +155,12 @@ final class BrowserTabManager {
         .map(BrowserTab.init(snapshot:)),
       at: 0
     )
-    if let first = tabs.first(where: { !$0.isPrivate }) {
-      selectedTabID = first.id
-      materializeWebView(for: first)
-      notifyChanges(selected: first)
+    if let selected = tabs.first(where: {
+      $0.id == preferredSelectedID && !$0.isPrivate
+    }) ?? tabs.first(where: { !$0.isPrivate }) {
+      selectedTabID = selected.id
+      materializeWebView(for: selected)
+      notifyChanges(selected: selected)
     } else {
       _ = createTab()
     }

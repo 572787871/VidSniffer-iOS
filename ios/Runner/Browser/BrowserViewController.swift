@@ -81,10 +81,15 @@ final class BrowserViewController: UIViewController {
   private let findBar = BrowserFindBar()
   private let refreshControl = UIRefreshControl()
   private let downloadCoordinator = BrowserDownloadCoordinator()
+  private let bookmarkManager = BookmarkManager()
+  private let historyManager = BrowserHistoryManager()
+  private let sessionManager = BrowserSessionManager()
 
   private var observations: [NSKeyValueObservation] = []
   private var searchEngine: BrowserSearchEngine = .google
   private var lastFailedURL: URL?
+  private var sessionPersistenceTask: Task<Void, Never>?
+  private var hasRestoredSession = false
 
   convenience init() {
     self.init(tabManager: BrowserTabManager())
@@ -105,12 +110,19 @@ final class BrowserViewController: UIViewController {
     configureView()
     configureActions()
     configureDownloadCoordinator()
+    configureLifecycleObservers()
     if tabManager.tabs.isEmpty {
       _ = tabManager.createTab()
     }
     if let tab = tabManager.selectedTab {
       display(tab)
     }
+    restoreSession()
+  }
+
+  deinit {
+    NotificationCenter.default.removeObserver(self)
+    sessionPersistenceTask?.cancel()
   }
 
   private var activeWebView: WKWebView? {
@@ -291,6 +303,125 @@ final class BrowserViewController: UIViewController {
     }
     findBar.onClose = { [weak self] in
       self?.setFindBarVisible(false)
+    }
+  }
+
+  private func configureLifecycleObservers() {
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(applicationDidEnterBackground),
+      name: UIApplication.didEnterBackgroundNotification,
+      object: nil
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(applicationWillTerminate),
+      name: UIApplication.willTerminateNotification,
+      object: nil
+    )
+  }
+
+  private func restoreSession() {
+    guard !hasRestoredSession else { return }
+    hasRestoredSession = true
+    Task { [weak self] in
+      guard let self else { return }
+      do {
+        guard let state = try await self.sessionManager.restore(),
+              !state.tabs.isEmpty
+        else {
+          return
+        }
+        let restoredTabs = state.tabs
+        self.tabManager.replaceNormalTabs(
+          with: restoredTabs,
+          selectedTabID: state.selectedTabID
+        )
+        for snapshot in restoredTabs {
+          guard let fileName = snapshot.screenshotFileName,
+                let data = try? await self.sessionManager.screenshotData(
+                  fileName: fileName
+                ),
+                let image = UIImage(data: data),
+                let tab = self.tabManager.tab(id: snapshot.id)
+          else {
+            continue
+          }
+          tab.screenshot = image
+        }
+      } catch {
+        self.showNotice(
+          title: "标签页恢复失败",
+          message: "已为你打开一个新的空白标签页。"
+        )
+      }
+    }
+  }
+
+  private func persistSession() {
+    sessionPersistenceTask?.cancel()
+    sessionPersistenceTask = Task { [weak self] in
+      guard let self else { return }
+      var snapshots: [BrowserTabSnapshot] = []
+      var screenshotNames = Set<String>()
+
+      for tab in self.tabManager.tabs where !tab.isPrivate {
+        if let webView = tab.webView {
+          tab.captureState(from: webView)
+          if let image = await self.snapshot(of: webView) {
+            tab.screenshot = image
+          }
+        }
+        var screenshotFileName: String?
+        if let data = tab.screenshot?.jpegData(compressionQuality: 0.72),
+           let savedName = try? await self.sessionManager.saveScreenshot(
+             data,
+             tabID: tab.id
+           ) {
+          screenshotFileName = savedName
+          screenshotNames.insert(savedName)
+        }
+        snapshots.append(
+          tab.makeSnapshot(screenshotFileName: screenshotFileName)
+        )
+      }
+      guard !Task.isCancelled else { return }
+      let selectedNormalID = self.tabManager.selectedTab?.isPrivate == false
+        ? self.tabManager.selectedTabID
+        : snapshots.first?.id
+      do {
+        try await self.sessionManager.save(
+          BrowserSessionState(
+            selectedTabID: selectedNormalID,
+            tabs: snapshots
+          )
+        )
+        try await self.sessionManager.pruneScreenshots(
+          keeping: screenshotNames
+        )
+      } catch {
+        // Session persistence is best-effort; the active browser remains usable.
+      }
+    }
+  }
+
+  private func snapshot(of webView: WKWebView) async -> UIImage? {
+    await withCheckedContinuation { continuation in
+      webView.takeSnapshot(with: nil) { image, _ in
+        continuation.resume(returning: image)
+      }
+    }
+  }
+
+  @objc private func applicationDidEnterBackground() {
+    persistSession()
+  }
+
+  @objc private func applicationWillTerminate() {
+    persistSession()
+    tabManager.closeAllPrivateTabs()
+    Task {
+      try? await sessionManager.removePrivateArtifacts()
     }
   }
 
@@ -531,7 +662,21 @@ final class BrowserViewController: UIViewController {
           title: "添加书签",
           image: UIImage(systemName: "bookmark")
         ) { [weak self] _ in
-          self?.showNotice(title: "已准备添加书签", message: "书签持久化将在阶段 3 接入。")
+          self?.addCurrentPageToBookmarks()
+        },
+      ]),
+      UIMenu(title: "浏览器资料", children: [
+        UIAction(
+          title: "书签",
+          image: UIImage(systemName: "bookmark.fill")
+        ) { [weak self] _ in
+          self?.showBrowserLibrary(showHistory: false)
+        },
+        UIAction(
+          title: "历史记录",
+          image: UIImage(systemName: "clock.arrow.circlepath")
+        ) { [weak self] _ in
+          self?.showBrowserLibrary(showHistory: true)
         },
       ]),
       UIMenu(title: "网页显示", children: [
@@ -666,6 +811,49 @@ final class BrowserViewController: UIViewController {
   private func requestMobileSite() {
     activeWebView?.customUserAgent = nil
     activeWebView?.reload()
+  }
+
+  private func addCurrentPageToBookmarks() {
+    guard let tab = tabManager.selectedTab,
+          let url = tab.url
+    else {
+      return
+    }
+    Task { [weak self] in
+      guard let self else { return }
+      do {
+        _ = try await self.bookmarkManager.add(
+          title: tab.title,
+          url: url
+        )
+        self.showNotice(title: "已添加书签", message: tab.title)
+      } catch {
+        self.showNotice(
+          title: "无法添加书签",
+          message: "浏览器资料暂时无法保存，请稍后重试。"
+        )
+      }
+    }
+  }
+
+  private func showBrowserLibrary(showHistory: Bool) {
+    let controller = BrowserLibraryViewController(showHistory: showHistory)
+    controller.onOpenURL = { [weak self, weak controller] url, newTab in
+      guard let self else { return }
+      if newTab {
+        _ = self.tabManager.createTab(url: url)
+      } else {
+        self.load(url)
+      }
+      controller?.dismiss(animated: true)
+    }
+    let navigation = UINavigationController(rootViewController: controller)
+    navigation.modalPresentationStyle = .pageSheet
+    if let sheet = navigation.sheetPresentationController {
+      sheet.detents = [.medium(), .large()]
+      sheet.prefersGrabberVisible = true
+    }
+    present(navigation, animated: true)
   }
 
   private func showWebsiteInformation() {
@@ -819,6 +1007,15 @@ extension BrowserViewController: WKNavigationDelegate {
     tab.captureState(from: webView)
     refreshChrome(for: tab)
     webView.scrollView.refreshControl?.endRefreshing()
+    if let url = tab.url {
+      Task { [historyManager] in
+        try? await historyManager.add(
+          title: tab.title,
+          url: url,
+          isPrivate: tab.isPrivate
+        )
+      }
+    }
   }
 
   func webView(

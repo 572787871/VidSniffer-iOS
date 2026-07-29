@@ -19,10 +19,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
   }
 
   func applicationDidEnterBackground(_ application: UIApplication) {
-    // BrowserSessionManager integration is completed in the session phase.
+    // BrowserViewController persists normal tabs from the lifecycle notification.
   }
 
   func applicationWillTerminate(_ application: UIApplication) {
-    // Private tabs are destroyed by BrowserTabManager before persistence.
+    // BrowserViewController excludes and destroys private tabs before persistence.
   }
 }

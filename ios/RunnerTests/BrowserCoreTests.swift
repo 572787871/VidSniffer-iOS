@@ -3,6 +3,21 @@ import WebKit
 @testable import Runner
 
 final class BrowserCoreTests: XCTestCase {
+  private func makeTemporaryDirectory() throws -> URL {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "BrowserCoreTests-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+      at: url,
+      withIntermediateDirectories: true
+    )
+    addTeardownBlock {
+      try? FileManager.default.removeItem(at: url)
+    }
+    return url
+  }
+
   func testURLResolverRecognizesExplicitAndImplicitURLs() {
     XCTAssertEqual(
       BrowserURLResolver.resolve("https://example.com/a")?.absoluteString,
@@ -108,5 +123,79 @@ final class BrowserCoreTests: XCTestCase {
       XCTAssertNotNil(manager.tab(id: second.id))
       XCTAssertEqual(manager.tabs.filter { !$0.isPrivate }.count, 1)
     }
+  }
+
+  func testBookmarkCRUDUsesUnifiedRepository() async throws {
+    let directory = try makeTemporaryDirectory()
+    let repository = BrowserDataRepository(
+      fileURL: directory.appendingPathComponent("browser-data.json")
+    )
+    let manager = BookmarkManager(repository: repository)
+    let url = URL(string: "https://example.com/bookmark")!
+
+    let bookmark = try await manager.add(title: "Example", url: url)
+    let initialBookmarks = try await manager.load()
+    XCTAssertEqual(initialBookmarks.count, 1)
+
+    var updated = bookmark
+    updated.title = "Updated"
+    try await manager.update(updated)
+    let updatedBookmarks = try await manager.load()
+    XCTAssertEqual(updatedBookmarks.first?.title, "Updated")
+
+    try await manager.remove(id: bookmark.id)
+    let finalBookmarks = try await manager.load()
+    XCTAssertTrue(finalBookmarks.isEmpty)
+  }
+
+  func testPrivateHistoryIsNotPersistedAndHistoryCanBeCleared() async throws {
+    let directory = try makeTemporaryDirectory()
+    let repository = BrowserDataRepository(
+      fileURL: directory.appendingPathComponent("browser-data.json")
+    )
+    let manager = BrowserHistoryManager(repository: repository)
+    let url = URL(string: "https://example.com/history")!
+
+    try await manager.add(title: "Private", url: url, isPrivate: true)
+    let privateHistory = try await manager.load()
+    XCTAssertTrue(privateHistory.isEmpty)
+
+    try await manager.add(title: "Normal", url: url, isPrivate: false)
+    let normalHistory = try await manager.load()
+    XCTAssertEqual(normalHistory.count, 1)
+    try await manager.clear()
+    let clearedHistory = try await manager.load()
+    XCTAssertTrue(clearedHistory.isEmpty)
+  }
+
+  func testSessionRestoreExcludesPrivateTabsAndKeepsSelection() async throws {
+    let directory = try makeTemporaryDirectory()
+    let manager = BrowserSessionManager(
+      supportDirectory: directory.appendingPathComponent("Support"),
+      cacheDirectory: directory.appendingPathComponent("Caches")
+    )
+    let normal = await MainActor.run {
+      BrowserTab(title: "Normal", url: URL(string: "https://example.com"))
+    }
+    let privateTab = await MainActor.run {
+      BrowserTab(
+        title: "Private",
+        url: URL(string: "https://example.com/private"),
+        isPrivate: true
+      )
+    }
+    let state = await MainActor.run {
+      BrowserSessionState(
+        selectedTabID: normal.id,
+        tabs: [normal.makeSnapshot(), privateTab.makeSnapshot()]
+      )
+    }
+
+    try await manager.save(state)
+    let restored = try await manager.restore()
+
+    XCTAssertEqual(restored?.selectedTabID, normal.id)
+    XCTAssertEqual(restored?.tabs.count, 1)
+    XCTAssertFalse(restored?.tabs.first?.isPrivate ?? true)
   }
 }
