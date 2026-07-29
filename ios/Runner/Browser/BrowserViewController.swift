@@ -1,6 +1,7 @@
 import UIKit
 import WebKit
 
+@MainActor
 final class BrowserViewController: UIViewController {
   private let tabManager: BrowserTabManager
   private let addressBar = AddressBarView()
@@ -9,7 +10,11 @@ final class BrowserViewController: UIViewController {
   private let homeLabel = UILabel()
   private var observations: [NSKeyValueObservation] = []
 
-  init(tabManager: BrowserTabManager = BrowserTabManager()) {
+  convenience init() {
+    self.init(tabManager: BrowserTabManager())
+  }
+
+  init(tabManager: BrowserTabManager) {
     self.tabManager = tabManager
     super.init(nibName: nil, bundle: nil)
   }
@@ -123,8 +128,6 @@ final class BrowserViewController: UIViewController {
   }
 
   private func observe(_ webView: WKWebView, tab: BrowserTab) {
-    let keyPaths: [KeyPath<WKWebView, NSObject>] = []
-    _ = keyPaths
     observations = [
       webView.observe(\.title, options: [.initial, .new]) { [weak self, weak tab] webView, _ in
         Task { @MainActor in

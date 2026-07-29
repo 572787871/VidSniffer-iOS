@@ -3,7 +3,7 @@ import WebKit
 
 @MainActor
 final class BrowserTabManager {
-  static let defaultMaximumActiveWebViews = 6
+  nonisolated static let defaultMaximumActiveWebViews = 6
 
   private(set) var tabs: [BrowserTab] = []
   private(set) var recentlyClosed: [BrowserTabSnapshot] = []
