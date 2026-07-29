@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import UIKit
 import WebKit
 
@@ -247,7 +247,11 @@ final class BrowserViewController: UIViewController {
     }
     addressBar.onReloadOrStop = { [weak self] in
       guard let webView = self?.activeWebView else { return }
-      webView.isLoading ? webView.stopLoading() : webView.reload()
+      if webView.isLoading {
+        webView.stopLoading()
+      } else {
+        webView.reload()
+      }
     }
 
     toolbar.onBack = { [weak self] in self?.activeWebView?.goBack() }
@@ -510,7 +514,11 @@ final class BrowserViewController: UIViewController {
           attributes: hasPage ? [] : [.disabled]
         ) { [weak self] _ in
           guard let webView = self?.activeWebView else { return }
-          webView.isLoading ? webView.stopLoading() : webView.reload()
+          if webView.isLoading {
+            webView.stopLoading()
+          } else {
+            webView.reload()
+          }
         },
         UIAction(
           title: "在网页内查找",
@@ -1235,7 +1243,7 @@ private final class BrowserFindBar: UIVisualEffectView {
 @MainActor
 private final class QRScannerViewController:
   UIViewController,
-  AVCaptureMetadataOutputObjectsDelegate
+  @preconcurrency AVCaptureMetadataOutputObjectsDelegate
 {
   var onResult: ((String) -> Void)?
 
