@@ -62,15 +62,39 @@ jobs:
                 print device["udid"]
               '
           )"
+          xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          TEST_LOG="build/logs/xcodebuild-tests.log"
           xcodebuild \
             -project ios/Runner.xcodeproj \
             -scheme Runner \
             -configuration Debug \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -derivedDataPath build/TestDerivedData \
+            -resultBundlePath build/TestResults.xcresult \
+            -only-testing:RunnerTests \
             CODE_SIGNING_ALLOWED=NO \
             test \
-            2>&1 | tee build/logs/xcodebuild-tests.log
+            > >(tee "$TEST_LOG") 2>&1 &
+          TEST_PID=$!
+          (
+            sleep 720
+            if kill -0 "$TEST_PID" 2>/dev/null; then
+              echo "Unit tests exceeded 12 minutes" | tee -a "$TEST_LOG"
+              xcrun simctl diagnose > build/logs/simctl-diagnose.txt 2>&1 || true
+              kill -TERM "$TEST_PID" 2>/dev/null || true
+              sleep 10
+              kill -KILL "$TEST_PID" 2>/dev/null || true
+            fi
+          ) &
+          WATCHDOG_PID=$!
+          set +e
+          wait "$TEST_PID"
+          TEST_STATUS=$?
+          set -e
+          kill "$WATCHDOG_PID" 2>/dev/null || true
+          wait "$WATCHDOG_PID" 2>/dev/null || true
+          exit "$TEST_STATUS"
 
       - name: Build unsigned iOS app
         run: |

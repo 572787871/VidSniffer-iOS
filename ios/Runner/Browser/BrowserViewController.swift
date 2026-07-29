@@ -989,6 +989,10 @@ final class BrowserViewController: UIViewController {
   private func showLoadError(_ error: Error, url: URL?) {
     let nsError = error as NSError
     if nsError.code == NSURLErrorCancelled { return }
+    AppLogger.error(
+      "\(AppLogger.sanitizedURLDescription(url)) code=\(nsError.code)",
+      category: .navigation
+    )
     lastFailedURL = url
     errorView.configure(message: localizedMessage(for: nsError))
     errorView.isHidden = false
