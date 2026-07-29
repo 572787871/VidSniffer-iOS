@@ -1,4 +1,4 @@
-name: Build VidSniffer Pro IPA
+name: Build VidSniffer Native IPA
 
 on:
   workflow_dispatch:
@@ -8,98 +8,118 @@ on:
       - master
 
 concurrency:
-  group: ios-ipa-${{ github.ref }}
+  group: ios-native-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build-ios:
-    name: Build unsigned iOS IPA
+    name: Test and build unsigned iOS IPA
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
+      - name: Show Xcode version
+        run: xcodebuild -version
 
-      - name: Show Flutter version
-        run: flutter --version
-
-      - name: Install Flutter packages
-        run: flutter pub get
-
-      - name: Analyze Flutter code
-        run: flutter analyze
-
-      - name: Disable Flutter Swift Package Manager integration
+      - name: Resolve Swift packages
         run: |
-          flutter config --no-enable-swift-package-manager
-          flutter config
+          set -o pipefail
+          mkdir -p build/logs
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project ios/Runner.xcodeproj \
+            -scheme Runner \
+            2>&1 | tee build/logs/resolve-packages.log
 
-      - name: Prepare iOS build files
-        run: flutter build ios --release --no-codesign --config-only
+      - name: Analyze native code
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project ios/Runner.xcodeproj \
+            -scheme Runner \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            analyze \
+            2>&1 | tee build/logs/analyze.log
 
-      - name: Build unsigned iOS app with Xcode
+      - name: Run unit tests
         run: |
           set -euo pipefail
+          DEVICE_ID="$(
+            xcrun simctl list devices available -j |
+              ruby -rjson -e '
+                data = JSON.parse(STDIN.read)["devices"]
+                device = data.values.flatten.find {
+                  |item| item["name"].start_with?("iPhone") &&
+                    item["isAvailable"]
+                }
+                abort("No available iPhone simulator") unless device
+                print device["udid"]
+              '
+          )"
           xcodebuild \
-            -workspace ios/Runner.xcworkspace \
+            -project ios/Runner.xcodeproj \
+            -scheme Runner \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -derivedDataPath build/TestDerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            test \
+            2>&1 | tee build/logs/xcodebuild-tests.log
+
+      - name: Build unsigned iOS app
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project ios/Runner.xcodeproj \
             -scheme Runner \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -derivedDataPath build/ios_xcode \
+            -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
             CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}" \
-            build
+            build \
+            2>&1 | tee build/logs/xcodebuild-release.log
 
       - name: Package unsigned IPA
         run: |
           set -euo pipefail
-          IPA_DIR="build/ios/ipa"
-          IPA_PATH="$IPA_DIR/VidSniffer-Pro-unsigned.ipa"
-          APP_PATH="$(find build -path '*/Release-iphoneos/Runner.app' -type d | head -n 1)"
+          IPA_ROOT="build/ipa"
+          IPA_PATH="$IPA_ROOT/VidSniffer-Pro-unsigned.ipa"
+          APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/Runner.app"
 
-          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
-            echo "Runner.app not found under build/"
-            find build -maxdepth 6 -name Runner.app -print || true
-            exit 1
-          fi
-
-          rm -rf "$IPA_DIR"
-          mkdir -p "$IPA_DIR/Payload"
-          cp -R "$APP_PATH" "$IPA_DIR/Payload/Runner.app"
-          APP_COPY="$IPA_DIR/Payload/Runner.app"
-
-          # Produce a genuinely unsigned bundle. Pre-signed Flutter and plugin
-          # frameworks can make third-party signing tools leave mixed
-          # signatures behind, which iOS rejects during installation.
-          find "$APP_COPY" -type d -name _CodeSignature -prune -exec rm -rf {} +
-          find "$APP_COPY" -name CodeResources -delete
-          rm -f "$APP_COPY/embedded.mobileprovision"
-          xattr -cr "$APP_COPY"
-
-          if find "$APP_COPY" -type d -name _CodeSignature -print -quit |
-            grep -q .; then
-            echo "A nested code signature remains in the unsigned app"
-            exit 1
-          fi
-
-          (cd "$IPA_DIR" && zip -qry "$(basename "$IPA_PATH")" Payload)
-          test -f "$IPA_PATH"
+          test -d "$APP_PATH"
+          rm -rf "$IPA_ROOT"
+          mkdir -p "$IPA_ROOT/Payload"
+          cp -R "$APP_PATH" "$IPA_ROOT/Payload/Runner.app"
+          find "$IPA_ROOT/Payload/Runner.app" \
+            -type d -name _CodeSignature -prune -exec rm -rf {} +
+          find "$IPA_ROOT/Payload/Runner.app" -name CodeResources -delete
+          rm -f "$IPA_ROOT/Payload/Runner.app/embedded.mobileprovision"
+          xattr -cr "$IPA_ROOT/Payload/Runner.app"
+          (cd "$IPA_ROOT" && zip -qry "$(basename "$IPA_PATH")" Payload)
           unzip -tq "$IPA_PATH"
 
-      - name: Upload IPA artifact
+      - name: Upload build logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: VidSniffer-Pro-unsigned-ipa
-          path: build/ios/ipa/VidSniffer-Pro-unsigned.ipa
+          name: native-ios-build-logs
+          path: build/logs
+          if-no-files-found: warn
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: VidSniffer-Pro-native-unsigned-ipa
+          path: build/ipa/VidSniffer-Pro-unsigned.ipa
           if-no-files-found: error

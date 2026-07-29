@@ -1,31 +1,34 @@
-# 视频解析下载
+# VidSniffer iOS
 
-Flutter iOS app for parsing user-accessible web video pages, sniffing media resources, downloading videos, merging HLS/m3u8 to mp4, and managing local files.
+VidSniffer 正在重构为纯 Swift + UIKit iOS 应用。项目不再使用 Flutter。
 
-## UI
+## 技术栈
 
-- Material 3 iPhone-style interface.
-- Light and dark mode.
-- Blue-purple gradient primary visual style.
-- Bottom tabs: Home, Downloads, Library, Settings.
-- Resource bottom sheet with real sniffed URLs, type, metadata, copy link, and download actions.
+- Swift 5
+- UIKit
+- WebKit / WKWebView
+- URLSession / WKDownload（下载阶段逐步接入）
+- AVFoundation（播放器阶段逐步接入）
 
-## Core Requirements Covered
+最低系统版本为 iOS 15。
 
-- `flutter_inappwebview` for built-in WebView, resource callbacks, JavaScript hook, and cookie-aware sniffing.
-- `video_player` for playback page.
-- `ffmpeg_kit_flutter_new` for m3u8/ts merge path. This is the maintained full-GPL successor used because the original `ffmpeg_kit_flutter_full_gpl` iOS binary pod currently returns 404 in CI.
-- Files are designed to save under `Documents/videos/`.
-- iOS file sharing is enabled in `Info.plist`.
-- Downloader service includes progress, cancel, pause/retry states, HTML mis-save guard, safe filenames, and HLS merge command path.
+## 当前阶段
 
-## Local Run
+阶段 1 正在建立原生浏览器核心模型、标签页生命周期和 UIKit 启动入口。
+详细范围与未完成项目见 [NATIVE_BROWSER_MIGRATION_PLAN.md](NATIVE_BROWSER_MIGRATION_PLAN.md)。
+
+## 构建
 
 ```bash
-flutter pub get
-flutter run
+xcodebuild \
+  -project ios/Runner.xcodeproj \
+  -scheme Runner \
+  -configuration Release \
+  -sdk iphoneos \
+  -destination 'generic/platform=iOS' \
+  CODE_SIGNING_ALLOWED=NO \
+  build
 ```
 
-## iOS Unsigned IPA
-
-GitHub Actions builds `VidSniffer-Pro-unsigned.ipa` on push to `main`.
+GitHub Actions 会生成未签名 `VidSniffer-Pro-unsigned.ipa`。未签名 IPA
+仍需用户自行签名，CI 构建通过不代表已经在真机验证。

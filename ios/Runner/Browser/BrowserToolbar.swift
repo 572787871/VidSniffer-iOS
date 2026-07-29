@@ -1,0 +1,72 @@
+import UIKit
+
+final class BrowserToolbar: UIVisualEffectView {
+  let backButton = UIButton(type: .system)
+  let forwardButton = UIButton(type: .system)
+  let homeButton = UIButton(type: .system)
+  let shareButton = UIButton(type: .system)
+  let tabsButton = UIButton(type: .system)
+
+  var onBack: (() -> Void)?
+  var onForward: (() -> Void)?
+  var onHome: (() -> Void)?
+  var onShare: (() -> Void)?
+  var onTabs: (() -> Void)?
+
+  init() {
+    super.init(effect: UIBlurEffect(style: .systemChromeMaterial))
+    configure()
+  }
+
+  required init?(coder: NSCoder) {
+    super.init(coder: coder)
+    effect = UIBlurEffect(style: .systemChromeMaterial)
+    configure()
+  }
+
+  func update(canGoBack: Bool, canGoForward: Bool, tabCount: Int) {
+    backButton.isEnabled = canGoBack
+    forwardButton.isEnabled = canGoForward
+    tabsButton.accessibilityLabel = "标签页，共 \(tabCount) 个"
+  }
+
+  private func configure() {
+    translatesAutoresizingMaskIntoConstraints = false
+    layer.cornerRadius = 24
+    layer.cornerCurve = .continuous
+    clipsToBounds = true
+
+    let items: [(UIButton, String, Selector)] = [
+      (backButton, "chevron.backward", #selector(backPressed)),
+      (forwardButton, "chevron.forward", #selector(forwardPressed)),
+      (homeButton, "house.fill", #selector(homePressed)),
+      (shareButton, "square.and.arrow.up", #selector(sharePressed)),
+      (tabsButton, "square.on.square", #selector(tabsPressed)),
+    ]
+    for (button, imageName, selector) in items {
+      button.setImage(UIImage(systemName: imageName), for: .normal)
+      button.tintColor = .label
+      button.addTarget(self, action: selector, for: .touchUpInside)
+      button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+      button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+    }
+
+    let stack = UIStackView(arrangedSubviews: items.map(\.0))
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    stack.axis = .horizontal
+    stack.distribution = .equalSpacing
+    contentView.addSubview(stack)
+    NSLayoutConstraint.activate([
+      stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 10),
+      stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -10),
+      stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+      stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+    ])
+  }
+
+  @objc private func backPressed() { onBack?() }
+  @objc private func forwardPressed() { onForward?() }
+  @objc private func homePressed() { onHome?() }
+  @objc private func sharePressed() { onShare?() }
+  @objc private func tabsPressed() { onTabs?() }
+}
