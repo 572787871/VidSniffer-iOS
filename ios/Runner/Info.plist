@@ -33,7 +33,9 @@
   <key>NSDocumentsFolderUsageDescription</key>
   <string>用于导入、导出和管理本地视频文件。</string>
   <key>NSCameraUsageDescription</key>
-  <string>用于扫描二维码并在浏览器中打开网址。</string>
+  <string>用于扫描二维码；网站访问摄像头前仍会逐次询问你的许可。</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>仅在你允许后，供当前网站使用麦克风完成通话或录制功能。</string>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsArbitraryLoadsInWebContent</key>

@@ -1,4 +1,5 @@
 import UIKit
+import WebKit
 
 @main
 @MainActor
@@ -15,6 +16,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     window.rootViewController = BrowserViewController()
     window.makeKeyAndVisible()
     self.window = window
+    Task {
+      let warmup = WKWebView(frame: .zero)
+      await ContentBlockerManager.shared.apply(to: warmup)
+    }
     return true
   }
 

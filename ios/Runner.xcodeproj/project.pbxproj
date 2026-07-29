@@ -34,6 +34,9 @@
 		A00000000000000000000019 /* LibraryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001D /* LibraryManager.swift */; };
 		A0000000000000000000001A /* LibraryViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001E /* LibraryViewController.swift */; };
 		A0000000000000000000001B /* VideoPlayerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001F /* VideoPlayerViewController.swift */; };
+		A0000000000000000000001C /* BrowserSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000020 /* BrowserSettings.swift */; };
+		A0000000000000000000001D /* ContentBlockerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000021 /* ContentBlockerManager.swift */; };
+		A0000000000000000000001E /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000022 /* SettingsViewController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -67,6 +70,9 @@
 		B0000000000000000000001D /* LibraryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryManager.swift; sourceTree = "<group>"; };
 		B0000000000000000000001E /* LibraryViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryViewController.swift; sourceTree = "<group>"; };
 		B0000000000000000000001F /* VideoPlayerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerViewController.swift; sourceTree = "<group>"; };
+		B00000000000000000000020 /* BrowserSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSettings.swift; sourceTree = "<group>"; };
+		B00000000000000000000021 /* ContentBlockerManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentBlockerManager.swift; sourceTree = "<group>"; };
+		B00000000000000000000022 /* SettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXContainerItemProxy section */
@@ -114,6 +120,8 @@
 				D00000000000000000000006 /* Download */,
 				D00000000000000000000007 /* Library */,
 				D00000000000000000000008 /* Player */,
+				D00000000000000000000009 /* Settings */,
+				D0000000000000000000000A /* Privacy */,
 				B0000000000000000000000F /* Info.plist */,
 				B0000000000000000000000E /* LaunchScreen.storyboard */,
 				B0000000000000000000000D /* Assets.xcassets */,
@@ -187,6 +195,23 @@
 				B0000000000000000000001F /* VideoPlayerViewController.swift */,
 			);
 			path = Player;
+			sourceTree = "<group>";
+		};
+		D00000000000000000000009 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000020 /* BrowserSettings.swift */,
+				B00000000000000000000022 /* SettingsViewController.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		D0000000000000000000000A /* Privacy */ = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000021 /* ContentBlockerManager.swift */,
+			);
+			path = Privacy;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -306,6 +331,9 @@
 				A00000000000000000000019 /* LibraryManager.swift in Sources */,
 				A0000000000000000000001A /* LibraryViewController.swift in Sources */,
 				A0000000000000000000001B /* VideoPlayerViewController.swift in Sources */,
+				A0000000000000000000001C /* BrowserSettings.swift in Sources */,
+				A0000000000000000000001D /* ContentBlockerManager.swift in Sources */,
+				A0000000000000000000001E /* SettingsViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

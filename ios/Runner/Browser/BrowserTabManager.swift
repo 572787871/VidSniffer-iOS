@@ -178,7 +178,18 @@ final class BrowserTabManager {
     let webView = WKWebView(frame: .zero, configuration: configuration)
     webView.allowsBackForwardNavigationGestures = true
     webView.scrollView.contentInsetAdjustmentBehavior = .never
+    if BrowserSettingsStore.shared.value.requestsDesktopSite {
+      webView.customUserAgent =
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        + "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+    }
     tab.webView = webView
+    Task {
+      await ContentBlockerManager.shared.apply(
+        to: webView,
+        for: tab.url?.host
+      )
+    }
 
     if let url = tab.url {
       webView.load(URLRequest(url: url))

@@ -86,7 +86,9 @@ final class BrowserViewController: UIViewController {
   private let sessionManager = BrowserSessionManager()
 
   private var observations: [NSKeyValueObservation] = []
-  private var searchEngine: BrowserSearchEngine = .google
+  private var searchEngine: BrowserSearchEngine {
+    BrowserSettingsStore.shared.value.searchEngine
+  }
   private var lastFailedURL: URL?
   private var sessionPersistenceTask: Task<Void, Never>?
   private var hasRestoredSession = false
@@ -111,6 +113,7 @@ final class BrowserViewController: UIViewController {
     configureActions()
     configureDownloadCoordinator()
     configureLifecycleObservers()
+    applyBrowserSettings()
     if tabManager.tabs.isEmpty {
       _ = tabManager.createTab()
     }
@@ -319,11 +322,18 @@ final class BrowserViewController: UIViewController {
       name: UIApplication.willTerminateNotification,
       object: nil
     )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(browserSettingsDidChange),
+      name: .browserSettingsDidChange,
+      object: nil
+    )
   }
 
   private func restoreSession() {
     guard !hasRestoredSession else { return }
     hasRestoredSession = true
+    guard BrowserSettingsStore.shared.value.restoresTabs else { return }
     Task { [weak self] in
       guard let self else { return }
       do {
@@ -425,6 +435,20 @@ final class BrowserViewController: UIViewController {
     }
   }
 
+  @objc private func browserSettingsDidChange() {
+    applyBrowserSettings()
+    Task {
+      for tab in tabManager.tabs {
+        guard let webView = tab.webView else { continue }
+        await ContentBlockerManager.shared.apply(
+          to: webView,
+          for: tab.url?.host
+        )
+      }
+      activeWebView?.reload()
+    }
+  }
+
   private func configureDownloadCoordinator() {
     downloadCoordinator.onFinished = { [weak self] url in
       self?.showNotice(
@@ -495,6 +519,8 @@ final class BrowserViewController: UIViewController {
         for: .valueChanged
       )
     }
+    webView.scrollView.refreshControl?.isEnabled =
+      BrowserSettingsStore.shared.value.pullToRefresh
   }
 
   private func observe(_ webView: WKWebView, tab: BrowserTab) {
@@ -728,6 +754,12 @@ final class BrowserViewController: UIViewController {
         ) { [weak self] _ in
           self?.confirmClearCurrentWebsiteData()
         },
+        UIAction(
+          title: "设置",
+          image: UIImage(systemName: "gearshape")
+        ) { [weak self] _ in
+          self?.showSettings()
+        },
       ]),
     ])
   }
@@ -877,6 +909,26 @@ final class BrowserViewController: UIViewController {
     navigation.navigationBar.prefersLargeTitles = true
     navigation.modalPresentationStyle = .fullScreen
     present(navigation, animated: true)
+  }
+
+  private func showSettings() {
+    let controller = SettingsViewController()
+    let navigation = UINavigationController(rootViewController: controller)
+    navigation.navigationBar.prefersLargeTitles = true
+    navigation.modalPresentationStyle = .fullScreen
+    present(navigation, animated: true)
+  }
+
+  private func applyBrowserSettings() {
+    let settings = BrowserSettingsStore.shared.value
+    overrideUserInterfaceStyle = {
+      switch settings.appearance {
+      case .system: return .unspecified
+      case .light: return .light
+      case .dark: return .dark
+      }
+    }()
+    refreshControl.isEnabled = settings.pullToRefresh
   }
 
   private func showWebsiteInformation() {
@@ -1136,6 +1188,35 @@ extension BrowserViewController: WKNavigationDelegate {
 }
 
 extension BrowserViewController: WKUIDelegate {
+  @available(iOS 15.0, *)
+  func webView(
+    _ webView: WKWebView,
+    requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+    initiatedByFrame frame: WKFrameInfo,
+    type: WKMediaCaptureType,
+    decisionHandler: @escaping (WKPermissionDecision) -> Void
+  ) {
+    let resource: String
+    switch type {
+    case .camera: resource = "摄像头"
+    case .microphone: resource = "麦克风"
+    case .cameraAndMicrophone: resource = "摄像头和麦克风"
+    @unknown default: resource = "媒体设备"
+    }
+    let alert = UIAlertController(
+      title: "\(origin.host) 想使用\(resource)",
+      message: "只有在你允许后，此网站才能访问\(resource)。",
+      preferredStyle: .alert
+    )
+    alert.addAction(UIAlertAction(title: "不允许", style: .cancel) { _ in
+      decisionHandler(.deny)
+    })
+    alert.addAction(UIAlertAction(title: "允许", style: .default) { _ in
+      decisionHandler(.grant)
+    })
+    present(alert, animated: true)
+  }
+
   func webView(
     _ webView: WKWebView,
     createWebViewWith configuration: WKWebViewConfiguration,
@@ -1143,6 +1224,14 @@ extension BrowserViewController: WKUIDelegate {
     windowFeatures: WKWindowFeatures
   ) -> WKWebView? {
     guard navigationAction.targetFrame == nil else { return nil }
+    let settings = BrowserSettingsStore.shared.value
+    if settings.blocksPopups,
+       navigationAction.navigationType == .other,
+       let sourceHost = webView.url?.host,
+       let destinationHost = navigationAction.request.url?.host,
+       sourceHost != destinationHost {
+      return nil
+    }
     let sourceIsPrivate = tab(for: webView)?.isPrivate ?? false
     let tab = tabManager.createTab(isPrivate: sourceIsPrivate)
     guard let newWebView = tab.webView else { return nil }
