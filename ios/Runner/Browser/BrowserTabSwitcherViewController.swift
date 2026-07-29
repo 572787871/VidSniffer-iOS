@@ -19,6 +19,7 @@ final class BrowserTabSwitcherViewController: UIViewController {
   }
 
   private let manager: BrowserTabManager
+  private var isSelectingTabs = false
   private lazy var collectionView = UICollectionView(
     frame: .zero,
     collectionViewLayout: makeLayout()
@@ -151,6 +152,86 @@ final class BrowserTabSwitcherViewController: UIViewController {
     present(alert, animated: true)
   }
 
+  private func enterSelection(selecting tabID: UUID) {
+    isSelectingTabs = true
+    collectionView.allowsMultipleSelection = true
+    navigationItem.leftBarButtonItem = UIBarButtonItem(
+      title: "取消",
+      primaryAction: UIAction { [weak self] _ in
+        self?.leaveSelection()
+      }
+    )
+    updateSelectionControls()
+    guard let indexPath = indexPath(for: tabID) else { return }
+    collectionView.selectItem(
+      at: indexPath,
+      animated: true,
+      scrollPosition: []
+    )
+    updateSelectionControls()
+  }
+
+  private func leaveSelection() {
+    isSelectingTabs = false
+    collectionView.indexPathsForSelectedItems?.forEach {
+      collectionView.deselectItem(at: $0, animated: true)
+    }
+    collectionView.allowsMultipleSelection = false
+    navigationItem.leftBarButtonItem = UIBarButtonItem(
+      systemItem: .close,
+      primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) }
+    )
+    navigationItem.rightBarButtonItems = [
+      UIBarButtonItem(
+        image: UIImage(systemName: "ellipsis.circle"),
+        menu: makeManagementMenu()
+      ),
+      UIBarButtonItem(
+        image: UIImage(systemName: "plus"),
+        menu: makeNewTabMenu()
+      ),
+    ]
+    title = "标签页"
+  }
+
+  private func updateSelectionControls() {
+    let count = collectionView.indexPathsForSelectedItems?.count ?? 0
+    title = count == 0 ? "选择标签页" : "已选择 \(count) 个"
+    navigationItem.rightBarButtonItems = [
+      UIBarButtonItem(
+        title: "关闭",
+        image: UIImage(systemName: "trash"),
+        primaryAction: UIAction(
+          attributes: count == 0 ? [.disabled] : [.destructive]
+        ) { [weak self] _ in
+          self?.closeSelectedTabs()
+        }
+      ),
+    ]
+  }
+
+  private func closeSelectedTabs() {
+    let ids = (collectionView.indexPathsForSelectedItems ?? []).compactMap {
+      path -> UUID? in
+      let sectionTabs = tabs(in: path.section)
+      guard sectionTabs.indices.contains(path.item) else { return nil }
+      return sectionTabs[path.item].id
+    }
+    ids.forEach(manager.closeTab(id:))
+    collectionView.reloadData()
+    leaveSelection()
+  }
+
+  private func indexPath(for tabID: UUID) -> IndexPath? {
+    for section in Section.allCases {
+      if let item = tabs(in: section.rawValue)
+        .firstIndex(where: { $0.id == tabID }) {
+        return IndexPath(item: item, section: section.rawValue)
+      }
+    }
+    return nil
+  }
+
   private func tabs(in section: Int) -> [BrowserTab] {
     guard let section = Section(rawValue: section) else { return [] }
     return manager.tabs(isPrivate: section.isPrivate)
@@ -264,7 +345,20 @@ extension BrowserTabSwitcherViewController:
     _ collectionView: UICollectionView,
     didSelectItemAt indexPath: IndexPath
   ) {
+    if isSelectingTabs {
+      updateSelectionControls()
+      return
+    }
     onSelectTab?(tabs(in: indexPath.section)[indexPath.item].id)
+  }
+
+  func collectionView(
+    _ collectionView: UICollectionView,
+    didDeselectItemAt indexPath: IndexPath
+  ) {
+    if isSelectingTabs {
+      updateSelectionControls()
+    }
   }
 
   func collectionView(
@@ -278,6 +372,12 @@ extension BrowserTabSwitcherViewController:
       previewProvider: nil
     ) { [weak self] _ in
       UIMenu(children: [
+        UIAction(
+          title: "选择标签页",
+          image: UIImage(systemName: "checkmark.circle")
+        ) { _ in
+          self?.enterSelection(selecting: tab.id)
+        },
         UIAction(
           title: "复制网址",
           image: UIImage(systemName: "doc.on.doc"),
@@ -397,6 +497,13 @@ private final class BrowserTabCell: UICollectionViewCell {
   private let privateBadge = UILabel()
   private let closeButton = UIButton(type: .system)
   private var onClose: (() -> Void)?
+
+  override var isSelected: Bool {
+    didSet {
+      contentView.alpha = isSelected ? 0.62 : 1
+      accessibilityTraits = isSelected ? [.button, .selected] : [.button]
+    }
+  }
 
   override init(frame: CGRect) {
     super.init(frame: frame)
