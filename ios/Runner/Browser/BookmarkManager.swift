@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import UniformTypeIdentifiers
 
 struct Bookmark: Codable, Identifiable, Equatable {
   let id: UUID
@@ -171,6 +172,29 @@ actor BrowserDataRepository {
       return
     }
     envelope.bookmarkFolders[index] = folder
+    try save(envelope)
+  }
+
+  func moveFolders(fromOffsets: IndexSet, toOffset: Int) throws {
+    var envelope = try load()
+    var folders = envelope.bookmarkFolders.sorted { $0.order < $1.order }
+    let moving = fromOffsets.compactMap {
+      folders.indices.contains($0) ? folders[$0] : nil
+    }
+    for index in fromOffsets.sorted(by: >) where folders.indices.contains(index) {
+      folders.remove(at: index)
+    }
+    folders.insert(
+      contentsOf: moving,
+      at: min(max(0, toOffset), folders.count)
+    )
+    for (order, folder) in folders.enumerated() {
+      if let index = envelope.bookmarkFolders.firstIndex(where: {
+        $0.id == folder.id
+      }) {
+        envelope.bookmarkFolders[index].order = order
+      }
+    }
     try save(envelope)
   }
 
@@ -391,6 +415,13 @@ actor BookmarkManager {
     try await repository.updateFolder(folder)
   }
 
+  func moveFolders(fromOffsets: IndexSet, toOffset: Int) async throws {
+    try await repository.moveFolders(
+      fromOffsets: fromOffsets,
+      toOffset: toOffset
+    )
+  }
+
   func removeFolder(id: UUID, deleteBookmarks: Bool) async throws {
     try await repository.removeFolder(
       id: id,
@@ -412,7 +443,8 @@ final class BrowserLibraryViewController:
   UIViewController,
   UISearchResultsUpdating,
   UITableViewDataSource,
-  UITableViewDelegate
+  UITableViewDelegate,
+  UIDocumentPickerDelegate
 {
   private enum Mode: Int {
     case bookmarks
@@ -443,6 +475,7 @@ final class BrowserLibraryViewController:
   private let searchController = UISearchController(searchResultsController: nil)
   private var sections: [Section] = []
   private var loadTask: Task<Void, Never>?
+  private var temporaryExportURL: URL?
 
   init(
     bookmarkManager: BookmarkManager = BookmarkManager(),
@@ -553,12 +586,36 @@ final class BrowserLibraryViewController:
     UIBarButtonItem(
       image: UIImage(systemName: "ellipsis.circle"),
       menu: UIMenu(children: [
-        UIAction(
-          title: "新建书签文件夹",
-          image: UIImage(systemName: "folder.badge.plus")
-        ) { [weak self] _ in
-          self?.promptForNewFolder()
-        },
+        UIMenu(
+          title: "书签",
+          options: .displayInline,
+          children: [
+            UIAction(
+              title: "新建文件夹",
+              image: UIImage(systemName: "folder.badge.plus")
+            ) { [weak self] _ in
+              self?.promptForNewFolder()
+            },
+            UIAction(
+              title: "调整顺序",
+              image: UIImage(systemName: "arrow.up.arrow.down")
+            ) { [weak self] _ in
+              self?.toggleReordering()
+            },
+            UIAction(
+              title: "导入书签",
+              image: UIImage(systemName: "square.and.arrow.down")
+            ) { [weak self] _ in
+              self?.importBookmarks()
+            },
+            UIAction(
+              title: "导出书签",
+              image: UIImage(systemName: "square.and.arrow.up")
+            ) { [weak self] _ in
+              self?.exportBookmarks()
+            },
+          ]
+        ),
         UIAction(
           title: "清除历史记录",
           image: UIImage(systemName: "clock.badge.xmark"),
@@ -568,6 +625,74 @@ final class BrowserLibraryViewController:
         },
       ])
     )
+  }
+
+  private func toggleReordering() {
+    guard mode == .bookmarks, searchController.searchBar.text?.isEmpty != false
+    else {
+      showMessage(title: "无法调整顺序", message: "请先清空搜索内容并切换到书签。")
+      return
+    }
+    tableView.setEditing(!tableView.isEditing, animated: true)
+  }
+
+  private func importBookmarks() {
+    let picker = UIDocumentPickerViewController(
+      forOpeningContentTypes: [.json],
+      asCopy: true
+    )
+    picker.delegate = self
+    present(picker, animated: true)
+  }
+
+  private func exportBookmarks() {
+    Task { [weak self] in
+      guard let self else { return }
+      do {
+        let data = try await bookmarkManager.exportJSON()
+        let directory = FileManager.default.temporaryDirectory
+          .appendingPathComponent("BrowserExports", isDirectory: true)
+        try FileManager.default.createDirectory(
+          at: directory,
+          withIntermediateDirectories: true
+        )
+        let url = directory.appendingPathComponent("bookmarks.json")
+        try data.write(to: url, options: [.atomic])
+        temporaryExportURL = url
+        let share = UIActivityViewController(
+          activityItems: [url],
+          applicationActivities: nil
+        )
+        share.popoverPresentationController?.barButtonItem =
+          navigationItem.rightBarButtonItem
+        share.completionWithItemsHandler = { [weak self] _, _, _, _ in
+          guard let exportURL = self?.temporaryExportURL else { return }
+          try? FileManager.default.removeItem(at: exportURL)
+          self?.temporaryExportURL = nil
+        }
+        present(share, animated: true)
+      } catch {
+        showMessage(title: "导出失败", message: "暂时无法生成书签文件，请稍后重试。")
+      }
+    }
+  }
+
+  func documentPicker(
+    _ controller: UIDocumentPickerViewController,
+    didPickDocumentsAt urls: [URL]
+  ) {
+    guard let url = urls.first else { return }
+    Task { [weak self] in
+      guard let self else { return }
+      do {
+        let data = try Data(contentsOf: url)
+        try await bookmarkManager.importJSON(data)
+        reloadData()
+        showMessage(title: "导入完成", message: "书签已经合并到资料库。")
+      } catch {
+        showMessage(title: "无法导入", message: "请选择由本 App 导出的有效 JSON 文件。")
+      }
+    }
   }
 
   @objc private func modeChanged() {
@@ -688,6 +813,74 @@ final class BrowserLibraryViewController:
     }
     cell.contentConfiguration = configuration
     return cell
+  }
+
+  func tableView(
+    _ tableView: UITableView,
+    canMoveRowAt indexPath: IndexPath
+  ) -> Bool {
+    guard mode == .bookmarks,
+          searchController.searchBar.text?.isEmpty != false
+    else {
+      return false
+    }
+    switch sections[indexPath.section].rows[indexPath.row] {
+    case .folder, .bookmark:
+      return true
+    case .history:
+      return false
+    }
+  }
+
+  func tableView(
+    _ tableView: UITableView,
+    targetIndexPathForMoveFromRowAt sourceIndexPath: IndexPath,
+    toProposedIndexPath proposedDestinationIndexPath: IndexPath
+  ) -> IndexPath {
+    sourceIndexPath.section == proposedDestinationIndexPath.section
+      ? proposedDestinationIndexPath
+      : sourceIndexPath
+  }
+
+  func tableView(
+    _ tableView: UITableView,
+    moveRowAt sourceIndexPath: IndexPath,
+    to destinationIndexPath: IndexPath
+  ) {
+    guard sourceIndexPath.section == destinationIndexPath.section else {
+      reloadData()
+      return
+    }
+    let sourceRow = sections[sourceIndexPath.section].rows[sourceIndexPath.row]
+    let destinationOffset = destinationIndexPath.row > sourceIndexPath.row
+      ? destinationIndexPath.row + 1
+      : destinationIndexPath.row
+    let movedRow = sections[sourceIndexPath.section].rows.remove(
+      at: sourceIndexPath.row
+    )
+    sections[sourceIndexPath.section].rows.insert(
+      movedRow,
+      at: destinationIndexPath.row
+    )
+    Task { [weak self] in
+      guard let self else { return }
+      switch sourceRow {
+      case .folder:
+        try? await bookmarkManager.moveFolders(
+          fromOffsets: IndexSet(integer: sourceIndexPath.row),
+          toOffset: destinationOffset
+        )
+      case .bookmark:
+        try? await bookmarkManager.move(
+          fromOffsets: IndexSet(integer: sourceIndexPath.row),
+          toOffset: destinationOffset,
+          folderID: folderID
+        )
+      case .history:
+        break
+      }
+      reloadData()
+    }
   }
 
   func tableView(
@@ -937,6 +1130,16 @@ final class BrowserLibraryViewController:
       )
       reloadData()
     }
+  }
+
+  private func showMessage(title: String, message: String) {
+    let alert = UIAlertController(
+      title: title,
+      message: message,
+      preferredStyle: .alert
+    )
+    alert.addAction(UIAlertAction(title: "好", style: .default))
+    present(alert, animated: true)
   }
 
   private func dismissOrPop() {
