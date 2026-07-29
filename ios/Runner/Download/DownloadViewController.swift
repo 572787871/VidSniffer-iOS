@@ -295,10 +295,11 @@ private final class DownloadTaskCell: UITableViewCell {
     guard task.state == .downloading, task.speed > 0 else {
       return task.errorMessage ?? task.state.displayName
     }
-    return "\(task.state.displayName) · \(ByteCountFormatter.string(
+    let formattedSpeed = ByteCountFormatter.string(
       fromByteCount: Int64(task.speed),
       countStyle: .file
-    ))/秒"
+    )
+    return "\(task.state.displayName) · \(formattedSpeed)/秒"
   }
 
   private func sizeText(for task: DownloadTaskModel) -> String {
