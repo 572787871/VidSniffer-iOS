@@ -184,15 +184,16 @@ final class BrowserTabManager {
         + "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
     }
     tab.webView = webView
-    Task {
-      await ContentBlockerManager.shared.apply(
-        to: webView,
-        for: tab.url?.host
-      )
-    }
 
     if let url = tab.url {
-      webView.load(URLRequest(url: url))
+      Task {
+        await ContentBlockerManager.shared.apply(
+          to: webView,
+          for: url.host
+        )
+        guard tab.webView === webView else { return }
+        webView.load(URLRequest(url: url))
+      }
     }
   }
 

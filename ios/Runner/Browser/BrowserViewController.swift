@@ -592,7 +592,12 @@ final class BrowserViewController: UIViewController {
     homeView.isHidden = true
     errorView.isHidden = true
     tab.webView?.isHidden = false
-    tab.webView?.load(URLRequest(url: url))
+    guard let webView = tab.webView else { return }
+    Task {
+      await ContentBlockerManager.shared.apply(to: webView, for: url.host)
+      guard tabManager.selectedTab?.webView === webView else { return }
+      webView.load(URLRequest(url: url))
+    }
   }
 
   private func showHome() {
