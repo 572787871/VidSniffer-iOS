@@ -86,56 +86,24 @@ class _DownloadSummaryBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final manager = UiStateScope.of(context).downloadManager;
     final active = tasks.where((task) => task.isActive).toList(growable: false);
-    final paused =
-        tasks.where((task) => task.status == DownloadStatus.paused).length;
+    if (active.isEmpty) return const SizedBox(height: 4);
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 0, 18, 2),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(13),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  CupertinoIcons.bolt_fill,
-                  size: 18,
-                  color: AppTheme.blue,
-                ),
-                const SizedBox(width: 5),
-                Text(
-                  active.isNotEmpty
-                      ? '同时下载 ${active.length} 个任务'
-                      : '已暂停 $paused 个任务',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
+      child: Align(
+        alignment: Alignment.centerRight,
+        child: OutlinedButton(
+          onPressed: () async {
+            for (final task in active) {
+              await manager.pause(task);
+            }
+          },
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size(0, 38),
+            padding: const EdgeInsets.symmetric(horizontal: 13),
+            visualDensity: VisualDensity.compact,
           ),
-          const Spacer(),
-          OutlinedButton(
-            onPressed: active.isEmpty
-                ? null
-                : () async {
-                    for (final task in active) {
-                      await manager.pause(task);
-                    }
-                  },
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size(0, 38),
-              padding: const EdgeInsets.symmetric(horizontal: 13),
-              visualDensity: VisualDensity.compact,
-            ),
-            child: const Text('全部暂停'),
-          ),
-        ],
+          child: const Text('全部暂停'),
+        ),
       ),
     );
   }

@@ -18,6 +18,8 @@ enum _LibrarySort { newest, size, duration, name }
 
 enum _LibraryView { all, recent, folders, sites, favorites }
 
+enum _FolderLayout { comfortable, compact, grid }
+
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
 
@@ -30,6 +32,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   final searchFocus = FocusNode();
   _LibrarySort sort = _LibrarySort.newest;
   _LibraryView view = _LibraryView.folders;
+  _FolderLayout folderLayout = _FolderLayout.comfortable;
 
   @override
   void dispose() {
@@ -244,6 +247,35 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ),
                   ),
                 ),
+                PopupMenuButton<_FolderLayout>(
+                  tooltip: '显示方式',
+                  initialValue: folderLayout,
+                  onSelected: (value) =>
+                      setState(() => folderLayout = value),
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: _FolderLayout.comfortable,
+                      child: Text('大图标列表'),
+                    ),
+                    PopupMenuItem(
+                      value: _FolderLayout.compact,
+                      child: Text('紧凑列表'),
+                    ),
+                    PopupMenuItem(
+                      value: _FolderLayout.grid,
+                      child: Text('网格'),
+                    ),
+                  ],
+                  icon: Icon(
+                    switch (folderLayout) {
+                      _FolderLayout.comfortable =>
+                        Icons.view_agenda_outlined,
+                      _FolderLayout.compact => Icons.view_list_rounded,
+                      _FolderLayout.grid => Icons.grid_view_rounded,
+                    },
+                    size: 23,
+                  ),
+                ),
                 PopupMenuButton<_LibrarySort>(
                   tooltip: '排序',
                   initialValue: sort,
@@ -286,10 +318,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            for (var index = 0; index < folders.length; index++) ...[
-              _FolderCard(entry: folders[index]),
-              if (index < folders.length - 1) const SizedBox(height: 8),
-            ],
+            if (folderLayout == _FolderLayout.grid)
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: 1.15,
+                ),
+                itemCount: folders.length,
+                itemBuilder: (context, index) =>
+                    _FolderGridCard(entry: folders[index]),
+              )
+            else
+              for (var index = 0; index < folders.length; index++) ...[
+                _FolderCard(
+                  entry: folders[index],
+                  compact: folderLayout == _FolderLayout.compact,
+                ),
+                if (index < folders.length - 1) const SizedBox(height: 8),
+              ],
           ],
         );
       case _LibraryView.sites:
@@ -489,15 +539,19 @@ class _AllVideosCard extends StatelessWidget {
 }
 
 class _FolderCard extends StatelessWidget {
-  const _FolderCard({required this.entry});
+  const _FolderCard({required this.entry, this.compact = false});
 
   final _FolderEntry entry;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final state = UiStateScope.of(context);
     return AppCard(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 16 : 20,
+        vertical: compact ? 10 : 18,
+      ),
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => _FolderDetailScreen(entry: entry),
@@ -505,16 +559,16 @@ class _FolderCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const SizedBox(
-            width: 58,
-            height: 58,
+          SizedBox(
+            width: compact ? 42 : 58,
+            height: compact ? 42 : 58,
             child: Icon(
               CupertinoIcons.folder_fill,
-              color: Color(0xff4c9cff),
-              size: 50,
+              color: const Color(0xff4c9cff),
+              size: compact ? 36 : 50,
             ),
           ),
-          const SizedBox(width: 16),
+          SizedBox(width: compact ? 12 : 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -523,13 +577,13 @@ class _FolderCard extends StatelessWidget {
                   entry.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 18,
+                  style: TextStyle(
+                    fontSize: compact ? 16 : 18,
                     fontWeight: FontWeight.w700,
                     letterSpacing: -0.2,
                   ),
                 ),
-                const SizedBox(height: 6),
+                SizedBox(height: compact ? 2 : 6),
                 Text(
                   '${entry.videos.length} 个视频',
                   style: TextStyle(
@@ -591,6 +645,109 @@ class _FolderCard extends StatelessWidget {
                 color: CupertinoColors.systemGrey,
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FolderGridCard extends StatelessWidget {
+  const _FolderGridCard({required this.entry});
+
+  final _FolderEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = UiStateScope.of(context);
+    void openFolder() {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => _FolderDetailScreen(entry: entry),
+        ),
+      );
+    }
+
+    return AppCard(
+      padding: const EdgeInsets.fromLTRB(16, 14, 10, 12),
+      onTap: openFolder,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                CupertinoIcons.folder_fill,
+                color: Color(0xff4c9cff),
+                size: 42,
+              ),
+              const Spacer(),
+              PopupMenuButton<String>(
+                tooltip: '文件夹操作',
+                onSelected: (value) async {
+                  if (value == 'open') {
+                    openFolder();
+                  } else if (value == 'rename') {
+                    final name = await _askText(
+                      context,
+                      title: '重命名文件夹',
+                      label: '文件夹名称',
+                      initialValue: entry.folder.name,
+                    );
+                    if (name != null && context.mounted) {
+                      await state.renameFolder(entry.folder, name);
+                    }
+                  } else if (value == 'delete') {
+                    if (!context.mounted) return;
+                    final ok = await _confirm(
+                      context,
+                      title: '删除文件夹',
+                      message: '只删除分类映射，不删除视频文件。',
+                    );
+                    if (ok == true && context.mounted) {
+                      await state.deleteFolder(entry.folder);
+                    }
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(value: 'open', child: Text('打开')),
+                  if (entry.folder.type == LibraryFolderType.manual)
+                    const PopupMenuItem(
+                      value: 'rename',
+                      child: Text('重命名'),
+                    ),
+                  if (entry.folder.type == LibraryFolderType.manual)
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: Text('删除文件夹'),
+                    ),
+                ],
+                icon: const Icon(
+                  CupertinoIcons.ellipsis,
+                  color: CupertinoColors.systemGrey,
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          Text(
+            entry.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 16,
+              height: 1.15,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.2,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            '${entry.videos.length} 个视频',
+            style: TextStyle(
+              fontSize: 13,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
         ],
       ),
     );

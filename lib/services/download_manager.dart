@@ -42,6 +42,7 @@ class DownloadManager extends ChangeNotifier {
   Timer? _progressNotifyTimer;
   DateTime _lastProgressNotify = DateTime.fromMillisecondsSinceEpoch(0);
   bool _restoring = false;
+  int maxConcurrentDownloads = 3;
 
   @override
   void notifyListeners() {
@@ -62,6 +63,11 @@ class DownloadManager extends ChangeNotifier {
   Future<void> restoreTasks() async {
     _restoring = true;
     try {
+      final savedConcurrency =
+          await _taskStore.loadMaxConcurrentDownloads();
+      if (savedConcurrency != null) {
+        maxConcurrentDownloads = savedConcurrency.clamp(1, 5).toInt();
+      }
       final restored = await _taskStore.load();
       for (final task in restored) {
         if (task.isActive) {
@@ -89,9 +95,7 @@ class DownloadManager extends ChangeNotifier {
       _restoring = false;
     }
     notifyListeners();
-    for (final task in tasks.where((item) => item.status == DownloadStatus.idle)) {
-      _startNextQueuedFor(task);
-    }
+    _startQueuedTasks();
   }
 
   DownloadTask createTask(VideoResource resource) {
@@ -116,11 +120,11 @@ class DownloadManager extends ChangeNotifier {
 
   DownloadTask enqueue(VideoResource resource) {
     final task = createTask(resource);
-    final busy = _hasActiveDownloadFor(resource);
+    final busy = _shouldQueue(resource);
     if (busy) {
       task.status = DownloadStatus.idle;
-      task.message = '同站点任务排队中';
-      task.remaining = '等待前一个任务';
+      task.message = '等待下载';
+      task.remaining = '排队中';
     }
     addTask(task);
     if (!busy) unawaited(start(task.id));
@@ -244,6 +248,13 @@ class DownloadManager extends ChangeNotifier {
     if (!task.canRetry) {
       return;
     }
+    if (_shouldQueue(task.resource)) {
+      task.status = DownloadStatus.idle;
+      task.message = '等待下载';
+      task.remaining = '排队中';
+      notifyListeners();
+      return;
+    }
     final resuming = task.status == DownloadStatus.paused &&
         task.tempPath.isNotEmpty;
     if (!resuming) task.progress = 0;
@@ -325,28 +336,45 @@ class DownloadManager extends ChangeNotifier {
     );
   }
 
-  void _startNextQueuedFor(DownloadTask finished) {
-    final group = _downloadGroupFor(finished.resource);
-    if (tasks.any(
-      (task) =>
-          task.isActive &&
-          task.id != finished.id &&
-          _downloadGroupFor(task.resource) == group,
-    )) {
-      return;
-    }
-    DownloadTask? next;
-    for (final task in tasks.reversed) {
-      if (task.status == DownloadStatus.idle &&
-          _downloadGroupFor(task.resource) == group) {
-        next = task;
-        break;
+  bool _shouldQueue(VideoResource resource) {
+    final active = tasks.where((task) => task.isActive).toList(growable: false);
+    return active.length >= maxConcurrentDownloads ||
+        _hasActiveDownloadFor(resource);
+  }
+
+  void setMaxConcurrentDownloads(int value) {
+    final next = value.clamp(1, 5).toInt();
+    if (next == maxConcurrentDownloads) return;
+    maxConcurrentDownloads = next;
+    notifyListeners();
+    unawaited(_taskStore.saveMaxConcurrentDownloads(next));
+    _startQueuedTasks();
+  }
+
+  void _startNextQueuedFor(DownloadTask _) {
+    _startQueuedTasks();
+  }
+
+  void _startQueuedTasks() {
+    while (tasks.where((task) => task.isActive).length <
+        maxConcurrentDownloads) {
+      final activeGroups = tasks
+          .where((task) => task.isActive)
+          .map((task) => _downloadGroupFor(task.resource))
+          .toSet();
+      DownloadTask? next;
+      for (final task in tasks.reversed) {
+        if (task.status == DownloadStatus.idle &&
+            !activeGroups.contains(_downloadGroupFor(task.resource))) {
+          next = task;
+          break;
+        }
       }
+      if (next == null) return;
+      next.message = '排队结束，正在开始';
+      next.remaining = '剩余时间未知';
+      unawaited(start(next.id));
     }
-    if (next == null) return;
-    next.message = '排队结束，正在开始';
-    next.remaining = '剩余时间未知';
-    unawaited(start(next.id));
   }
 
   String _downloadGroupFor(VideoResource resource) {

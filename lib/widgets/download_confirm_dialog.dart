@@ -8,21 +8,16 @@ import '../services/ui_state.dart';
 import '../theme/app_theme.dart';
 import 'apple_ui.dart';
 
-enum DownloadSaveTarget { recent, site, page, custom, create }
+enum DownloadSaveTarget { library, newFolder }
 
 Future<VideoResource?> showDownloadConfirmDialog(
   BuildContext context,
   VideoResource resource,
 ) async {
   final state = UiStateScope.of(context);
-  final nameController = TextEditingController(
-    text: FileUtils.safeFileName(resource.title, fallback: 'video'),
-  );
-  DownloadSaveTarget target = DownloadSaveTarget.recent;
-  LibraryFolder? selectedFolder =
-      state.folders.isEmpty ? null : state.folders.first;
-  try {
-    return await showModalBottomSheet<VideoResource>(
+  DownloadSaveTarget target = DownloadSaveTarget.library;
+  LibraryFolder? selectedFolder;
+  return showModalBottomSheet<VideoResource>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -30,23 +25,13 @@ Future<VideoResource?> showDownloadConfirmDialog(
       builder: (sheetContext) => StatefulBuilder(
         builder: (context, setState) {
           Future<void> finish() async {
-            final folder = await _resolveFolder(
-              sheetContext,
-              state,
-              resource,
-              target,
-              selectedFolder,
-            );
-            if (folder == null && target == DownloadSaveTarget.create) return;
-            final name = FileUtils.safeFileName(
-              nameController.text,
-              fallback: resource.title,
-            );
+            final folder =
+                target == DownloadSaveTarget.newFolder ? selectedFolder : null;
+            if (target == DownloadSaveTarget.newFolder && folder == null) return;
             if (!sheetContext.mounted) return;
             Navigator.pop(
               sheetContext,
               resource.copyWith(
-                title: name,
                 preferredFolderId: folder?.folderId ?? '',
                 preferredFolderName: folder?.name ?? '',
               ),
@@ -83,42 +68,18 @@ Future<VideoResource?> showDownloadConfirmDialog(
                   ),
                   const SizedBox(height: 16),
                   _FolderChoice(
-                    title: '全部视频',
-                    subtitle: '直接保存到视频资料库',
-                    selected: target == DownloadSaveTarget.recent,
+                    title: '保存资料库',
+                    subtitle: '显示在“全部视频”中',
+                    selected: target == DownloadSaveTarget.library,
                     onTap: () => setState(
-                      () => target = DownloadSaveTarget.recent,
+                      () => target = DownloadSaveTarget.library,
                     ),
                   ),
-                  for (final folder in state.folders)
-                    _FolderChoice(
-                      title: folder.name,
-                      subtitle: '自定义文件夹',
-                      selected: target == DownloadSaveTarget.custom &&
-                          selectedFolder?.folderId == folder.folderId,
-                      onTap: () => setState(() {
-                        target = DownloadSaveTarget.custom;
-                        selectedFolder = folder;
-                      }),
-                    ),
-                  ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                    leading: const AppleIconTile(
-                      icon: CupertinoIcons.folder_badge_plus,
-                      color: AppTheme.blue,
-                    ),
-                    title: const Text(
-                      '新建文件夹',
-                      style: TextStyle(
-                        color: AppTheme.blue,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    trailing: const Icon(
-                      CupertinoIcons.chevron_forward,
-                      size: 17,
-                      color: CupertinoColors.systemGrey,
-                    ),
+                  _FolderChoice(
+                    title: '新建文件夹',
+                    subtitle: selectedFolder?.name ??
+                        '默认使用当前视频名称，可直接修改',
+                    selected: target == DownloadSaveTarget.newFolder,
                     onTap: () async {
                       final name = await _askFolderName(
                         sheetContext,
@@ -127,28 +88,10 @@ Future<VideoResource?> showDownloadConfirmDialog(
                       if (name == null || name.trim().isEmpty) return;
                       final folder = await state.createFolder(name);
                       setState(() {
-                        target = DownloadSaveTarget.custom;
+                        target = DownloadSaveTarget.newFolder;
                         selectedFolder = folder;
                       });
                     },
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: nameController,
-                    decoration: const InputDecoration(
-                      labelText: '文件名',
-                      prefixIcon: Icon(CupertinoIcons.film),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '${resource.quality} · ${resource.displayFormat} · ${resource.size}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontSize: 12,
-                    ),
                   ),
                   const SizedBox(height: 18),
                   Row(
@@ -178,9 +121,6 @@ Future<VideoResource?> showDownloadConfirmDialog(
         },
       ),
     );
-  } finally {
-    nameController.dispose();
-  }
 }
 
 class _FolderChoice extends StatelessWidget {
@@ -236,46 +176,6 @@ class _FolderChoice extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-Future<LibraryFolder?> _resolveFolder(
-  BuildContext context,
-  UiState state,
-  VideoResource resource,
-  DownloadSaveTarget target,
-  LibraryFolder? selectedFolder,
-) async {
-  final pageUrl = resource.pageUrl.isNotEmpty ? resource.pageUrl : resource.url;
-  final host = Uri.tryParse(pageUrl)?.host ?? '';
-  switch (target) {
-    case DownloadSaveTarget.recent:
-      return null;
-    case DownloadSaveTarget.site:
-      if (host.isEmpty) return null;
-      final now = DateTime.now();
-      return LibraryFolder(
-        folderId: 'site:$host',
-        name: host,
-        type: LibraryFolderType.site,
-        createdAt: now,
-        updatedAt: now,
-      );
-    case DownloadSaveTarget.page:
-      final now = DateTime.now();
-      return LibraryFolder(
-        folderId: 'page:${FileUtils.stableKey(pageUrl)}',
-        name: resource.title.trim().isEmpty ? '当前页面' : resource.title,
-        type: LibraryFolderType.page,
-        createdAt: now,
-        updatedAt: now,
-      );
-    case DownloadSaveTarget.custom:
-      return selectedFolder;
-    case DownloadSaveTarget.create:
-      final name = await _askFolderName(context);
-      if (name == null || name.trim().isEmpty) return null;
-      return state.createFolder(name);
   }
 }
 

@@ -193,9 +193,7 @@ class UiState extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    final task = downloadManager.createTask(resource);
-    downloadManager.addTask(task);
-    unawaited(downloadManager.start(task.id));
+    downloadManager.enqueue(resource);
     selectedTab = 1;
     notifyListeners();
   }
@@ -229,6 +227,11 @@ class UiState extends ChangeNotifier {
 
   void toggleWifi(bool value) {
     onlyWifi = value;
+    notifyListeners();
+  }
+
+  void setConcurrentDownloads(int value) {
+    downloadManager.setMaxConcurrentDownloads(value);
     notifyListeners();
   }
 

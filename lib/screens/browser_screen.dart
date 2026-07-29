@@ -62,7 +62,6 @@ class _BrowserScreenState extends State<BrowserScreen>
   bool canGoForward = false;
   bool deepCapture = false;
   bool showStartPage = true;
-  bool showSmartParsePage = false;
   int progress = 0;
   int handledBrowserRequestId = 0;
   int activeBrowserTab = 0;
@@ -132,15 +131,6 @@ class _BrowserScreenState extends State<BrowserScreen>
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_loadUrl(state.browserOpenUrl));
       });
-    }
-
-    if (showSmartParsePage) {
-      return _SmartParsePage(
-        onBack: () => setState(() => showSmartParsePage = false),
-        onParse: _parseStandaloneUrl,
-        onShowResources: _showStandaloneResources,
-        history: parseHistory,
-      );
     }
 
     return Scaffold(
@@ -563,11 +553,8 @@ class _BrowserScreenState extends State<BrowserScreen>
     unawaited(_pauseAllWebMedia());
     setState(() {
       showStartPage = true;
-      currentUrl = 'about:blank';
-      pageTitle = '新窗口';
       captured.clear();
       addressController.clear();
-      _updateActiveTab(url: 'about:blank', title: '新窗口', notify: false);
     });
   }
 
@@ -1013,7 +1000,16 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   void _openSmartParsePage() {
     FocusManager.instance.primaryFocus?.unfocus();
-    setState(() => showSmartParsePage = true);
+    Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (routeContext) => _SmartParsePage(
+          onBack: () => Navigator.of(routeContext).pop(),
+          onParse: _parseStandaloneUrl,
+          onShowResources: _showStandaloneResources,
+          history: parseHistory,
+        ),
+      ),
+    );
   }
 
   Future<List<VideoResource>> _parseStandaloneUrl(String value) async {

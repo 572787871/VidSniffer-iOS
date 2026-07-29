@@ -64,6 +64,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   onTap: () => state.toggleWifi(!state.onlyWifi),
                 ),
+                ListTile(
+                  leading: const AppleIconTile(
+                    icon: CupertinoIcons.arrow_down_circle_fill,
+                    color: AppTheme.purple,
+                  ),
+                  title: const Text('同时下载任务数'),
+                  subtitle: const Text('新任务超过数量后自动排队'),
+                  trailing: _ConcurrencyStepper(
+                    value: state.downloadManager.maxConcurrentDownloads,
+                    onChanged: state.setConcurrentDownloads,
+                  ),
+                ),
                 const AppleListTile(
                   title: '默认保存位置',
                   subtitle: '全部视频',
@@ -502,6 +514,57 @@ class _AccountHero extends StatelessWidget {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ConcurrencyStepper extends StatelessWidget {
+  const _ConcurrencyStepper({
+    required this.value,
+    required this.onChanged,
+  });
+
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      height: 36,
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(11),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: '减少并发任务',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 34, height: 36),
+            visualDensity: VisualDensity.compact,
+            onPressed: value > 1 ? () => onChanged(value - 1) : null,
+            icon: const Icon(CupertinoIcons.minus, size: 17),
+          ),
+          SizedBox(
+            width: 20,
+            child: Text(
+              '$value',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+          IconButton(
+            tooltip: '增加并发任务',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 34, height: 36),
+            visualDensity: VisualDensity.compact,
+            onPressed: value < 5 ? () => onChanged(value + 1) : null,
+            icon: const Icon(CupertinoIcons.plus, size: 17),
+          ),
         ],
       ),
     );
