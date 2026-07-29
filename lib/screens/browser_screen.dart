@@ -16,6 +16,7 @@ import '../services/ui_state.dart';
 import '../services/video_sniffer.dart';
 import '../services/video_sniffer_controller.dart';
 import '../theme/app_theme.dart';
+import '../widgets/apple_ui.dart';
 import '../widgets/download_confirm_dialog.dart';
 import 'downloads_screen.dart';
 
@@ -2310,7 +2311,7 @@ class _RecentlyClosedCard extends StatelessWidget {
           child: Row(
             children: [
               Icon(
-                CupertinoIcons.clock_arrow_circlepath,
+                CupertinoIcons.clock_solid,
                 color: scheme.onSurfaceVariant,
                 size: 31,
               ),
