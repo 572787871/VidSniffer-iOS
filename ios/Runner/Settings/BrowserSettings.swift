@@ -59,10 +59,15 @@ final class BrowserSettingsStore {
   static let shared = BrowserSettingsStore()
 
   private let defaults: UserDefaults
+  private let postsNotifications: Bool
   private let key = "browser.settings.v1"
 
-  init(defaults: UserDefaults = .standard) {
+  init(
+    defaults: UserDefaults = .standard,
+    postsNotifications: Bool = true
+  ) {
     self.defaults = defaults
+    self.postsNotifications = postsNotifications
   }
 
   var value: BrowserSettings {
@@ -80,10 +85,12 @@ final class BrowserSettingsStore {
     set {
       guard let data = try? JSONEncoder().encode(newValue) else { return }
       defaults.set(data, forKey: key)
-      NotificationCenter.default.post(
-        name: .browserSettingsDidChange,
-        object: self
-      )
+      if postsNotifications {
+        NotificationCenter.default.post(
+          name: .browserSettingsDidChange,
+          object: self
+        )
+      }
     }
   }
 

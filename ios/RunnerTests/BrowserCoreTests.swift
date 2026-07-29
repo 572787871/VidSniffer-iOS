@@ -297,7 +297,10 @@ final class BrowserCoreTests: XCTestCase {
     let suiteName = "BrowserSettingsTests.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
     defer { defaults.removePersistentDomain(forName: suiteName) }
-    let store = BrowserSettingsStore(defaults: defaults)
+    let store = BrowserSettingsStore(
+      defaults: defaults,
+      postsNotifications: false
+    )
     var settings = BrowserSettings()
     settings.contentBlockerWhitelist = ["example.com"]
     store.value = settings
