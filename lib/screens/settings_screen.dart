@@ -488,7 +488,7 @@ class _AccountHero extends StatelessWidget {
                   backgroundColor: Colors.black,
                   foregroundColor: Colors.white,
                 ),
-                icon: const Icon(CupertinoIcons.logo_apple),
+                icon: const Icon(Icons.apple),
                 label: const Text('通过 Apple 登录'),
               ),
             ),

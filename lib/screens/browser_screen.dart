@@ -1139,7 +1139,7 @@ class _BrowserScreenState extends State<BrowserScreen>
       },
     );
     try {
-      await headless!.run();
+      await headless.run();
     } catch (error) {
       await finish(const []);
     }
