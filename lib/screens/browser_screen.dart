@@ -1016,8 +1016,22 @@ class _BrowserScreenState extends State<BrowserScreen>
     setState(() => showSmartParsePage = true);
   }
 
-  Future<List<VideoResource>> _parseStandaloneUrl(String value) {
-    return _parseWithHeadlessWebView(_normalize(value));
+  Future<List<VideoResource>> _parseStandaloneUrl(String value) async {
+    final url = _normalize(value);
+    try {
+      final staticResources = await sniffer
+          .parsePage(url, userAgent: userAgent)
+          .timeout(const Duration(seconds: 7));
+      final playable = staticResources
+          .where((resource) => resource.isPlayable && !resource.isAdSuspect)
+          .toList(growable: false);
+      if (playable.isNotEmpty) {
+        return _collapseVideoQualities(playable);
+      }
+    } catch (error) {
+      debugPrint('[browser] static standalone parse fallback: $error');
+    }
+    return _parseWithHeadlessWebView(url);
   }
 
   Future<void> _showStandaloneResources(
@@ -1039,14 +1053,74 @@ class _BrowserScreenState extends State<BrowserScreen>
 
   Future<List<VideoResource>> _parseWithHeadlessWebView(String url) async {
     final completer = Completer<List<VideoResource>>();
-    late final HeadlessInAppWebView headless;
+    HeadlessInAppWebView? headless;
     var processing = false;
     final accumulated = <VideoResource>[];
 
     Future<void> finish(List<VideoResource> value) async {
       if (completer.isCompleted) return;
       completer.complete(value);
-      await headless.dispose();
+      await headless?.dispose();
+    }
+
+    void startProcessing(
+      InAppWebViewController web,
+      WebUri? loadedUrl,
+    ) {
+      if (processing || completer.isCompleted) return;
+      processing = true;
+      unawaited(() async {
+        try {
+          // Start from navigation rather than waiting for onLoadStop. Ad-heavy
+          // pages often keep requests alive indefinitely and never become idle.
+          for (var attempt = 0; attempt < 8; attempt++) {
+            await Future<void>.delayed(
+              Duration(milliseconds: attempt == 0 ? 500 : 650),
+            );
+            if (completer.isCompleted) return;
+            final current = (await web.getUrl())?.toString();
+            final actualUrl = current ?? loadedUrl?.toString() ?? url;
+            final candidates = <VideoResource>[
+              ...await _headlessPlayerResources(web, actualUrl),
+            ];
+            // Perform the more expensive full-HTML scan once, after player
+            // scripts have had time to populate their configuration.
+            if (attempt == 3 || (attempt == 7 && candidates.isEmpty)) {
+              final html = await web.evaluateJavascript(
+                source: 'document.documentElement.outerHTML',
+              );
+              candidates.addAll(
+                sniffer.scanHtml(
+                  html?.toString() ?? '',
+                  Uri.parse(actualUrl),
+                  source: 'headless-dom',
+                ),
+              );
+            }
+            accumulated.addAll(
+              candidates.where(
+                (resource) =>
+                    resource.isPlayable &&
+                    !resource.isAdSuspect &&
+                    !resource.isFragment,
+              ),
+            );
+            final collapsed = _collapseVideoQualities(accumulated);
+            if (collapsed.any(
+                  (resource) =>
+                      resource.source.contains('media-definition'),
+                ) ||
+                (attempt >= 3 && collapsed.isNotEmpty)) {
+              await finish(collapsed);
+              return;
+            }
+          }
+          await finish(_collapseVideoQualities(accumulated));
+        } catch (error) {
+          debugPrint('[browser] headless scan failed: $error');
+          await finish(_collapseVideoQualities(accumulated));
+        }
+      }());
     }
 
     headless = HeadlessInAppWebView(
@@ -1056,61 +1130,23 @@ class _BrowserScreenState extends State<BrowserScreen>
         mediaPlaybackRequiresUserGesture: false,
         allowsInlineMediaPlayback: true,
       ),
-      onLoadStop: (web, loadedUrl) {
-        if (processing || completer.isCompleted) return;
-        processing = true;
-        unawaited(() async {
-          try {
-            // Player scripts often populate the real media URL after the first
-            // load event. Scan in stages while keeping the headless page hidden.
-            for (final delay in const [
-              Duration(milliseconds: 600),
-              Duration(milliseconds: 1200),
-              Duration(milliseconds: 2200),
-            ]) {
-              await Future<void>.delayed(delay);
-              if (completer.isCompleted) return;
-              final html = await web.evaluateJavascript(
-                source: 'document.documentElement.outerHTML',
-              );
-              final current = (await web.getUrl())?.toString();
-              final actualUrl = current ?? loadedUrl?.toString() ?? url;
-              final candidates = <VideoResource>[
-                ...sniffer.scanHtml(
-                  html?.toString() ?? '',
-                  Uri.parse(actualUrl),
-                  source: 'headless-dom',
-                ),
-                ...await _headlessPlayerResources(web, actualUrl),
-              ];
-              accumulated.addAll(
-                candidates.where((resource) => resource.isPlayable),
-              );
-              final collapsed = _collapseVideoQualities(accumulated);
-              if (collapsed.any(
-                (resource) => resource.source.contains('media-definition'),
-              )) {
-                await finish(collapsed);
-                return;
-              }
-            }
-            await finish(_collapseVideoQualities(accumulated));
-          } catch (_) {
-            await finish(const []);
-          }
-        }());
-      },
+      onLoadStart: startProcessing,
+      onLoadStop: startProcessing,
       onReceivedError: (_, request, __) {
         if (request.isForMainFrame == true) {
           unawaited(finish(const []));
         }
       },
     );
-    await headless.run();
+    try {
+      await headless!.run();
+    } catch (error) {
+      await finish(const []);
+    }
     return completer.future.timeout(
-      const Duration(seconds: 15),
+      const Duration(seconds: 14),
       onTimeout: () {
-        unawaited(headless.dispose());
+        unawaited(headless?.dispose());
         return const [];
       },
     );

@@ -36,8 +36,11 @@ class DownloadManager extends ChangeNotifier {
   final Map<String, CancelToken> _cancelTokens = {};
   final Map<String, FFmpegSession> _ffmpegSessions = {};
   final Map<String, File> _partFiles = {};
+  final Map<String, _TransferSample> _transferSamples = {};
   final DownloadTaskStore _taskStore = DownloadTaskStore();
   Timer? _persistTimer;
+  Timer? _progressNotifyTimer;
+  DateTime _lastProgressNotify = DateTime.fromMillisecondsSinceEpoch(0);
   bool _restoring = false;
 
   @override
@@ -51,6 +54,7 @@ class DownloadManager extends ChangeNotifier {
   @override
   void dispose() {
     _persistTimer?.cancel();
+    _progressNotifyTimer?.cancel();
     unawaited(_persistNow());
     super.dispose();
   }
@@ -204,6 +208,7 @@ class DownloadManager extends ChangeNotifier {
       task.message = '下载完成';
       task.tempPath = '';
       task.completedAt = DateTime.now();
+      _transferSamples.remove(task.id);
       unawaited(
         LocalLibrary().writeDownloadMetadata(task.localPath, task.resource),
       );
@@ -230,6 +235,7 @@ class DownloadManager extends ChangeNotifier {
         _partFiles.remove(task.id);
       }
       await _endBackgroundTask(backgroundId);
+      if (!task.isActive) _transferSamples.remove(task.id);
       _startNextQueuedFor(task);
     }
   }
@@ -756,7 +762,7 @@ class DownloadManager extends ChangeNotifier {
           throw StateError('视频服务器没有返回有效数据');
         }
         task.message = '分块下载中';
-        notifyListeners();
+        _notifyProgress();
       }
 
       if (await FileUtils.looksLikeHtml(partFile)) {
@@ -1016,7 +1022,7 @@ class DownloadManager extends ChangeNotifier {
           task.message =
               '正在下载分片 ${task.downloadedSegments}/${task.totalSegments}';
         }
-        notifyListeners();
+        _notifyProgress();
       },
       (statistics) {
         if (_isTerminalOrPaused(task) || !trackProgress) return;
@@ -1026,6 +1032,7 @@ class DownloadManager extends ChangeNotifier {
         final statisticsSize = statistics.getSize();
         if (statisticsSize > 0) {
           task.receivedBytes = baseBytes + statisticsSize;
+          _updateTransferRate(task, task.receivedBytes);
         }
         task.elapsed = DateTime.now().difference(startedAt);
         if (timeMs > 0) {
@@ -1077,7 +1084,7 @@ class DownloadManager extends ChangeNotifier {
                 // session after a grace period and retain the completed file.
                 completedAtExpectedEnd = true;
                 task.message = '正在保存视频';
-                notifyListeners();
+                _notifyProgress();
                 await FFmpegKit.cancel(sessionId);
               });
             }
@@ -1090,7 +1097,7 @@ class DownloadManager extends ChangeNotifier {
             task.message =
                 '下载/合并中 time=${task.ffmpegTime} speed=${task.ffmpegSpeed}x 已用 $elapsed';
           }
-          notifyListeners();
+          _notifyProgress();
         }
       },
     );
@@ -1362,11 +1369,10 @@ class DownloadManager extends ChangeNotifier {
     int total,
     DateTime startedAt,
   ) {
-    final elapsed = DateTime.now().difference(startedAt).inMilliseconds / 1000;
     task.elapsed = DateTime.now().difference(startedAt);
-    final speedBytes = elapsed <= 0 ? 0 : received / elapsed;
     task.receivedBytes = received;
     task.totalBytes = total;
+    final speedBytes = _updateTransferRate(task, received);
     task.progress = total > 0 ? (received / total).clamp(0, 1).toDouble() : 0;
     task.phase = DownloadPhase.downloadingFile;
     task.isIndeterminate = total <= 0;
@@ -1380,8 +1386,7 @@ class DownloadManager extends ChangeNotifier {
     task.message = total > 0
         ? '${_formatBytes(received)} / ${_formatBytes(total)}'
         : _formatBytes(received);
-    debugPrint('[download] progress=$received/$total');
-    notifyListeners();
+    _notifyProgress();
   }
 
   int _contentLength(Headers headers) {
@@ -1533,7 +1538,8 @@ class DownloadManager extends ChangeNotifier {
     final size = await file.length();
     if (size <= task.receivedBytes) return;
     task.receivedBytes = size;
-    notifyListeners();
+    _updateTransferRate(task, size);
+    _notifyProgress();
   }
 
   String _ffmpegDurationSeconds(Duration value) =>
@@ -1571,10 +1577,65 @@ class DownloadManager extends ChangeNotifier {
   }
 
   void _schedulePersist() {
-    _persistTimer?.cancel();
+    if (_persistTimer?.isActive == true) return;
     _persistTimer = Timer(
       const Duration(milliseconds: 800),
-      () => unawaited(_persistNow()),
+      () {
+        _persistTimer = null;
+        unawaited(_persistNow());
+      },
+    );
+  }
+
+  double _updateTransferRate(DownloadTask task, int bytes) {
+    final now = DateTime.now();
+    final previous = _transferSamples[task.id];
+    if (previous == null || bytes < previous.bytes) {
+      _transferSamples[task.id] = _TransferSample(
+        bytes: bytes,
+        at: now,
+        bytesPerSecond: 0,
+      );
+      return 0;
+    }
+    final seconds =
+        now.difference(previous.at).inMicroseconds /
+        Duration.microsecondsPerSecond;
+    if (seconds < 0.18 || bytes == previous.bytes) {
+      return previous.bytesPerSecond;
+    }
+    final instant = (bytes - previous.bytes) / seconds;
+    final smoothed = previous.bytesPerSecond <= 0
+        ? instant
+        : previous.bytesPerSecond * 0.68 + instant * 0.32;
+    _transferSamples[task.id] = _TransferSample(
+      bytes: bytes,
+      at: now,
+      bytesPerSecond: smoothed,
+    );
+    task.speed =
+        smoothed > 0 ? '${_formatBytes(smoothed.round())}/s' : '--';
+    return smoothed;
+  }
+
+  void _notifyProgress() {
+    final now = DateTime.now();
+    final elapsed = now.difference(_lastProgressNotify);
+    if (elapsed >= const Duration(milliseconds: 140)) {
+      _progressNotifyTimer?.cancel();
+      _progressNotifyTimer = null;
+      _lastProgressNotify = now;
+      notifyListeners();
+      return;
+    }
+    if (_progressNotifyTimer?.isActive == true) return;
+    _progressNotifyTimer = Timer(
+      const Duration(milliseconds: 140) - elapsed,
+      () {
+        _progressNotifyTimer = null;
+        _lastProgressNotify = DateTime.now();
+        notifyListeners();
+      },
     );
   }
 
@@ -1585,4 +1646,16 @@ class DownloadManager extends ChangeNotifier {
       debugPrint('[download] persist failed: $error');
     }
   }
+}
+
+class _TransferSample {
+  const _TransferSample({
+    required this.bytes,
+    required this.at,
+    required this.bytesPerSecond,
+  });
+
+  final int bytes;
+  final DateTime at;
+  final double bytesPerSecond;
 }

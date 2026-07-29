@@ -18,7 +18,7 @@ Future<VideoResource?> showDownloadConfirmDialog(
   final nameController = TextEditingController(
     text: FileUtils.safeFileName(resource.title, fallback: 'video'),
   );
-  DownloadSaveTarget target = DownloadSaveTarget.page;
+  DownloadSaveTarget target = DownloadSaveTarget.recent;
   LibraryFolder? selectedFolder =
       state.folders.isEmpty ? null : state.folders.first;
   try {
@@ -29,10 +29,6 @@ Future<VideoResource?> showDownloadConfirmDialog(
       useSafeArea: true,
       builder: (sheetContext) => StatefulBuilder(
         builder: (context, setState) {
-          final uri = Uri.tryParse(
-            resource.pageUrl.isNotEmpty ? resource.pageUrl : resource.url,
-          );
-          final site = uri?.host ?? '未知来源';
           Future<void> finish() async {
             final folder = await _resolveFolder(
               sheetContext,
@@ -87,26 +83,12 @@ Future<VideoResource?> showDownloadConfirmDialog(
                   ),
                   const SizedBox(height: 16),
                   _FolderChoice(
-                    title: '最近下载',
-                    subtitle: '不加入文件夹',
+                    title: '全部视频',
+                    subtitle: '直接保存到视频资料库',
                     selected: target == DownloadSaveTarget.recent,
                     onTap: () => setState(
                       () => target = DownloadSaveTarget.recent,
                     ),
-                  ),
-                  _FolderChoice(
-                    title: '当前页面',
-                    subtitle: resource.title,
-                    selected: target == DownloadSaveTarget.page,
-                    onTap: () =>
-                        setState(() => target = DownloadSaveTarget.page),
-                  ),
-                  _FolderChoice(
-                    title: site,
-                    subtitle: '来源网站',
-                    selected: target == DownloadSaveTarget.site,
-                    onTap: () =>
-                        setState(() => target = DownloadSaveTarget.site),
                   ),
                   for (final folder in state.folders)
                     _FolderChoice(
@@ -138,7 +120,10 @@ Future<VideoResource?> showDownloadConfirmDialog(
                       color: CupertinoColors.systemGrey,
                     ),
                     onTap: () async {
-                      final name = await _askFolderName(sheetContext);
+                      final name = await _askFolderName(
+                        sheetContext,
+                        initialValue: resource.title,
+                      );
                       if (name == null || name.trim().isEmpty) return;
                       final folder = await state.createFolder(name);
                       setState(() {
@@ -294,8 +279,17 @@ Future<LibraryFolder?> _resolveFolder(
   }
 }
 
-Future<String?> _askFolderName(BuildContext context) async {
-  final controller = TextEditingController();
+Future<String?> _askFolderName(
+  BuildContext context, {
+  String initialValue = '',
+}) async {
+  final controller = TextEditingController(
+    text: FileUtils.safeFileName(initialValue, fallback: '新建文件夹'),
+  );
+  controller.selection = TextSelection(
+    baseOffset: 0,
+    extentOffset: controller.text.length,
+  );
   try {
     return showCupertinoDialog<String>(
       context: context,

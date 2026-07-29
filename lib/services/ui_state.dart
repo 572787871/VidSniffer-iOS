@@ -7,6 +7,7 @@ import '../models/library_folder.dart';
 import '../models/local_video.dart';
 import '../models/parse_record.dart';
 import '../models/video_resource.dart';
+import 'account_service.dart';
 import 'download_manager.dart';
 import 'library_folder_store.dart';
 import 'local_library.dart';
@@ -22,8 +23,10 @@ class UiState extends ChangeNotifier {
     refreshLibrary();
     unawaited(_loadFolders());
     unawaited(_loadParseRecords());
+    unawaited(accountService.initialize());
   }
 
+  final AccountService accountService = AccountService();
   final DownloadManager downloadManager = DownloadManager();
   final VideoSniffer sniffer = VideoSniffer();
   final LocalLibrary library = LocalLibrary();
@@ -36,6 +39,7 @@ class UiState extends ChangeNotifier {
   final List<LibraryFolder> folders = [];
   List<LocalVideo> videos = [];
   bool _enrichingLibrary = false;
+  final Set<String> _knownCompletedTaskIds = {};
 
   int selectedTab = 0;
   bool onlyWifi = false;
@@ -358,13 +362,23 @@ class UiState extends ChangeNotifier {
   }
 
   void _onDownloadsChanged() {
-    if (downloadManager.tasks.any(
-      (task) =>
-          task.status == DownloadStatus.completed && task.localPath.isNotEmpty,
-    )) {
+    final completed = downloadManager.tasks
+        .where(
+          (task) =>
+              task.status == DownloadStatus.completed &&
+              task.localPath.isNotEmpty,
+        )
+        .map((task) => task.id)
+        .toSet();
+    final hasNewCompletion = completed.any(
+      (id) => !_knownCompletedTaskIds.contains(id),
+    );
+    _knownCompletedTaskIds
+      ..clear()
+      ..addAll(completed);
+    if (hasNewCompletion) {
       unawaited(refreshLibrary());
     }
-    notifyListeners();
   }
 
   Future<void> _ensureLibraryDetails(List<LocalVideo> snapshot) async {
@@ -393,6 +407,7 @@ class UiState extends ChangeNotifier {
   void dispose() {
     downloadManager.removeListener(_onDownloadsChanged);
     downloadManager.dispose();
+    accountService.dispose();
     super.dispose();
   }
 }

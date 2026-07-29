@@ -58,7 +58,7 @@ class _FloatingPillTabBar extends StatelessWidget {
     (CupertinoIcons.globe, '浏览器'),
     (CupertinoIcons.arrow_down_to_line, '下载中'),
     (CupertinoIcons.folder_fill, '已下载'),
-    (CupertinoIcons.gear, '设置'),
+    (CupertinoIcons.person_crop_circle, '用户'),
   ];
 
   @override
