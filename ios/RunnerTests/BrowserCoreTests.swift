@@ -279,4 +279,17 @@ final class BrowserCoreTests: XCTestCase {
     )
     XCTAssertEqual(LibraryRepository.cleanFolderName(""), "下载文件")
   }
+
+  func testLibraryFilesDoNotUseFilenameAsIdentity() {
+    let first = LibraryFile(
+      displayName: "同名视频.mp4",
+      relativePath: "Downloads/同名视频.mp4"
+    )
+    let second = LibraryFile(
+      displayName: "同名视频.mp4",
+      relativePath: "Downloads/同名视频 2.mp4"
+    )
+
+    XCTAssertNotEqual(first.id, second.id)
+  }
 }

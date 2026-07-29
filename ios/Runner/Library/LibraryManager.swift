@@ -14,16 +14,24 @@ final class LibraryManager {
   private let repository: LibraryRepository
   private let fileManager: FileManager
   private let documentsDirectory: URL
+  private let coversDirectory: URL
 
   init(
     repository: LibraryRepository = .shared,
     fileManager: FileManager = .default,
-    documentsDirectory: URL? = nil
+    documentsDirectory: URL? = nil,
+    cacheDirectory: URL? = nil
   ) {
     self.repository = repository
     self.fileManager = fileManager
     self.documentsDirectory = documentsDirectory
       ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
+    let cache = cacheDirectory
+      ?? fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
+    coversDirectory = cache.appendingPathComponent(
+      "LibraryCovers",
+      isDirectory: true
+    )
     Task { await reloadAndRepair() }
   }
 
@@ -102,6 +110,10 @@ final class LibraryManager {
     if fileManager.fileExists(atPath: url.path) {
       try fileManager.removeItem(at: url)
     }
+    if let coverURL = coverURL(for: file),
+       fileManager.fileExists(atPath: coverURL.path) {
+      try? fileManager.removeItem(at: coverURL)
+    }
     files.removeAll { $0.id == file.id }
     NotificationCenter.default.post(name: .libraryDidChange, object: self)
     Task { try? await repository.removeFile(id: file.id) }
@@ -109,6 +121,48 @@ final class LibraryManager {
 
   func url(for file: LibraryFile) -> URL {
     documentsDirectory.appendingPathComponent(file.relativePath)
+  }
+
+  func copyFile(_ file: LibraryFile) throws {
+    let source = url(for: file)
+    let destinationManager = DownloadDestinationManager(
+      fileManager: fileManager,
+      documentsDirectory: documentsDirectory
+    )
+    let destination = try destinationManager.destination(
+      filename: file.displayName,
+      folderID: file.folderID
+    )
+    try fileManager.copyItem(at: source, to: destination)
+    let copy = LibraryFile(
+      folderID: file.folderID,
+      displayName: destination.lastPathComponent,
+      relativePath: relativePath(for: destination) ?? destination.lastPathComponent,
+      mimeType: file.mimeType,
+      size: file.size,
+      isFavorite: false,
+      duration: file.duration
+    )
+    updateFile(copy)
+  }
+
+  func setCustomCover(data: Data, for file: LibraryFile) throws {
+    try fileManager.createDirectory(
+      at: coversDirectory,
+      withIntermediateDirectories: true
+    )
+    let coverURL = coversDirectory
+      .appendingPathComponent("\(file.id.uuidString).jpg")
+    try data.write(to: coverURL, options: .atomic)
+    var value = file
+    value.customCoverRelativePath = coverURL.lastPathComponent
+    value.updatedAt = Date()
+    updateFile(value)
+  }
+
+  func coverURL(for file: LibraryFile) -> URL? {
+    guard let relativePath = file.customCoverRelativePath else { return nil }
+    return coversDirectory.appendingPathComponent(relativePath)
   }
 
   func files(

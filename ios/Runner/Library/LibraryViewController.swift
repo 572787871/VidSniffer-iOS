@@ -1,4 +1,6 @@
+import PhotosUI
 import UIKit
+import UniformTypeIdentifiers
 
 @MainActor
 final class LibraryViewController: UIViewController {
@@ -16,11 +18,17 @@ final class LibraryViewController: UIViewController {
   private let manager: LibraryManager
   private let scope: Scope
   private let tableView = UITableView(frame: .zero, style: .insetGrouped)
+  private lazy var collectionView = UICollectionView(
+    frame: .zero,
+    collectionViewLayout: makeGridLayout()
+  )
   private let searchController = UISearchController(searchResultsController: nil)
   private let emptyLabel = UILabel()
   private var rows: [Row] = []
   private var sort: LibrarySort = .date
   private var isCompact = false
+  private var usesGrid = false
+  private var pendingCoverFile: LibraryFile?
   private var observer: NSObjectProtocol?
 
   init(
@@ -89,6 +97,18 @@ final class LibraryViewController: UIViewController {
       UITableViewCell.self,
       forCellReuseIdentifier: "LibraryCell"
     )
+    tableView.allowsMultipleSelectionDuringEditing = true
+
+    collectionView.translatesAutoresizingMaskIntoConstraints = false
+    collectionView.dataSource = self
+    collectionView.delegate = self
+    collectionView.backgroundColor = .clear
+    collectionView.isHidden = true
+    collectionView.allowsMultipleSelection = true
+    collectionView.register(
+      LibraryGridCell.self,
+      forCellWithReuseIdentifier: LibraryGridCell.reuseIdentifier
+    )
 
     emptyLabel.translatesAutoresizingMaskIntoConstraints = false
     emptyLabel.text = "暂无内容"
@@ -97,12 +117,17 @@ final class LibraryViewController: UIViewController {
     emptyLabel.adjustsFontForContentSizeCategory = true
 
     view.addSubview(tableView)
+    view.addSubview(collectionView)
     view.addSubview(emptyLabel)
     NSLayoutConstraint.activate([
       tableView.topAnchor.constraint(equalTo: view.topAnchor),
       tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      collectionView.topAnchor.constraint(equalTo: view.topAnchor),
+      collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
       emptyLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
       emptyLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
     ])
@@ -138,7 +163,23 @@ final class LibraryViewController: UIViewController {
         [weak self] _ in self?.setCompact(true)
       },
     ])
-    return UIMenu(children: [sortMenu, densityMenu])
+    let layoutMenu = UIMenu(title: "显示方式", children: [
+      UIAction(
+        title: "列表",
+        image: UIImage(systemName: "list.bullet"),
+        state: usesGrid ? .off : .on
+      ) { [weak self] _ in self?.setGrid(false) },
+      UIAction(
+        title: "网格",
+        image: UIImage(systemName: "square.grid.2x2"),
+        state: usesGrid ? .on : .off
+      ) { [weak self] _ in self?.setGrid(true) },
+    ])
+    let selection = UIAction(
+      title: "选择多个项目",
+      image: UIImage(systemName: "checkmark.circle")
+    ) { [weak self] _ in self?.beginSelection() }
+    return UIMenu(children: [sortMenu, layoutMenu, densityMenu, selection])
   }
 
   private func refreshMenu() {
@@ -149,6 +190,45 @@ final class LibraryViewController: UIViewController {
     isCompact = value
     refreshMenu()
     tableView.reloadData()
+  }
+
+  private func setGrid(_ value: Bool) {
+    guard case .files = scope else { return }
+    usesGrid = value
+    tableView.isHidden = value
+    collectionView.isHidden = !value
+    refreshMenu()
+    collectionView.reloadData()
+  }
+
+  private func makeGridLayout() -> UICollectionViewLayout {
+    let item = NSCollectionLayoutItem(
+      layoutSize: NSCollectionLayoutSize(
+        widthDimension: .fractionalWidth(0.5),
+        heightDimension: .estimated(210)
+      )
+    )
+    item.contentInsets = NSDirectionalEdgeInsets(
+      top: 6,
+      leading: 6,
+      bottom: 6,
+      trailing: 6
+    )
+    let group = NSCollectionLayoutGroup.horizontal(
+      layoutSize: NSCollectionLayoutSize(
+        widthDimension: .fractionalWidth(1),
+        heightDimension: .estimated(210)
+      ),
+      subitems: [item]
+    )
+    let section = NSCollectionLayoutSection(group: group)
+    section.contentInsets = NSDirectionalEdgeInsets(
+      top: 8,
+      leading: 10,
+      bottom: 24,
+      trailing: 10
+    )
+    return UICollectionViewCompositionalLayout(section: section)
   }
 
   private func reload() {
@@ -175,6 +255,7 @@ final class LibraryViewController: UIViewController {
     }
     emptyLabel.isHidden = !rows.isEmpty
     tableView.reloadData()
+    collectionView.reloadData()
   }
 
   private func openFiles(folderID: UUID?, title: String) {
@@ -285,6 +366,132 @@ final class LibraryViewController: UIViewController {
     present(controller, animated: true)
   }
 
+  private func chooseCustomCover(for file: LibraryFile) {
+    pendingCoverFile = file
+    var configuration = PHPickerConfiguration(photoLibrary: .shared())
+    configuration.filter = .images
+    configuration.selectionLimit = 1
+    let picker = PHPickerViewController(configuration: configuration)
+    picker.delegate = self
+    present(picker, animated: true)
+  }
+
+  private func beginSelection() {
+    guard case .files = scope else { return }
+    navigationItem.rightBarButtonItems = [
+      UIBarButtonItem(
+        systemItem: .done,
+        primaryAction: UIAction { [weak self] _ in self?.endSelection() }
+      ),
+    ]
+    tableView.setEditing(true, animated: true)
+    collectionView.allowsMultipleSelection = true
+    navigationController?.setToolbarHidden(false, animated: true)
+    toolbarItems = [
+      UIBarButtonItem(
+        title: "分享",
+        primaryAction: UIAction { [weak self] _ in self?.shareSelected() }
+      ),
+      UIBarButtonItem(systemItem: .flexibleSpace),
+      UIBarButtonItem(
+        title: "移动",
+        primaryAction: UIAction { [weak self] _ in self?.moveSelected() }
+      ),
+      UIBarButtonItem(systemItem: .flexibleSpace),
+      UIBarButtonItem(
+        title: "删除",
+        primaryAction: UIAction { [weak self] _ in self?.deleteSelected() }
+      ),
+    ]
+  }
+
+  private func endSelection() {
+    tableView.setEditing(false, animated: true)
+    tableView.indexPathsForSelectedRows?.forEach {
+      tableView.deselectRow(at: $0, animated: false)
+    }
+    collectionView.indexPathsForSelectedItems?.forEach {
+      collectionView.deselectItem(at: $0, animated: false)
+    }
+    navigationController?.setToolbarHidden(true, animated: true)
+    navigationItem.rightBarButtonItems = [
+      UIBarButtonItem(
+        image: UIImage(systemName: "plus"),
+        primaryAction: UIAction { [weak self] _ in
+          self?.promptForNewFolder()
+        }
+      ),
+      UIBarButtonItem(
+        image: UIImage(systemName: "ellipsis.circle"),
+        menu: makeMenu()
+      ),
+    ]
+  }
+
+  private func selectedFiles() -> [LibraryFile] {
+    let paths = usesGrid
+      ? collectionView.indexPathsForSelectedItems ?? []
+      : tableView.indexPathsForSelectedRows ?? []
+    return paths.compactMap {
+      guard rows.indices.contains($0.row),
+            case let .file(file) = rows[$0.row]
+      else {
+        return nil
+      }
+      return file
+    }
+  }
+
+  private func shareSelected() {
+    let urls = selectedFiles().map(manager.url(for:))
+    guard !urls.isEmpty else { return }
+    let controller = UIActivityViewController(
+      activityItems: urls,
+      applicationActivities: nil
+    )
+    controller.popoverPresentationController?.sourceView = view
+    present(controller, animated: true)
+  }
+
+  private func moveSelected() {
+    let files = selectedFiles()
+    guard !files.isEmpty else { return }
+    let alert = UIAlertController(
+      title: "移动 \(files.count) 个项目",
+      message: nil,
+      preferredStyle: .actionSheet
+    )
+    let destinations: [(String, UUID?)] = [("全部视频", nil)]
+      + manager.folders.map { ($0.name, Optional($0.id)) }
+    for destination in destinations {
+      alert.addAction(UIAlertAction(title: destination.0, style: .default) {
+        [weak self] _ in
+        files.forEach { self?.manager.moveFile($0, to: destination.1) }
+        self?.endSelection()
+      })
+    }
+    alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+    alert.popoverPresentationController?.sourceView = view
+    present(alert, animated: true)
+  }
+
+  private func deleteSelected() {
+    let files = selectedFiles()
+    guard !files.isEmpty else { return }
+    let alert = UIAlertController(
+      title: "删除 \(files.count) 个文件？",
+      message: "此操作无法撤销。",
+      preferredStyle: .alert
+    )
+    alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+    alert.addAction(UIAlertAction(title: "删除", style: .destructive) {
+      [weak self] _ in
+      files.forEach { try? self?.manager.deleteFile($0) }
+      self?.endSelection()
+    })
+    present(alert, animated: true)
+  }
+
   private func confirmDelete(file: LibraryFile) {
     let alert = UIAlertController(
       title: "删除文件？",
@@ -388,9 +595,9 @@ extension LibraryViewController:
         fromByteCount: file.size,
         countStyle: .file
       )
-      content.image = UIImage(
-        systemName: file.isFavorite ? "star.fill" : "film"
-      )
+      content.image = manager.coverURL(for: file)
+        .flatMap(UIImage.init(contentsOfFile:))
+        ?? UIImage(systemName: file.isFavorite ? "star.fill" : "film")
       content.imageProperties.tintColor =
         file.isFavorite ? .systemYellow : .systemBlue
       cell.accessoryType = .none
@@ -410,7 +617,10 @@ extension LibraryViewController:
     case let .folder(folder, _):
       openFiles(folderID: folder.id, title: folder.name)
     case let .file(file):
-      present(VideoPlayerViewController(file: file), animated: true)
+      present(
+        VideoPlayerViewController(file: file, queue: visibleFiles()),
+        animated: true
+      )
     }
   }
 
@@ -447,7 +657,13 @@ extension LibraryViewController:
         return UIMenu(children: [
           UIAction(title: "播放", image: UIImage(systemName: "play.fill")) {
             _ in
-            self?.present(VideoPlayerViewController(file: file), animated: true)
+            self?.present(
+              VideoPlayerViewController(
+                file: file,
+                queue: self?.visibleFiles() ?? [file]
+              ),
+              animated: true
+            )
           },
           UIAction(title: "分享与导出", image: UIImage(systemName: "square.and.arrow.up")) {
             _ in self?.share(file: file)
@@ -457,6 +673,17 @@ extension LibraryViewController:
           },
           UIAction(title: "移动", image: UIImage(systemName: "folder")) {
             _ in self?.showMoveMenu(file: file)
+          },
+          UIAction(title: "制作副本", image: UIImage(systemName: "plus.square.on.square")) {
+            _ in
+            do {
+              try self?.manager.copyFile(file)
+            } catch {
+              self?.showError("暂时无法复制此文件。")
+            }
+          },
+          UIAction(title: "自定义封面", image: UIImage(systemName: "photo")) {
+            _ in self?.chooseCustomCover(for: file)
           },
           UIAction(title: favoriteTitle, image: UIImage(systemName: "star")) {
             _ in
@@ -475,5 +702,167 @@ extension LibraryViewController:
         ])
       }
     }
+  }
+
+  private func visibleFiles() -> [LibraryFile] {
+    rows.compactMap {
+      guard case let .file(file) = $0 else { return nil }
+      return file
+    }
+  }
+}
+
+extension LibraryViewController:
+  UICollectionViewDataSource,
+  UICollectionViewDelegate
+{
+  func collectionView(
+    _ collectionView: UICollectionView,
+    numberOfItemsInSection section: Int
+  ) -> Int {
+    rows.count
+  }
+
+  func collectionView(
+    _ collectionView: UICollectionView,
+    cellForItemAt indexPath: IndexPath
+  ) -> UICollectionViewCell {
+    guard let cell = collectionView.dequeueReusableCell(
+      withReuseIdentifier: LibraryGridCell.reuseIdentifier,
+      for: indexPath
+    ) as? LibraryGridCell,
+          case let .file(file) = rows[indexPath.item]
+    else {
+      return UICollectionViewCell()
+    }
+    let cover = manager.coverURL(for: file)
+      .flatMap { UIImage(contentsOfFile: $0.path) }
+    cell.configure(file: file, cover: cover)
+    return cell
+  }
+
+  func collectionView(
+    _ collectionView: UICollectionView,
+    didSelectItemAt indexPath: IndexPath
+  ) {
+    guard !tableView.isEditing,
+          case let .file(file) = rows[indexPath.item]
+    else {
+      return
+    }
+    collectionView.deselectItem(at: indexPath, animated: false)
+    present(
+      VideoPlayerViewController(file: file, queue: visibleFiles()),
+      animated: true
+    )
+  }
+}
+
+extension LibraryViewController: PHPickerViewControllerDelegate {
+  func picker(
+    _ picker: PHPickerViewController,
+    didFinishPicking results: [PHPickerResult]
+  ) {
+    picker.dismiss(animated: true)
+    guard let file = pendingCoverFile,
+          let provider = results.first?.itemProvider,
+          provider.hasItemConformingToTypeIdentifier(UTType.image.identifier)
+    else {
+      pendingCoverFile = nil
+      return
+    }
+    provider.loadDataRepresentation(
+      forTypeIdentifier: UTType.image.identifier
+    ) { [weak self] data, _ in
+      guard let data else { return }
+      Task { @MainActor in
+        do {
+          try self?.manager.setCustomCover(data: data, for: file)
+        } catch {
+          self?.showError("无法保存所选封面。")
+        }
+        self?.pendingCoverFile = nil
+      }
+    }
+  }
+}
+
+private final class LibraryGridCell: UICollectionViewCell {
+  static let reuseIdentifier = "LibraryGridCell"
+
+  private let imageView = UIImageView()
+  private let titleLabel = UILabel()
+  private let detailLabel = UILabel()
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    contentView.backgroundColor = .secondarySystemGroupedBackground
+    contentView.layer.cornerRadius = 16
+    contentView.clipsToBounds = true
+
+    imageView.contentMode = .scaleAspectFill
+    imageView.clipsToBounds = true
+    imageView.backgroundColor = .tertiarySystemGroupedBackground
+    imageView.tintColor = .systemBlue
+    titleLabel.font = .preferredFont(forTextStyle: .headline)
+    titleLabel.adjustsFontForContentSizeCategory = true
+    titleLabel.numberOfLines = 2
+    detailLabel.font = .preferredFont(forTextStyle: .caption1)
+    detailLabel.textColor = .secondaryLabel
+
+    let stack = UIStackView(arrangedSubviews: [imageView, titleLabel, detailLabel])
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    stack.axis = .vertical
+    stack.spacing = 7
+    contentView.addSubview(stack)
+    NSLayoutConstraint.activate([
+      stack.topAnchor.constraint(equalTo: contentView.topAnchor),
+      stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+      stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+      stack.bottomAnchor.constraint(
+        equalTo: contentView.bottomAnchor,
+        constant: -10
+      ),
+      imageView.heightAnchor.constraint(equalTo: imageView.widthAnchor),
+      titleLabel.leadingAnchor.constraint(
+        equalTo: contentView.leadingAnchor,
+        constant: 10
+      ),
+      titleLabel.trailingAnchor.constraint(
+        equalTo: contentView.trailingAnchor,
+        constant: -10
+      ),
+      detailLabel.leadingAnchor.constraint(
+        equalTo: contentView.leadingAnchor,
+        constant: 10
+      ),
+      detailLabel.trailingAnchor.constraint(
+        equalTo: contentView.trailingAnchor,
+        constant: -10
+      ),
+    ])
+    accessibilityTraits = .button
+  }
+
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  override var isSelected: Bool {
+    didSet {
+      contentView.layer.borderWidth = isSelected ? 3 : 0
+      contentView.layer.borderColor = UIColor.systemBlue.cgColor
+    }
+  }
+
+  func configure(file: LibraryFile, cover: UIImage?) {
+    imageView.image = cover ?? UIImage(systemName: "film.fill")
+    imageView.contentMode = cover == nil ? .scaleAspectFit : .scaleAspectFill
+    titleLabel.text = file.displayName
+    detailLabel.text = ByteCountFormatter.string(
+      fromByteCount: file.size,
+      countStyle: .file
+    )
+    accessibilityLabel = "\(file.displayName)，\(detailLabel.text ?? "")"
   }
 }

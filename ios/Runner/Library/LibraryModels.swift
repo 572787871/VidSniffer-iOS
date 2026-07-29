@@ -35,6 +35,7 @@ struct LibraryFile: Codable, Identifiable, Equatable {
   var isFavorite: Bool
   var duration: TimeInterval?
   var playbackPosition: TimeInterval
+  var customCoverRelativePath: String?
 
   init(
     id: UUID = UUID(),
@@ -48,7 +49,8 @@ struct LibraryFile: Codable, Identifiable, Equatable {
     updatedAt: Date = Date(),
     isFavorite: Bool = false,
     duration: TimeInterval? = nil,
-    playbackPosition: TimeInterval = 0
+    playbackPosition: TimeInterval = 0,
+    customCoverRelativePath: String? = nil
   ) {
     self.id = id
     self.downloadTaskID = downloadTaskID
@@ -62,6 +64,7 @@ struct LibraryFile: Codable, Identifiable, Equatable {
     self.isFavorite = isFavorite
     self.duration = duration
     self.playbackPosition = playbackPosition
+    self.customCoverRelativePath = customCoverRelativePath
   }
 }
 

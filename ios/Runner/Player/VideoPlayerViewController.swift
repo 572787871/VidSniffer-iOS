@@ -7,6 +7,8 @@ import UIKit
 final class VideoPlayerViewController: UIViewController {
   private let libraryManager: LibraryManager
   private var file: LibraryFile
+  private var queue: [LibraryFile]
+  private var queueIndex: Int
   private let player: AVPlayer
   private let playerView = PlayerSurfaceView()
   private let controlsView = UIVisualEffectView(
@@ -21,6 +23,8 @@ final class VideoPlayerViewController: UIViewController {
   private let forwardButton = UIButton(type: .system)
   private let speedButton = UIButton(type: .system)
   private let pipButton = UIButton(type: .system)
+  private let nextButton = UIButton(type: .system)
+  private let tracksButton = UIButton(type: .system)
   private let routePicker = AVRoutePickerView()
   private let volumeView = MPVolumeView(frame: .zero)
   private var timeObserver: Any?
@@ -31,9 +35,13 @@ final class VideoPlayerViewController: UIViewController {
 
   init(
     file: LibraryFile,
+    queue: [LibraryFile] = [],
     libraryManager: LibraryManager = .shared
   ) {
     self.file = file
+    self.queue = queue.isEmpty ? [file] : queue
+    queueIndex = (queue.isEmpty ? [file] : queue)
+      .firstIndex(where: { $0.id == file.id }) ?? 0
     self.libraryManager = libraryManager
     player = AVPlayer(url: libraryManager.url(for: file))
     super.init(nibName: nil, bundle: nil)
@@ -48,6 +56,7 @@ final class VideoPlayerViewController: UIViewController {
     if let timeObserver {
       player.removeTimeObserver(timeObserver)
     }
+    NotificationCenter.default.removeObserver(self)
   }
 
   override func viewDidLoad() {
@@ -58,6 +67,12 @@ final class VideoPlayerViewController: UIViewController {
     configureControls()
     configureGestures()
     UIApplication.shared.isIdleTimerDisabled = true
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(playbackDidFinish),
+      name: .AVPlayerItemDidPlayToEndTime,
+      object: nil
+    )
   }
 
   override func viewDidAppear(_ animated: Bool) {
@@ -147,6 +162,8 @@ final class VideoPlayerViewController: UIViewController {
     configureButton(backwardButton, symbol: "gobackward.15", label: "后退 15 秒")
     configureButton(forwardButton, symbol: "goforward.15", label: "快进 15 秒")
     configureButton(pipButton, symbol: "pip.enter", label: "画中画")
+    configureButton(nextButton, symbol: "forward.end.fill", label: "播放下一个")
+    configureButton(tracksButton, symbol: "captions.bubble", label: "字幕和音轨")
     speedButton.configuration = .plain()
     speedButton.configuration?.title = "1.0×"
     speedButton.configuration?.baseForegroundColor = .white
@@ -162,6 +179,10 @@ final class VideoPlayerViewController: UIViewController {
                             for: .touchUpInside)
     pipButton.addAction(UIAction { [weak self] _ in self?.togglePictureInPicture() },
                         for: .touchUpInside)
+    nextButton.addAction(UIAction { [weak self] _ in self?.playNext() },
+                         for: .touchUpInside)
+    tracksButton.showsMenuAsPrimaryAction = true
+    tracksButton.menu = makeMediaSelectionMenu()
 
     routePicker.tintColor = .white
     routePicker.activeTintColor = .systemBlue
@@ -188,7 +209,9 @@ final class VideoPlayerViewController: UIViewController {
       backwardButton,
       playButton,
       forwardButton,
+      nextButton,
       speedButton,
+      tracksButton,
       routePicker,
     ])
     actionRow.axis = .horizontal
@@ -197,6 +220,7 @@ final class VideoPlayerViewController: UIViewController {
     actionRow.heightAnchor.constraint(equalToConstant: 48).isActive = true
     routePicker.widthAnchor.constraint(equalToConstant: 44).isActive = true
     routePicker.heightAnchor.constraint(equalToConstant: 44).isActive = true
+    nextButton.isEnabled = queueIndex + 1 < queue.count
 
     let stack = UIStackView(arrangedSubviews: [
       topRow,
@@ -268,6 +292,58 @@ final class VideoPlayerViewController: UIViewController {
         self?.speedButton.menu = self?.makeSpeedMenu()
       }
     })
+  }
+
+  private func makeMediaSelectionMenu() -> UIMenu {
+    guard let item = player.currentItem else {
+      return UIMenu(children: [
+        UIAction(title: "暂无可选音轨", attributes: [.disabled]) { _ in },
+      ])
+    }
+    var elements: [UIMenuElement] = []
+    if let group = item.asset.mediaSelectionGroup(
+      forMediaCharacteristic: .audible
+    ) {
+      let selected = item.currentMediaSelection.selectedMediaOption(in: group)
+      let actions = group.options.map { option in
+        UIAction(
+          title: option.displayName,
+          state: option == selected ? .on : .off
+        ) { [weak self] _ in
+          self?.player.currentItem?.select(option, in: group)
+          self?.tracksButton.menu = self?.makeMediaSelectionMenu()
+        }
+      }
+      elements.append(UIMenu(title: "音轨", children: actions))
+    }
+    if let group = item.asset.mediaSelectionGroup(
+      forMediaCharacteristic: .legible
+    ) {
+      let selected = item.currentMediaSelection.selectedMediaOption(in: group)
+      var actions = [
+        UIAction(title: "关闭字幕", state: selected == nil ? .on : .off) {
+          [weak self] _ in
+          self?.player.currentItem?.select(nil, in: group)
+          self?.tracksButton.menu = self?.makeMediaSelectionMenu()
+        },
+      ]
+      actions.append(contentsOf: group.options.map { option in
+        UIAction(
+          title: option.displayName,
+          state: option == selected ? .on : .off
+        ) { [weak self] _ in
+          self?.player.currentItem?.select(option, in: group)
+          self?.tracksButton.menu = self?.makeMediaSelectionMenu()
+        }
+      })
+      elements.append(UIMenu(title: "字幕", children: actions))
+    }
+    if elements.isEmpty {
+      elements.append(
+        UIAction(title: "没有其他字幕或音轨", attributes: [.disabled]) { _ in }
+      )
+    }
+    return UIMenu(children: elements)
   }
 
   private func configureGestures() {
@@ -423,6 +499,35 @@ final class VideoPlayerViewController: UIViewController {
     } else {
       controller.startPictureInPicture()
     }
+  }
+
+  @objc private func playbackDidFinish(_ notification: Notification) {
+    guard let finishedItem = notification.object as? AVPlayerItem,
+          finishedItem === player.currentItem
+    else {
+      return
+    }
+    playNext()
+  }
+
+  private func playNext() {
+    guard queueIndex + 1 < queue.count else { return }
+    savePlaybackPosition()
+    queueIndex += 1
+    file = queue[queueIndex]
+    player.replaceCurrentItem(
+      with: AVPlayerItem(url: libraryManager.url(for: file))
+    )
+    if file.playbackPosition > 0 {
+      player.seek(
+        to: CMTime(seconds: file.playbackPosition, preferredTimescale: 600)
+      )
+    }
+    titleLabel.text = file.displayName
+    tracksButton.menu = makeMediaSelectionMenu()
+    nextButton.isEnabled = queueIndex + 1 < queue.count
+    player.play()
+    updatePlayButton()
   }
 
   private func savePlaybackPosition() {
