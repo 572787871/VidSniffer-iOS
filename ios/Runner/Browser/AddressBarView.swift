@@ -5,9 +5,14 @@ final class AddressBarView: UIView, UITextFieldDelegate {
   let progressView = UIProgressView(progressViewStyle: .bar)
   private let securityImageView = UIImageView()
   private let clearButton = UIButton(type: .system)
+  private let scanButton = UIButton(type: .system)
+  private let reloadButton = UIButton(type: .system)
 
   var onSubmit: ((String) -> Void)?
   var onLongPress: (() -> Void)?
+  var onPaste: (() -> Void)?
+  var onScan: (() -> Void)?
+  var onReloadOrStop: (() -> Void)?
 
   override init(frame: CGRect) {
     super.init(frame: frame)
@@ -34,6 +39,11 @@ final class AddressBarView: UIView, UITextFieldDelegate {
     progressView.setProgress(Float(progress), animated: true)
     progressView.isHidden = !isLoading || progress >= 1
     clearButton.isHidden = textField.text?.isEmpty != false
+    reloadButton.setImage(
+      UIImage(systemName: isLoading ? "xmark" : "arrow.clockwise"),
+      for: .normal
+    )
+    reloadButton.accessibilityLabel = isLoading ? "停止载入" : "重新载入"
   }
 
   private func configure() {
@@ -67,6 +77,22 @@ final class AddressBarView: UIView, UITextFieldDelegate {
     clearButton.tintColor = .tertiaryLabel
     clearButton.addTarget(self, action: #selector(clearText), for: .touchUpInside)
 
+    scanButton.translatesAutoresizingMaskIntoConstraints = false
+    scanButton.setImage(UIImage(systemName: "qrcode.viewfinder"), for: .normal)
+    scanButton.tintColor = .secondaryLabel
+    scanButton.accessibilityLabel = "扫描二维码"
+    scanButton.addTarget(self, action: #selector(scanPressed), for: .touchUpInside)
+
+    reloadButton.translatesAutoresizingMaskIntoConstraints = false
+    reloadButton.setImage(UIImage(systemName: "arrow.clockwise"), for: .normal)
+    reloadButton.tintColor = .secondaryLabel
+    reloadButton.accessibilityLabel = "重新载入"
+    reloadButton.addTarget(
+      self,
+      action: #selector(reloadPressed),
+      for: .touchUpInside
+    )
+
     progressView.translatesAutoresizingMaskIntoConstraints = false
     progressView.tintColor = .systemBlue
     progressView.trackTintColor = .clear
@@ -75,6 +101,8 @@ final class AddressBarView: UIView, UITextFieldDelegate {
     addSubview(securityImageView)
     addSubview(textField)
     addSubview(clearButton)
+    addSubview(scanButton)
+    addSubview(reloadButton)
     addSubview(progressView)
     addGestureRecognizer(
       UILongPressGestureRecognizer(target: self, action: #selector(longPressed))
@@ -90,10 +118,18 @@ final class AddressBarView: UIView, UITextFieldDelegate {
       textField.trailingAnchor.constraint(equalTo: clearButton.leadingAnchor, constant: -6),
       textField.topAnchor.constraint(equalTo: topAnchor, constant: 7),
       textField.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -7),
-      clearButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+      clearButton.trailingAnchor.constraint(equalTo: scanButton.leadingAnchor, constant: -2),
       clearButton.centerYAnchor.constraint(equalTo: centerYAnchor),
       clearButton.widthAnchor.constraint(equalToConstant: 30),
       clearButton.heightAnchor.constraint(equalToConstant: 30),
+      scanButton.trailingAnchor.constraint(equalTo: reloadButton.leadingAnchor, constant: -2),
+      scanButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+      scanButton.widthAnchor.constraint(equalToConstant: 34),
+      scanButton.heightAnchor.constraint(equalToConstant: 34),
+      reloadButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+      reloadButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+      reloadButton.widthAnchor.constraint(equalToConstant: 34),
+      reloadButton.heightAnchor.constraint(equalToConstant: 34),
       progressView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
       progressView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
       progressView.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -104,6 +140,25 @@ final class AddressBarView: UIView, UITextFieldDelegate {
     onSubmit?(textField.text ?? "")
     textField.resignFirstResponder()
     return true
+  }
+
+  func textFieldDidBeginEditing(_ textField: UITextField) {
+    textField.selectAll(nil)
+  }
+
+  @available(iOS 16.0, *)
+  func textField(
+    _ textField: UITextField,
+    editMenuForCharactersIn range: NSRange,
+    suggestedActions: [UIMenuElement]
+  ) -> UIMenu? {
+    let pasteAndGo = UIAction(
+      title: "粘贴并访问",
+      image: UIImage(systemName: "doc.on.clipboard")
+    ) { [weak self] _ in
+      self?.onPaste?()
+    }
+    return UIMenu(children: [pasteAndGo] + suggestedActions)
   }
 
   @objc private func clearText() {
@@ -119,5 +174,13 @@ final class AddressBarView: UIView, UITextFieldDelegate {
   @objc private func longPressed(_ recognizer: UILongPressGestureRecognizer) {
     guard recognizer.state == .began else { return }
     onLongPress?()
+  }
+
+  @objc private func scanPressed() {
+    onScan?()
+  }
+
+  @objc private func reloadPressed() {
+    onReloadOrStop?()
   }
 }

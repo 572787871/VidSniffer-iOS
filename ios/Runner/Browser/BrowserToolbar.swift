@@ -12,6 +12,10 @@ final class BrowserToolbar: UIVisualEffectView {
   var onHome: (() -> Void)?
   var onShare: (() -> Void)?
   var onTabs: (() -> Void)?
+  var onBackHistory: (() -> Void)?
+  var onForwardHistory: (() -> Void)?
+
+  private let tabCountLabel = UILabel()
 
   init() {
     super.init(effect: UIBlurEffect(style: .systemChromeMaterial))
@@ -28,6 +32,8 @@ final class BrowserToolbar: UIVisualEffectView {
     backButton.isEnabled = canGoBack
     forwardButton.isEnabled = canGoForward
     tabsButton.accessibilityLabel = "标签页，共 \(tabCount) 个"
+    tabCountLabel.text = String(tabCount)
+    tabCountLabel.isHidden = tabCount > 99
   }
 
   private func configure() {
@@ -50,6 +56,34 @@ final class BrowserToolbar: UIVisualEffectView {
       button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
       button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
     }
+    backButton.addGestureRecognizer(
+      UILongPressGestureRecognizer(
+        target: self,
+        action: #selector(backLongPressed)
+      )
+    )
+    forwardButton.addGestureRecognizer(
+      UILongPressGestureRecognizer(
+        target: self,
+        action: #selector(forwardLongPressed)
+      )
+    )
+
+    tabCountLabel.translatesAutoresizingMaskIntoConstraints = false
+    tabCountLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
+    tabCountLabel.textAlignment = .center
+    tabCountLabel.textColor = .label
+    tabCountLabel.backgroundColor = .systemBackground
+    tabCountLabel.layer.cornerRadius = 7
+    tabCountLabel.layer.cornerCurve = .continuous
+    tabCountLabel.clipsToBounds = true
+    tabsButton.addSubview(tabCountLabel)
+    NSLayoutConstraint.activate([
+      tabCountLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 14),
+      tabCountLabel.heightAnchor.constraint(equalToConstant: 14),
+      tabCountLabel.trailingAnchor.constraint(equalTo: tabsButton.trailingAnchor, constant: -2),
+      tabCountLabel.topAnchor.constraint(equalTo: tabsButton.topAnchor, constant: 2),
+    ])
 
     let stack = UIStackView(arrangedSubviews: items.map(\.0))
     stack.translatesAutoresizingMaskIntoConstraints = false
@@ -69,4 +103,16 @@ final class BrowserToolbar: UIVisualEffectView {
   @objc private func homePressed() { onHome?() }
   @objc private func sharePressed() { onShare?() }
   @objc private func tabsPressed() { onTabs?() }
+
+  @objc private func backLongPressed(_ recognizer: UILongPressGestureRecognizer) {
+    guard recognizer.state == .began else { return }
+    onBackHistory?()
+  }
+
+  @objc private func forwardLongPressed(
+    _ recognizer: UILongPressGestureRecognizer
+  ) {
+    guard recognizer.state == .began else { return }
+    onForwardHistory?()
+  }
 }

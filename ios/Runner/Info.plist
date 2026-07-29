@@ -32,6 +32,8 @@
   <true/>
   <key>NSDocumentsFolderUsageDescription</key>
   <string>用于导入、导出和管理本地视频文件。</string>
+  <key>NSCameraUsageDescription</key>
+  <string>用于扫描二维码并在浏览器中打开网址。</string>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsArbitraryLoadsInWebContent</key>

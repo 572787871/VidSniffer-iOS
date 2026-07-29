@@ -3,6 +3,30 @@ import WebKit
 @testable import Runner
 
 final class BrowserCoreTests: XCTestCase {
+  func testURLResolverRecognizesExplicitAndImplicitURLs() {
+    XCTAssertEqual(
+      BrowserURLResolver.resolve("https://example.com/a")?.absoluteString,
+      "https://example.com/a"
+    )
+    XCTAssertEqual(
+      BrowserURLResolver.resolve("example.com/video")?.absoluteString,
+      "https://example.com/video"
+    )
+  }
+
+  func testURLResolverBuildsSelectedSearchEngineURL() {
+    let result = BrowserURLResolver.resolve(
+      "swift uikit browser",
+      searchEngine: .duckDuckGo
+    )
+    XCTAssertEqual(result?.host, "duckduckgo.com")
+    XCTAssertEqual(
+      URLComponents(url: result!, resolvingAgainstBaseURL: false)?
+        .queryItems?.first?.value,
+      "swift uikit browser"
+    )
+  }
+
   func testTabSnapshotPreservesRestorableState() async {
     await MainActor.run {
       let id = UUID()
@@ -67,6 +91,22 @@ final class BrowserCoreTests: XCTestCase {
         privateTab.webView?.configuration.websiteDataStore
           === WKWebsiteDataStore.default()
       )
+    }
+  }
+
+  func testTabReorderingAndClosingOthers() async {
+    await MainActor.run {
+      let manager = BrowserTabManager()
+      let first = manager.createTab()
+      let second = manager.createTab()
+      let third = manager.createTab()
+
+      manager.moveTab(id: third.id, before: first.id)
+      XCTAssertEqual(manager.tabs.first?.id, third.id)
+
+      manager.closeOtherTabs(keeping: second.id)
+      XCTAssertNotNil(manager.tab(id: second.id))
+      XCTAssertEqual(manager.tabs.filter { !$0.isPrivate }.count, 1)
     }
   }
 }

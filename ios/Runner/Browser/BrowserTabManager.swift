@@ -22,6 +22,14 @@ final class BrowserTabManager {
     return tabs.first { $0.id == selectedTabID }
   }
 
+  func tab(id: UUID) -> BrowserTab? {
+    tabs.first { $0.id == id }
+  }
+
+  func tabs(isPrivate: Bool) -> [BrowserTab] {
+    tabs.filter { $0.isPrivate == isPrivate }
+  }
+
   @discardableResult
   func createTab(url: URL? = nil, isPrivate: Bool = false) -> BrowserTab {
     let tab = BrowserTab(url: url, isPrivate: isPrivate)
@@ -78,6 +86,36 @@ final class BrowserTabManager {
     for id in privateIDs {
       closeTab(id: id)
     }
+  }
+
+  func closeOtherTabs(keeping id: UUID) {
+    let ids = tabs.filter { $0.id != id }.map(\.id)
+    ids.forEach(closeTab(id:))
+    _ = activateTab(id: id)
+  }
+
+  func closeAllTabs(isPrivate: Bool? = nil) {
+    let ids = tabs
+      .filter { isPrivate == nil || $0.isPrivate == isPrivate }
+      .map(\.id)
+    ids.forEach(closeTab(id:))
+  }
+
+  func moveTab(id: UUID, before destinationID: UUID) {
+    guard id != destinationID,
+          let sourceIndex = tabs.firstIndex(where: { $0.id == id }),
+          let destinationIndex = tabs.firstIndex(where: {
+            $0.id == destinationID
+          })
+    else {
+      return
+    }
+    let tab = tabs.remove(at: sourceIndex)
+    let adjustedDestination = sourceIndex < destinationIndex
+      ? destinationIndex - 1
+      : destinationIndex
+    tabs.insert(tab, at: adjustedDestination)
+    onTabsChanged?()
   }
 
   @discardableResult
