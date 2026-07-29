@@ -675,6 +675,12 @@ final class BrowserViewController: UIViewController {
         ) { [weak self] _ in
           self?.showDownloads()
         },
+        UIAction(
+          title: "已下载",
+          image: UIImage(systemName: "folder")
+        ) { [weak self] _ in
+          self?.showLibrary()
+        },
       ]),
       UIMenu(title: "网页显示", children: [
         UIAction(
@@ -862,6 +868,14 @@ final class BrowserViewController: UIViewController {
       sheet.detents = [.medium(), .large()]
       sheet.prefersGrabberVisible = true
     }
+    present(navigation, animated: true)
+  }
+
+  private func showLibrary() {
+    let controller = LibraryViewController()
+    let navigation = UINavigationController(rootViewController: controller)
+    navigation.navigationBar.prefersLargeTitles = true
+    navigation.modalPresentationStyle = .fullScreen
     present(navigation, animated: true)
   }
 

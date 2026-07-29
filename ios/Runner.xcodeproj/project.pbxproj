@@ -29,6 +29,11 @@
 		A00000000000000000000014 /* DownloadNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000018 /* DownloadNotificationManager.swift */; };
 		A00000000000000000000015 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000019 /* DownloadManager.swift */; };
 		A00000000000000000000016 /* DownloadViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001A /* DownloadViewController.swift */; };
+		A00000000000000000000017 /* LibraryModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001B /* LibraryModels.swift */; };
+		A00000000000000000000018 /* LibraryRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001C /* LibraryRepository.swift */; };
+		A00000000000000000000019 /* LibraryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001D /* LibraryManager.swift */; };
+		A0000000000000000000001A /* LibraryViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001E /* LibraryViewController.swift */; };
+		A0000000000000000000001B /* VideoPlayerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001F /* VideoPlayerViewController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -57,6 +62,11 @@
 		B00000000000000000000018 /* DownloadNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadNotificationManager.swift; sourceTree = "<group>"; };
 		B00000000000000000000019 /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
 		B0000000000000000000001A /* DownloadViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadViewController.swift; sourceTree = "<group>"; };
+		B0000000000000000000001B /* LibraryModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModels.swift; sourceTree = "<group>"; };
+		B0000000000000000000001C /* LibraryRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryRepository.swift; sourceTree = "<group>"; };
+		B0000000000000000000001D /* LibraryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryManager.swift; sourceTree = "<group>"; };
+		B0000000000000000000001E /* LibraryViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryViewController.swift; sourceTree = "<group>"; };
+		B0000000000000000000001F /* VideoPlayerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerViewController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXContainerItemProxy section */
@@ -102,6 +112,8 @@
 				B00000000000000000000001 /* AppDelegate.swift */,
 				D00000000000000000000003 /* Browser */,
 				D00000000000000000000006 /* Download */,
+				D00000000000000000000007 /* Library */,
+				D00000000000000000000008 /* Player */,
 				B0000000000000000000000F /* Info.plist */,
 				B0000000000000000000000E /* LaunchScreen.storyboard */,
 				B0000000000000000000000D /* Assets.xcassets */,
@@ -156,6 +168,25 @@
 				B0000000000000000000001A /* DownloadViewController.swift */,
 			);
 			path = Download;
+			sourceTree = "<group>";
+		};
+		D00000000000000000000007 /* Library */ = {
+			isa = PBXGroup;
+			children = (
+				B0000000000000000000001B /* LibraryModels.swift */,
+				B0000000000000000000001C /* LibraryRepository.swift */,
+				B0000000000000000000001D /* LibraryManager.swift */,
+				B0000000000000000000001E /* LibraryViewController.swift */,
+			);
+			path = Library;
+			sourceTree = "<group>";
+		};
+		D00000000000000000000008 /* Player */ = {
+			isa = PBXGroup;
+			children = (
+				B0000000000000000000001F /* VideoPlayerViewController.swift */,
+			);
+			path = Player;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -270,6 +301,11 @@
 				A00000000000000000000014 /* DownloadNotificationManager.swift in Sources */,
 				A00000000000000000000015 /* DownloadManager.swift in Sources */,
 				A00000000000000000000016 /* DownloadViewController.swift in Sources */,
+				A00000000000000000000017 /* LibraryModels.swift in Sources */,
+				A00000000000000000000018 /* LibraryRepository.swift in Sources */,
+				A00000000000000000000019 /* LibraryManager.swift in Sources */,
+				A0000000000000000000001A /* LibraryViewController.swift in Sources */,
+				A0000000000000000000001B /* VideoPlayerViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

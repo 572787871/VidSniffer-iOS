@@ -187,6 +187,7 @@ final class DownloadManager {
     tasks[index].updatedAt = Date()
     let completedTask = tasks[index]
     publishAndPersist(completedTask)
+    LibraryManager.shared.registerCompletedDownload(completedTask)
     if preferences.notifiesOnCompletion {
       Task { await notificationManager.notifyCompletion(of: completedTask) }
     }
@@ -343,6 +344,7 @@ final class DownloadManager {
       tasks[index].updatedAt = Date()
       let completedTask = tasks[index]
       publishAndPersist(completedTask)
+      LibraryManager.shared.registerCompletedDownload(completedTask)
       if preferences.notifiesOnCompletion {
         Task { await notificationManager.notifyCompletion(of: completedTask) }
       }

@@ -246,4 +246,37 @@ final class BrowserCoreTests: XCTestCase {
     XCTAssertFalse(DownloadTaskState.completed.canPause)
     XCTAssertFalse(DownloadTaskState.cancelled.canResume)
   }
+
+  func testLibraryRepositoryUsesUUIDsAndPreservesFilesWhenFolderRemoved()
+    async throws
+  {
+    let directory = try makeTemporaryDirectory()
+    let repository = LibraryRepository(
+      fileURL: directory.appendingPathComponent("library.json")
+    )
+    let folder = try await repository.addFolder(name: "旅行记录")
+    let file = LibraryFile(
+      folderID: folder.id,
+      displayName: "video.mp4",
+      relativePath: "Downloads/video.mp4",
+      size: 1_024
+    )
+    try await repository.upsert(file: file)
+    try await repository.removeFolder(id: folder.id)
+
+    let snapshot = try await repository.snapshot()
+
+    XCTAssertTrue(snapshot.0.isEmpty)
+    XCTAssertEqual(snapshot.1.count, 1)
+    XCTAssertEqual(snapshot.1.first?.id, file.id)
+    XCTAssertNil(snapshot.1.first?.folderID)
+  }
+
+  func testLibraryFolderNameSanitization() {
+    XCTAssertEqual(
+      LibraryRepository.cleanFolderName("../旅行/记录"),
+      ".._旅行_记录"
+    )
+    XCTAssertEqual(LibraryRepository.cleanFolderName(""), "下载文件")
+  }
 }
