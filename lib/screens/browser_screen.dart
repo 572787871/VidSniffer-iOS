@@ -16,7 +16,6 @@ import '../services/ui_state.dart';
 import '../services/video_sniffer.dart';
 import '../services/video_sniffer_controller.dart';
 import '../theme/app_theme.dart';
-import '../widgets/apple_ui.dart';
 import '../widgets/download_confirm_dialog.dart';
 import 'downloads_screen.dart';
 
@@ -45,6 +44,7 @@ class _BrowserScreenState extends State<BrowserScreen>
     ),
   ];
   final List<_BrowserTabData> recentlyClosedTabs = [];
+  final List<_ParseHistoryEntry> parseHistory = [];
   final Map<String, VideoResource> captured = {};
   final Map<String, InAppWebViewController> tabControllers = {};
   late final VideoSnifferController snifferController;
@@ -60,9 +60,8 @@ class _BrowserScreenState extends State<BrowserScreen>
   bool canGoBack = false;
   bool canGoForward = false;
   bool deepCapture = false;
-  bool directParsing = false;
-  String directParseUrl = '';
   bool showStartPage = true;
+  bool showSmartParsePage = false;
   int progress = 0;
   int handledBrowserRequestId = 0;
   int activeBrowserTab = 0;
@@ -73,7 +72,6 @@ class _BrowserScreenState extends State<BrowserScreen>
   bool creatingBrowserTab = false;
   bool browserDataLoaded = false;
   String detectionNotice = '';
-  String directParseNotice = '';
 
   @override
   bool get wantKeepAlive => true;
@@ -135,6 +133,15 @@ class _BrowserScreenState extends State<BrowserScreen>
       });
     }
 
+    if (showSmartParsePage) {
+      return _SmartParsePage(
+        onBack: () => setState(() => showSmartParsePage = false),
+        onParse: _parseStandaloneUrl,
+        onShowResources: _showStandaloneResources,
+        history: parseHistory,
+      );
+    }
+
     return Scaffold(
       appBar: showStartPage ? _startAppBar() : _browserAppBar(),
       body: SafeArea(
@@ -144,14 +151,13 @@ class _BrowserScreenState extends State<BrowserScreen>
               child: showStartPage
                   ? _StartPage(
                       onOpen: _loadUrl,
-                      onParseClipboard: _parseClipboardUrl,
-                      onFavorites: () => _showSavedPages(0),
-                      onHistory: () => _showSavedPages(1),
-                      onDownloadHistory: () =>
-                          _handleMenu('downloadHistory'),
-                      onSettings: _showSettings,
-                      parsing: directParsing,
-                      notice: directParseNotice,
+                      tabs: browserTabs,
+                      activeTab: activeBrowserTab,
+                      recentlyClosed: recentlyClosedTabs,
+                      onActivateTab: _activateBrowserTab,
+                      onCloseTab: _closeBrowserTab,
+                      onNewTab: _newBrowserTab,
+                      onRestoreRecent: _restoreRecentlyClosedTab,
                     )
                   : _browserBody(),
             ),
@@ -168,8 +174,17 @@ class _BrowserScreenState extends State<BrowserScreen>
       titleTextStyle: Theme.of(context).textTheme.displaySmall,
       title: const Text('浏览器'),
       actions: [
+        IconButton(
+          tooltip: '智能解析',
+          onPressed: _openSmartParsePage,
+          icon: const Icon(CupertinoIcons.link),
+        ),
+        _TabCountButton(
+          count: browserTabs.length,
+          onTap: _showBrowserTabs,
+        ),
         _browserMenu(startPage: true),
-        const SizedBox(width: 10),
+        const SizedBox(width: 8),
       ],
     );
   }
@@ -213,9 +228,9 @@ class _BrowserScreenState extends State<BrowserScreen>
       itemBuilder: (context) => startPage
           ? [
               _browserMenuItem(
-                'parsePaste',
-                Icons.auto_awesome_rounded,
-                '粘贴网址直接解析',
+                'smartParse',
+                CupertinoIcons.link,
+                '智能解析',
               ),
               _browserMenuItem(
                 'paste',
@@ -271,9 +286,9 @@ class _BrowserScreenState extends State<BrowserScreen>
                 '下载记录',
               ),
               _browserMenuItem(
-                'parsePaste',
-                Icons.auto_awesome_rounded,
-                '粘贴网址直接解析',
+                'smartParse',
+                CupertinoIcons.link,
+                '智能解析',
               ),
               _browserMenuItem(
                 'copy',
@@ -982,8 +997,8 @@ class _BrowserScreenState extends State<BrowserScreen>
             builder: (_) => const DownloadHistoryScreen(),
           ),
         );
-      case 'parsePaste':
-        await _parseClipboardUrl();
+      case 'smartParse':
+        _openSmartParsePage();
       case 'paste':
         final data = await Clipboard.getData(Clipboard.kTextPlain);
         final text = data?.text?.trim() ?? '';
@@ -995,56 +1010,30 @@ class _BrowserScreenState extends State<BrowserScreen>
     }
   }
 
-  Future<void> _parseClipboardUrl() async {
-    if (directParsing) return;
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    final raw = data?.text?.trim() ?? '';
-    if (raw.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('剪贴板中没有网址')),
-        );
-      }
-      return;
-    }
-    final url = _normalize(raw);
+  void _openSmartParsePage() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => showSmartParsePage = true);
+  }
+
+  Future<List<VideoResource>> _parseStandaloneUrl(String value) {
+    return _parseWithHeadlessWebView(_normalize(value));
+  }
+
+  Future<void> _showStandaloneResources(
+    List<VideoResource> resources,
+  ) async {
+    if (resources.isEmpty || !mounted) return;
     setState(() {
-      directParsing = true;
-      directParseUrl = '';
-      directParseNotice = '';
+      captured
+        ..clear()
+        ..addEntries(
+          resources.map(
+            (resource) =>
+                MapEntry(sniffer.dedupeKey(resource.url), resource),
+          ),
+        );
     });
-    try {
-      final resources = await _parseWithHeadlessWebView(url);
-      if (!mounted) return;
-      if (resources.isNotEmpty) {
-        setState(() {
-          directParsing = false;
-          captured
-            ..clear()
-            ..addEntries(
-              resources.map(
-                (resource) =>
-                    MapEntry(sniffer.dedupeKey(resource.url), resource),
-              ),
-            );
-        });
-        await _showDownloadPicker(title: resources.first.title);
-        return;
-      }
-      setState(() {
-        directParsing = false;
-        directParseUrl = '';
-        directParseNotice = '未解析到视频，请检查网址或进入网页后重试';
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        directParsing = false;
-        directParseUrl = '';
-        directParseNotice = '解析失败，请检查网络或网址后重试';
-      });
-      debugPrint('[browser] direct parse failed: $error');
-    }
+    await _showDownloadPicker(title: resources.first.title);
   }
 
   Future<List<VideoResource>> _parseWithHeadlessWebView(String url) async {
@@ -1523,6 +1512,16 @@ class _BrowserScreenState extends State<BrowserScreen>
     if (browserDataLoaded) unawaited(_saveBrowserData());
   }
 
+  void _restoreRecentlyClosedTab() {
+    if (recentlyClosedTabs.isEmpty) return;
+    final tab = recentlyClosedTabs.removeAt(0);
+    setState(() {
+      browserTabs.add(tab);
+      activeBrowserTab = browserTabs.length - 1;
+    });
+    _activateBrowserTab(activeBrowserTab);
+  }
+
   bool _shouldBlockRequest(String value) {
     if (!adBlockEnabled) return false;
     final host = Uri.tryParse(value)?.host.toLowerCase() ?? '';
@@ -1988,23 +1987,23 @@ class _BrowserTabData {
 class _StartPage extends StatefulWidget {
   const _StartPage({
     required this.onOpen,
-    required this.onParseClipboard,
-    required this.onFavorites,
-    required this.onHistory,
-    required this.onDownloadHistory,
-    required this.onSettings,
-    required this.parsing,
-    required this.notice,
+    required this.tabs,
+    required this.activeTab,
+    required this.recentlyClosed,
+    required this.onActivateTab,
+    required this.onCloseTab,
+    required this.onNewTab,
+    required this.onRestoreRecent,
   });
 
   final ValueChanged<String> onOpen;
-  final VoidCallback onParseClipboard;
-  final VoidCallback onFavorites;
-  final VoidCallback onHistory;
-  final VoidCallback onDownloadHistory;
-  final VoidCallback onSettings;
-  final bool parsing;
-  final String notice;
+  final List<_BrowserTabData> tabs;
+  final int activeTab;
+  final List<_BrowserTabData> recentlyClosed;
+  final ValueChanged<int> onActivateTab;
+  final ValueChanged<int> onCloseTab;
+  final VoidCallback onNewTab;
+  final VoidCallback onRestoreRecent;
 
   @override
   State<_StartPage> createState() => _StartPageState();
@@ -2021,7 +2020,6 @@ class _StartPageState extends State<_StartPage> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return ListView(
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: const EdgeInsets.fromLTRB(24, 6, 24, 42),
@@ -2040,272 +2038,263 @@ class _StartPageState extends State<_StartPage> {
           ),
           onSubmitted: widget.onOpen,
         ),
-        const SizedBox(height: 22),
-        _ParseHero(
-          parsing: widget.parsing,
-          onTap: widget.onParseClipboard,
-        ),
-        if (widget.notice.isNotEmpty) ...[
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-            decoration: BoxDecoration(
-              color: scheme.surface,
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.info_outline_rounded,
-                  size: 17,
-                  color: scheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    widget.notice,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
         const SizedBox(height: 34),
-        const _SectionTitle(title: '热门平台'),
-        const SizedBox(height: 14),
-        GridView.count(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: 4,
-          mainAxisSpacing: 14,
-          crossAxisSpacing: 14,
-          childAspectRatio: 0.9,
-          children: [
-            _SiteShortcut(label: 'Facebook', color: const Color(0xff1877f2), text: 'f', url: 'https://www.facebook.com', onOpen: widget.onOpen),
-            _SiteShortcut(label: 'Instagram', color: const Color(0xffe4405f), text: '◎', url: 'https://www.instagram.com', onOpen: widget.onOpen),
-            _SiteShortcut(label: 'Vimeo', color: const Color(0xff1ab7ea), text: 'v', url: 'https://vimeo.com', onOpen: widget.onOpen),
-            _SiteShortcut(label: 'Dailymotion', color: const Color(0xff00aaff), text: 'd', url: 'https://www.dailymotion.com', onOpen: widget.onOpen),
-            _SiteShortcut(label: 'Twitter', color: const Color(0xff1da1f2), text: 't', url: 'https://twitter.com', onOpen: widget.onOpen),
-            _SiteShortcut(label: 'TikTok', color: Colors.black, text: '♪', url: 'https://www.tiktok.com', onOpen: widget.onOpen),
-            _SiteShortcut(label: 'YouTube', color: const Color(0xffff0033), text: '▶', url: 'https://www.youtube.com', onOpen: widget.onOpen),
-            _SiteShortcut(label: '更多', color: const Color(0xff7b8190), text: '•••', url: 'https://www.google.com', onOpen: widget.onOpen),
-          ],
-        ),
-        const SizedBox(height: 34),
-        const _SectionTitle(title: '快捷工具'),
-        const SizedBox(height: 14),
         Row(
           children: [
-            Expanded(
-              child: _QuickTool(
-                icon: CupertinoIcons.bookmark,
-                label: '收藏夹',
-                onTap: widget.onFavorites,
+            const Expanded(
+              child: Text(
+                '标签页',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.3,
+                ),
               ),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _QuickTool(
-                icon: CupertinoIcons.time,
-                label: '历史记录',
-                onTap: widget.onHistory,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _QuickTool(
-                icon: CupertinoIcons.arrow_down_circle,
-                label: '下载记录',
-                onTap: widget.onDownloadHistory,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _QuickTool(
-                icon: CupertinoIcons.settings,
-                label: '设置',
-                onTap: widget.onSettings,
-              ),
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              minimumSize: const Size(44, 44),
+              onPressed: widget.onNewTab,
+              child: const Text('新建'),
             ),
           ],
         ),
-        const SizedBox(height: 24),
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: scheme.surface,
-            borderRadius: BorderRadius.circular(24),
+        const SizedBox(height: 10),
+        for (var index = 0; index < widget.tabs.length; index++) ...[
+          _BrowserHomeTabCard(
+            tab: widget.tabs[index],
+            selected: index == widget.activeTab,
+            canClose: widget.tabs.length > 1,
+            onTap: () => widget.onActivateTab(index),
+            onClose: () => widget.onCloseTab(index),
           ),
-          child: Row(
-            children: [
-              Container(
-                width: 58,
-                height: 58,
-                decoration: BoxDecoration(
-                  color: scheme.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Icon(
-                  CupertinoIcons.bolt_fill,
-                  color: scheme.primary,
-                  size: 32,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '三步下载视频',
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 17,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      '复制视频网址 · 智能解析 · 选择清晰度下载',
-                      style: TextStyle(
-                        color: scheme.onSurfaceVariant,
-                        height: 1.35,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(
-                CupertinoIcons.chevron_forward,
-                color: scheme.onSurfaceVariant,
-                size: 16,
-              ),
-            ],
-          ),
+          if (index < widget.tabs.length - 1) const SizedBox(height: 12),
+        ],
+        const SizedBox(height: 16),
+        _RecentlyClosedCard(
+          tab: widget.recentlyClosed.isEmpty
+              ? null
+              : widget.recentlyClosed.first,
+          onTap: widget.recentlyClosed.isEmpty
+              ? null
+              : widget.onRestoreRecent,
         ),
       ],
     );
   }
 }
 
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({required this.title});
+class _TabCountButton extends StatelessWidget {
+  const _TabCountButton({required this.count, required this.onTap});
 
-  final String title;
+  final int count;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      title,
-      style: TextStyle(
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-        fontSize: 16,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.1,
+    return Semantics(
+      button: true,
+      label: '标签页，共 $count 个',
+      child: IconButton(
+        tooltip: '标签页',
+        onPressed: onTap,
+        icon: Stack(
+          alignment: Alignment.center,
+          children: [
+            const Icon(CupertinoIcons.square_on_square, size: 25),
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '$count',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _ParseHero extends StatelessWidget {
-  const _ParseHero({required this.parsing, required this.onTap});
+class _BrowserHomeTabCard extends StatelessWidget {
+  const _BrowserHomeTabCard({
+    required this.tab,
+    required this.selected,
+    required this.canClose,
+    required this.onTap,
+    required this.onClose,
+  });
 
-  final bool parsing;
+  final _BrowserTabData tab;
+  final bool selected;
+  final bool canClose;
   final VoidCallback onTap;
+  final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return ApplePressable(
-      onPressed: parsing ? null : onTap,
-      borderRadius: BorderRadius.circular(24),
-      child: Container(
-        height: 94,
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(24),
-        ),
+    final host = Uri.tryParse(tab.url)?.host;
+    final subtitle = tab.url == 'about:blank'
+        ? '搜索或输入网址'
+        : (host == null || host.isEmpty ? tab.url : host);
+    final title = tab.url == 'about:blank'
+        ? '新标签页'
+        : (tab.title.trim().isEmpty ? '上次浏览' : tab.title);
+    return Material(
+      color: scheme.surface,
+      shape: RoundedRectangleBorder(
+        side: selected
+            ? BorderSide(color: scheme.primary, width: 1.5)
+            : BorderSide.none,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              children: [
-                Container(
-                  width: 54,
-                  height: 54,
-                  decoration: BoxDecoration(
-                    color: scheme.onSurface.withValues(alpha: 0.055),
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: Center(
-                    child: parsing
-                        ? SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.5,
-                              color: scheme.primary,
-                            ),
-                          )
-                        : Icon(
-                            CupertinoIcons.link,
-                            color: scheme.primary,
-                            size: 29,
-                          ),
-                  ),
+          padding: const EdgeInsets.all(18),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: SizedBox(
+                  width: 106,
+                  height: 78,
+                  child: tab.thumbnail == null
+                      ? _TabPreviewPlaceholder(active: selected)
+                      : Image.memory(tab.thumbnail!, fit: BoxFit.cover),
                 ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        parsing ? '正在智能解析' : '智能解析',
-                        style: TextStyle(
-                          color: scheme.onSurface,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        ),
+              ),
+              const SizedBox(width: 18),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.25,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        parsing ? '正在读取视频信息…' : '粘贴网址，自动解析视频',
-                        style: TextStyle(
-                          color: scheme.onSurfaceVariant,
-                          fontSize: 13,
-                        ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: scheme.onSurfaceVariant,
+                        fontSize: 14,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                Icon(
-                  CupertinoIcons.chevron_forward,
-                  color: scheme.onSurfaceVariant,
-                  size: 18,
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.filledTonal(
+                tooltip: canClose ? '关闭标签页' : '至少保留一个标签页',
+                onPressed: canClose ? onClose : null,
+                icon: const Icon(CupertinoIcons.xmark, size: 18),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _QuickTool extends StatelessWidget {
-  const _QuickTool({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
+class _TabPreviewPlaceholder extends StatelessWidget {
+  const _TabPreviewPlaceholder({required this.active});
 
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                for (var index = 0; index < 3; index++) ...[
+                  Container(
+                    width: 5,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: index == 0 && active
+                          ? scheme.primary
+                          : scheme.outlineVariant,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  if (index < 2) const SizedBox(width: 4),
+                ],
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Container(
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: scheme.surface,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 9),
+            Container(
+              width: double.infinity,
+              height: 25,
+              decoration: BoxDecoration(
+                color: scheme.primary.withValues(alpha: 0.09),
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+            const SizedBox(height: 7),
+            Row(
+              children: [
+                Expanded(child: _previewLine(context)),
+                const SizedBox(width: 6),
+                Expanded(child: _previewLine(context)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _previewLine(BuildContext context) {
+    return Container(
+      height: 5,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.outlineVariant,
+        borderRadius: BorderRadius.circular(3),
+      ),
+    );
+  }
+}
+
+class _RecentlyClosedCard extends StatelessWidget {
+  const _RecentlyClosedCard({required this.tab, required this.onTap});
+
+  final _BrowserTabData? tab;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -2316,96 +2305,46 @@ class _QuickTool extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(24),
         onTap: onTap,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 88),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
-            child: Column(
-              children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: scheme.primary.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Icon(icon, color: scheme.primary, size: 21),
-                ),
-                const SizedBox(height: 7),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SiteShortcut extends StatelessWidget {
-  const _SiteShortcut({
-    required this.label,
-    required this.color,
-    required this.text,
-    required this.url,
-    required this.onOpen,
-  });
-
-  final String label;
-  final Color color;
-  final String text;
-  final String url;
-  final ValueChanged<String> onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Theme.of(context).colorScheme.surface,
-      borderRadius: BorderRadius.circular(24),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(24),
-        onTap: () => onOpen(url),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+          child: Row(
             children: [
-              Container(
-                width: 43,
-                height: 43,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: color,
-                  borderRadius: BorderRadius.circular(13),
-                ),
-                child: Text(
-                  text,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 23,
-                    height: 1,
-                    fontWeight: FontWeight.w900,
-                  ),
+              Icon(
+                CupertinoIcons.clock_arrow_circlepath,
+                color: scheme.onSurfaceVariant,
+                size: 31,
+              ),
+              const SizedBox(width: 15),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '最近关闭',
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      tab == null ? '暂无最近关闭的标签页' : tab!.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: scheme.onSurfaceVariant,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w600,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+              Icon(
+                CupertinoIcons.chevron_forward,
+                color: onTap == null
+                    ? scheme.outlineVariant
+                    : scheme.onSurfaceVariant,
+                size: 17,
               ),
             ],
           ),
@@ -2413,6 +2352,528 @@ class _SiteShortcut extends StatelessWidget {
       ),
     );
   }
+}
+
+class _SmartParsePage extends StatefulWidget {
+  const _SmartParsePage({
+    required this.onBack,
+    required this.onParse,
+    required this.onShowResources,
+    required this.history,
+  });
+
+  final VoidCallback onBack;
+  final Future<List<VideoResource>> Function(String) onParse;
+  final Future<void> Function(List<VideoResource>) onShowResources;
+  final List<_ParseHistoryEntry> history;
+
+  @override
+  State<_SmartParsePage> createState() => _SmartParsePageState();
+}
+
+class _SmartParsePageState extends State<_SmartParsePage> {
+  final urlController = TextEditingController();
+  final scrollController = ScrollController();
+  List<VideoResource> resources = const [];
+  bool parsing = false;
+  bool showAllHistory = false;
+  String notice = '';
+
+  @override
+  void dispose() {
+    urlController.dispose();
+    scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _paste() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (!mounted) return;
+    final value = data?.text?.trim() ?? '';
+    if (value.isEmpty) {
+      setState(() => notice = '剪贴板中没有网址');
+      return;
+    }
+    setState(() {
+      urlController.text = value;
+      urlController.selection = TextSelection.collapsed(offset: value.length);
+      notice = '';
+    });
+  }
+
+  Future<void> _parse() async {
+    final value = urlController.text.trim();
+    if (value.isEmpty || parsing) {
+      if (value.isEmpty) setState(() => notice = '请先输入视频页面链接');
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      parsing = true;
+      notice = '';
+      resources = const [];
+    });
+    try {
+      final result = await widget.onParse(value);
+      if (!mounted) return;
+      setState(() {
+        parsing = false;
+        resources = result;
+        notice = result.isEmpty ? '未解析到视频，请检查链接后重试' : '';
+        if (result.isNotEmpty) {
+          widget.history.removeWhere((entry) => entry.url == value);
+          widget.history.insert(
+            0,
+            _ParseHistoryEntry(
+              url: value,
+              title: result.first.title,
+              resources: result,
+            ),
+          );
+          if (widget.history.length > 10) widget.history.removeLast();
+        }
+      });
+      if (result.isNotEmpty) {
+        await widget.onShowResources(result);
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        parsing = false;
+        notice = '解析失败，请检查网络或链接后重试';
+      });
+      debugPrint('[browser] standalone parse failed: $error');
+    }
+  }
+
+  void _scrollToRecent() {
+    if (!scrollController.hasClients) return;
+    scrollController.animateTo(
+      scrollController.position.maxScrollExtent,
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final visibleHistory = showAllHistory
+        ? widget.history
+        : widget.history.take(2).toList(growable: false);
+    return Scaffold(
+      appBar: AppBar(
+        centerTitle: true,
+        leading: IconButton(
+          tooltip: '返回浏览器',
+          onPressed: widget.onBack,
+          icon: const Icon(CupertinoIcons.back),
+        ),
+        title: const Text('智能解析'),
+        actions: [
+          IconButton(
+            tooltip: '最近解析',
+            onPressed: _scrollToRecent,
+            icon: const Icon(CupertinoIcons.clock),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: ListView(
+        controller: scrollController,
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 112),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: scheme.surface,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '粘贴视频页面链接',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: urlController,
+                  keyboardType: TextInputType.url,
+                  textInputAction: TextInputAction.go,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  decoration: InputDecoration(
+                    hintText: 'https://example.com/video',
+                    suffixIcon: CupertinoButton(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      onPressed: _paste,
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(CupertinoIcons.doc_on_clipboard, size: 19),
+                          SizedBox(width: 5),
+                          Text('粘贴'),
+                        ],
+                      ),
+                    ),
+                  ),
+                  onSubmitted: (_) => _parse(),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: FilledButton.icon(
+                    onPressed: parsing ? null : _parse,
+                    icon: parsing
+                        ? const SizedBox(
+                            width: 19,
+                            height: 19,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(CupertinoIcons.link),
+                    label: Text(parsing ? '正在解析' : '开始解析'),
+                  ),
+                ),
+                const SizedBox(height: 13),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      CupertinoIcons.shield,
+                      color: scheme.onSurfaceVariant,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        '链接仅用于本机解析，不会上传',
+                        style: TextStyle(
+                          color: scheme.onSurfaceVariant,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (notice.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              notice,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: scheme.error,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+          const SizedBox(height: 28),
+          const _ParseSectionTitle(title: '解析结果'),
+          const SizedBox(height: 12),
+          _ParseResultCard(
+            parsing: parsing,
+            resources: resources,
+            onTap: resources.isEmpty
+                ? null
+                : () => widget.onShowResources(resources),
+          ),
+          const SizedBox(height: 28),
+          _ParseSectionTitle(
+            title: '最近解析',
+            action: widget.history.length > 2
+                ? (showAllHistory ? '收起' : '全部')
+                : null,
+            onAction: () =>
+                setState(() => showAllHistory = !showAllHistory),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(
+              color: scheme.surface,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: widget.history.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Text(
+                      '暂无最近解析',
+                      style: TextStyle(color: scheme.onSurfaceVariant),
+                    ),
+                  )
+                : Column(
+                    children: [
+                      for (var index = 0;
+                          index < visibleHistory.length;
+                          index++) ...[
+                        _ParseHistoryTile(
+                          entry: visibleHistory[index],
+                          onTap: () => widget.onShowResources(
+                            visibleHistory[index].resources,
+                          ),
+                        ),
+                        if (index < visibleHistory.length - 1)
+                          Divider(
+                            height: 0.5,
+                            thickness: 0.5,
+                            indent: 92,
+                            color: scheme.outlineVariant,
+                          ),
+                      ],
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ParseSectionTitle extends StatelessWidget {
+  const _ParseSectionTitle({
+    required this.title,
+    this.action,
+    this.onAction,
+  });
+
+  final String title;
+  final String? action;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 21,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.3,
+            ),
+          ),
+        ),
+        if (action != null)
+          CupertinoButton(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            minimumSize: const Size(44, 44),
+            onPressed: onAction,
+            child: Text(
+              action!,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ParseResultCard extends StatelessWidget {
+  const _ParseResultCard({
+    required this.parsing,
+    required this.resources,
+    required this.onTap,
+  });
+
+  final bool parsing;
+  final List<VideoResource> resources;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    if (resources.isNotEmpty) {
+      final resource = resources.first;
+      return Material(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(24),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(24),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Row(
+              children: [
+                Container(
+                  width: 62,
+                  height: 62,
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(
+                    CupertinoIcons.play_rectangle_fill,
+                    color: scheme.primary,
+                    size: 29,
+                  ),
+                ),
+                const SizedBox(width: 15),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        resource.title.trim().isEmpty
+                            ? '已解析视频'
+                            : resource.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${resources.length} 个可下载资源 · ${_resourceMetadata(resource)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: scheme.onSurfaceVariant,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(CupertinoIcons.chevron_forward, size: 17),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    return Container(
+      constraints: const BoxConstraints(minHeight: 220),
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 76,
+            height: 76,
+            decoration: BoxDecoration(
+              color: scheme.primary.withValues(alpha: 0.09),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: parsing
+                  ? CircularProgressIndicator(color: scheme.primary)
+                  : Icon(
+                      CupertinoIcons.link,
+                      color: scheme.primary,
+                      size: 38,
+                    ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            parsing ? '正在解析' : '等待解析',
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            parsing
+                ? '正在读取网页中的视频信息…'
+                : '粘贴视频页面链接后，清晰度、时长和大小会显示在这里',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: scheme.onSurfaceVariant,
+              fontSize: 13,
+              height: 1.45,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ParseHistoryEntry {
+  const _ParseHistoryEntry({
+    required this.url,
+    required this.title,
+    required this.resources,
+  });
+
+  final String url;
+  final String title;
+  final List<VideoResource> resources;
+}
+
+class _ParseHistoryTile extends StatelessWidget {
+  const _ParseHistoryTile({required this.entry, required this.onTap});
+
+  final _ParseHistoryEntry entry;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final resource = entry.resources.first;
+    return ListTile(
+      onTap: onTap,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+      leading: Container(
+        width: 62,
+        height: 52,
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(
+          CupertinoIcons.play_fill,
+          color: scheme.onSurfaceVariant,
+          size: 20,
+        ),
+      ),
+      title: Text(
+        entry.title.trim().isEmpty ? '已解析视频' : entry.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        _resourceMetadata(resource),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: const Icon(CupertinoIcons.chevron_forward, size: 17),
+    );
+  }
+}
+
+String _resourceMetadata(VideoResource resource) {
+  final quality = _displayQuality(resource);
+  final size = resource.size.trim().isEmpty ? '大小未知' : resource.size;
+  final duration = resource.duration > Duration.zero
+      ? _formatVideoDuration(resource.duration)
+      : '时长未知';
+  return '$quality · $duration · $size';
 }
 
 class _AddressBar extends StatelessWidget {
