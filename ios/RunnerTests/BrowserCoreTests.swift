@@ -70,7 +70,10 @@ final class BrowserCoreTests: XCTestCase {
 
   func testManagerLimitsActiveWebViews() async {
     await MainActor.run {
-      let manager = BrowserTabManager(maximumActiveWebViews: 3)
+      let manager = BrowserTabManager(
+        maximumActiveWebViews: 3,
+        appliesContentRules: false
+      )
       for _ in 0..<7 {
         _ = manager.createTab()
       }
@@ -86,7 +89,7 @@ final class BrowserCoreTests: XCTestCase {
 
   func testClosingLastNormalTabCreatesBlankNormalTab() async {
     await MainActor.run {
-      let manager = BrowserTabManager()
+      let manager = BrowserTabManager(appliesContentRules: false)
       let normal = manager.createTab()
       _ = manager.createTab(isPrivate: true)
 
@@ -98,7 +101,7 @@ final class BrowserCoreTests: XCTestCase {
 
   func testPrivateTabUsesNonPersistentDataStore() async {
     await MainActor.run {
-      let manager = BrowserTabManager()
+      let manager = BrowserTabManager(appliesContentRules: false)
       let privateTab = manager.createTab(isPrivate: true)
 
       XCTAssertNotNil(privateTab.webView)
@@ -111,7 +114,7 @@ final class BrowserCoreTests: XCTestCase {
 
   func testTabReorderingAndClosingOthers() async {
     await MainActor.run {
-      let manager = BrowserTabManager()
+      let manager = BrowserTabManager(appliesContentRules: false)
       let first = manager.createTab()
       let second = manager.createTab()
       let third = manager.createTab()

@@ -10,11 +10,16 @@ final class BrowserTabManager {
   private(set) var selectedTabID: UUID?
 
   let maximumActiveWebViews: Int
+  private let appliesContentRules: Bool
   var onTabsChanged: (() -> Void)?
   var onSelectedTabChanged: ((BrowserTab) -> Void)?
 
-  init(maximumActiveWebViews: Int = defaultMaximumActiveWebViews) {
+  init(
+    maximumActiveWebViews: Int = defaultMaximumActiveWebViews,
+    appliesContentRules: Bool = true
+  ) {
     self.maximumActiveWebViews = max(1, maximumActiveWebViews)
+    self.appliesContentRules = appliesContentRules
   }
 
   var selectedTab: BrowserTab? {
@@ -187,10 +192,12 @@ final class BrowserTabManager {
 
     if let url = tab.url {
       Task {
-        await ContentBlockerManager.shared.apply(
-          to: webView,
-          for: url.host
-        )
+        if appliesContentRules {
+          await ContentBlockerManager.shared.apply(
+            to: webView,
+            for: url.host
+          )
+        }
         guard tab.webView === webView else { return }
         webView.load(URLRequest(url: url))
       }
