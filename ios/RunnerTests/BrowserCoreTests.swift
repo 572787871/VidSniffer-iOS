@@ -199,4 +199,51 @@ final class BrowserCoreTests: XCTestCase {
     XCTAssertEqual(restored?.tabs.count, 1)
     XCTAssertFalse(restored?.tabs.first?.isPrivate ?? true)
   }
+
+  func testDownloadRepositoryPersistsTaskAndPreferences() async throws {
+    let directory = try makeTemporaryDirectory()
+    let repository = DownloadRepository(
+      fileURL: directory.appendingPathComponent("tasks.json")
+    )
+    let url = try XCTUnwrap(URL(string: "https://example.com/video.mp4"))
+    var task = DownloadTaskModel(
+      url: url,
+      filename: "video.mp4",
+      expectedSize: 1_000
+    )
+    try await repository.upsert(task)
+    task.state = .paused
+    task.downloadedSize = 400
+    task.resumeData = Data([1, 2, 3])
+    try await repository.upsert(task)
+    var preferences = DownloadPreferences()
+    preferences.maximumConcurrentDownloads = 2
+    preferences.wifiOnly = true
+    try await repository.savePreferences(preferences)
+
+    let restoredTasks = try await repository.tasks()
+    let restoredPreferences = try await repository.preferences()
+
+    XCTAssertEqual(restoredTasks, [task])
+    XCTAssertEqual(restoredPreferences, preferences)
+  }
+
+  func testDownloadFilenameSanitizationPreventsPathTraversal() {
+    XCTAssertEqual(
+      DownloadDestinationManager.sanitizedFilename("../../bad:name.mp4"),
+      ".._.._bad_name.mp4"
+    )
+    XCTAssertEqual(
+      DownloadDestinationManager.sanitizedFilename("   "),
+      "下载文件"
+    )
+  }
+
+  func testDownloadTaskStateCapabilities() {
+    XCTAssertTrue(DownloadTaskState.downloading.canPause)
+    XCTAssertTrue(DownloadTaskState.paused.canResume)
+    XCTAssertTrue(DownloadTaskState.failed.canResume)
+    XCTAssertFalse(DownloadTaskState.completed.canPause)
+    XCTAssertFalse(DownloadTaskState.cancelled.canResume)
+  }
 }

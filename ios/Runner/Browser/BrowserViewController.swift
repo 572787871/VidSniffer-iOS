@@ -426,15 +426,6 @@ final class BrowserViewController: UIViewController {
   }
 
   private func configureDownloadCoordinator() {
-    downloadCoordinator.destinationProvider = { _, suggestedName in
-      let documents = FileManager.default.urls(
-        for: .documentDirectory,
-        in: .userDomainMask
-      ).first!
-      return documents.appendingPathComponent(
-        suggestedName.replacingOccurrences(of: "/", with: "_")
-      )
-    }
     downloadCoordinator.onFinished = { [weak self] url in
       self?.showNotice(
         title: "下载完成",
@@ -678,6 +669,12 @@ final class BrowserViewController: UIViewController {
         ) { [weak self] _ in
           self?.showBrowserLibrary(showHistory: true)
         },
+        UIAction(
+          title: "下载记录",
+          image: UIImage(systemName: "arrow.down.circle")
+        ) { [weak self] _ in
+          self?.showDownloads()
+        },
       ]),
       UIMenu(title: "网页显示", children: [
         UIAction(
@@ -848,6 +845,18 @@ final class BrowserViewController: UIViewController {
       controller?.dismiss(animated: true)
     }
     let navigation = UINavigationController(rootViewController: controller)
+    navigation.modalPresentationStyle = .pageSheet
+    if let sheet = navigation.sheetPresentationController {
+      sheet.detents = [.medium(), .large()]
+      sheet.prefersGrabberVisible = true
+    }
+    present(navigation, animated: true)
+  }
+
+  private func showDownloads() {
+    let controller = DownloadViewController()
+    let navigation = UINavigationController(rootViewController: controller)
+    navigation.navigationBar.prefersLargeTitles = true
     navigation.modalPresentationStyle = .pageSheet
     if let sheet = navigation.sheetPresentationController {
       sheet.detents = [.medium(), .large()]

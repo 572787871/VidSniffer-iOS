@@ -22,6 +22,13 @@
 		A0000000000000000000000D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000000D /* Assets.xcassets */; };
 		A0000000000000000000000E /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000000E /* LaunchScreen.storyboard */; };
 		A0000000000000000000000F /* BrowserCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000012 /* BrowserCoreTests.swift */; };
+		A00000000000000000000010 /* DownloadTaskModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000014 /* DownloadTaskModel.swift */; };
+		A00000000000000000000011 /* DownloadRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000015 /* DownloadRepository.swift */; };
+		A00000000000000000000012 /* BackgroundDownloadService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000016 /* BackgroundDownloadService.swift */; };
+		A00000000000000000000013 /* DownloadDestinationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000017 /* DownloadDestinationManager.swift */; };
+		A00000000000000000000014 /* DownloadNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000018 /* DownloadNotificationManager.swift */; };
+		A00000000000000000000015 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000019 /* DownloadManager.swift */; };
+		A00000000000000000000016 /* DownloadViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001A /* DownloadViewController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,6 +50,13 @@
 		B00000000000000000000011 /* Runner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Runner.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000012 /* BrowserCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserCoreTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000013 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B00000000000000000000014 /* DownloadTaskModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadTaskModel.swift; sourceTree = "<group>"; };
+		B00000000000000000000015 /* DownloadRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadRepository.swift; sourceTree = "<group>"; };
+		B00000000000000000000016 /* BackgroundDownloadService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundDownloadService.swift; sourceTree = "<group>"; };
+		B00000000000000000000017 /* DownloadDestinationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadDestinationManager.swift; sourceTree = "<group>"; };
+		B00000000000000000000018 /* DownloadNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadNotificationManager.swift; sourceTree = "<group>"; };
+		B00000000000000000000019 /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
+		B0000000000000000000001A /* DownloadViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadViewController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXContainerItemProxy section */
@@ -87,6 +101,7 @@
 			children = (
 				B00000000000000000000001 /* AppDelegate.swift */,
 				D00000000000000000000003 /* Browser */,
+				D00000000000000000000006 /* Download */,
 				B0000000000000000000000F /* Info.plist */,
 				B0000000000000000000000E /* LaunchScreen.storyboard */,
 				B0000000000000000000000D /* Assets.xcassets */,
@@ -127,6 +142,20 @@
 				B00000000000000000000012 /* BrowserCoreTests.swift */,
 			);
 			path = RunnerTests;
+			sourceTree = "<group>";
+		};
+		D00000000000000000000006 /* Download */ = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000014 /* DownloadTaskModel.swift */,
+				B00000000000000000000015 /* DownloadRepository.swift */,
+				B00000000000000000000016 /* BackgroundDownloadService.swift */,
+				B00000000000000000000017 /* DownloadDestinationManager.swift */,
+				B00000000000000000000018 /* DownloadNotificationManager.swift */,
+				B00000000000000000000019 /* DownloadManager.swift */,
+				B0000000000000000000001A /* DownloadViewController.swift */,
+			);
+			path = Download;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -234,6 +263,13 @@
 				A0000000000000000000000A /* BrowserSessionManager.swift in Sources */,
 				A0000000000000000000000B /* WebsiteDataManager.swift in Sources */,
 				A0000000000000000000000C /* BrowserDownloadCoordinator.swift in Sources */,
+				A00000000000000000000010 /* DownloadTaskModel.swift in Sources */,
+				A00000000000000000000011 /* DownloadRepository.swift in Sources */,
+				A00000000000000000000012 /* BackgroundDownloadService.swift in Sources */,
+				A00000000000000000000013 /* DownloadDestinationManager.swift in Sources */,
+				A00000000000000000000014 /* DownloadNotificationManager.swift in Sources */,
+				A00000000000000000000015 /* DownloadManager.swift in Sources */,
+				A00000000000000000000016 /* DownloadViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

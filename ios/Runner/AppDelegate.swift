@@ -25,4 +25,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
   func applicationWillTerminate(_ application: UIApplication) {
     // BrowserViewController excludes and destroys private tabs before persistence.
   }
+
+  func application(
+    _ application: UIApplication,
+    handleEventsForBackgroundURLSession identifier: String,
+    completionHandler: @escaping () -> Void
+  ) {
+    BackgroundDownloadService.shared.backgroundEventsCompletionHandler =
+      completionHandler
+  }
 }
