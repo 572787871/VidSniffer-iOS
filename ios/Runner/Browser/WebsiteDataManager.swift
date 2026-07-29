@@ -11,7 +11,7 @@ final class WebsiteDataManager {
     dataTypes: Set<String>? = nil
   ) async -> [WKWebsiteDataRecord] {
     let types = dataTypes ?? WKWebsiteDataStore.allWebsiteDataTypes()
-    await withCheckedContinuation { continuation in
+    return await withCheckedContinuation { continuation in
       WKWebsiteDataStore.default().fetchDataRecords(
         ofTypes: types
       ) { records in
