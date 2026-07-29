@@ -92,9 +92,9 @@ final class DownloadViewController: UIViewController {
         attributes: [.destructive]
       ) { [weak self] _ in
         guard let self else { return }
-        manager.tasks
+        self.manager.tasks
           .filter { [.failed, .cancelled].contains($0.state) }
-          .forEach { manager.removeRecord(id: $0.id) }
+          .forEach { self.manager.removeRecord(id: $0.id) }
       },
     ])
   }
