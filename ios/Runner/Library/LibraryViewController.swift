@@ -102,16 +102,22 @@ final class LibraryViewController: UIViewController {
     )
     tableView.allowsMultipleSelectionDuringEditing = true
 
-    collectionView.translatesAutoresizingMaskIntoConstraints = false
-    collectionView.dataSource = self
-    collectionView.delegate = self
-    collectionView.backgroundColor = .clear
-    collectionView.isHidden = true
-    collectionView.allowsMultipleSelection = true
-    collectionView.register(
-      LibraryGridCell.self,
-      forCellWithReuseIdentifier: LibraryGridCell.reuseIdentifier
-    )
+    let supportsGrid: Bool
+    if case .files = scope {
+      supportsGrid = true
+      collectionView.translatesAutoresizingMaskIntoConstraints = false
+      collectionView.dataSource = self
+      collectionView.delegate = self
+      collectionView.backgroundColor = .clear
+      collectionView.isHidden = true
+      collectionView.allowsMultipleSelection = true
+      collectionView.register(
+        LibraryGridCell.self,
+        forCellWithReuseIdentifier: LibraryGridCell.reuseIdentifier
+      )
+    } else {
+      supportsGrid = false
+    }
 
     emptyLabel.translatesAutoresizingMaskIntoConstraints = false
     emptyLabel.text = "暂无内容"
@@ -120,20 +126,27 @@ final class LibraryViewController: UIViewController {
     emptyLabel.adjustsFontForContentSizeCategory = true
 
     view.addSubview(tableView)
-    view.addSubview(collectionView)
+    if supportsGrid {
+      view.addSubview(collectionView)
+    }
     view.addSubview(emptyLabel)
-    NSLayoutConstraint.activate([
+    var constraints = [
       tableView.topAnchor.constraint(equalTo: view.topAnchor),
       tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-      collectionView.topAnchor.constraint(equalTo: view.topAnchor),
-      collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-      collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
       emptyLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
       emptyLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-    ])
+    ]
+    if supportsGrid {
+      constraints += [
+        collectionView.topAnchor.constraint(equalTo: view.topAnchor),
+        collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+        collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      ]
+    }
+    NSLayoutConstraint.activate(constraints)
     observer = NotificationCenter.default.addObserver(
       forName: .libraryDidChange,
       object: manager,
@@ -258,7 +271,9 @@ final class LibraryViewController: UIViewController {
     }
     emptyLabel.isHidden = !rows.isEmpty
     tableView.reloadData()
-    collectionView.reloadData()
+    if case .files = scope {
+      collectionView.reloadData()
+    }
   }
 
   private func openFiles(folderID: UUID?, title: String) {
