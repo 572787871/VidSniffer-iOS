@@ -91,11 +91,10 @@ extension BackgroundDownloadService:
     guard let id = id(for: downloadTask) else { return }
     let now = Date()
     let previous = measurements[id] ?? (now, totalBytesWritten - bytesWritten)
-    let elapsed = max(0.1, now.timeIntervalSince(previous.date))
+    let elapsed = now.timeIntervalSince(previous.date)
+    guard elapsed >= 0.2 else { return }
     let speed = Double(totalBytesWritten - previous.bytes) / elapsed
-    if elapsed >= 0.2 {
-      measurements[id] = (now, totalBytesWritten)
-    }
+    measurements[id] = (now, totalBytesWritten)
     onProgress?(
       id,
       totalBytesWritten,
@@ -110,6 +109,7 @@ extension BackgroundDownloadService:
     didFinishDownloadingTo location: URL
   ) {
     guard let id = id(for: downloadTask) else { return }
+    measurements.removeValue(forKey: id)
     let stagingDirectory = FileManager.default.temporaryDirectory
       .appendingPathComponent("CompletedDownloads", isDirectory: true)
     do {
@@ -132,6 +132,7 @@ extension BackgroundDownloadService:
     didCompleteWithError error: Error?
   ) {
     guard let error, let id = id(for: task) else { return }
+    measurements.removeValue(forKey: id)
     let data = (error as NSError).userInfo[
       NSURLSessionDownloadTaskResumeData
     ] as? Data
