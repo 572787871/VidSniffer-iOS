@@ -177,7 +177,7 @@ jobs:
           /usr/libexec/PlistBuddy \
             -c "Print :CFBundleIcons" \
             "$APP_PATH/Info.plist" >/dev/null
-          lipo -verify_arch arm64 "$APP_PATH/Runner"
+          lipo "$APP_PATH/Runner" -verify_arch arm64
           if find "$APP_PATH" -type d -name _CodeSignature | grep -q .; then
             echo "Unsigned artifact unexpectedly contains a signature" >&2
             exit 1
