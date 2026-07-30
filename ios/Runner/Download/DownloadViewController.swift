@@ -28,12 +28,14 @@ final class DownloadViewController: UIViewController {
     view.backgroundColor = .systemGroupedBackground
     title = "下载中"
     navigationItem.largeTitleDisplayMode = .always
-    navigationItem.leftBarButtonItem = UIBarButtonItem(
-      systemItem: .close,
-      primaryAction: UIAction { [weak self] _ in
-        self?.dismiss(animated: true)
-      }
-    )
+    if navigationController?.presentingViewController != nil {
+      navigationItem.leftBarButtonItem = UIBarButtonItem(
+        systemItem: .close,
+        primaryAction: UIAction { [weak self] _ in
+          self?.dismiss(animated: true)
+        }
+      )
+    }
     navigationItem.rightBarButtonItem = UIBarButtonItem(
       image: UIImage(systemName: "ellipsis.circle"),
       menu: makeMenu()

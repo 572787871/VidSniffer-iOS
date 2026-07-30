@@ -75,9 +75,6 @@ final class BrowserViewController: UIViewController {
   private let contentView = UIView()
   private let homeView = BrowserHomeView()
   private let errorView = BrowserErrorView()
-  private let tabCountButton = UIButton(type: .system)
-  private let privateBadge = UILabel()
-  private let moreButton = UIButton(type: .system)
   private let findBar = BrowserFindBar()
   private let refreshControl = UIRefreshControl()
   private let downloadCoordinator = BrowserDownloadCoordinator()
@@ -135,31 +132,6 @@ final class BrowserViewController: UIViewController {
   private func configureView() {
     view.backgroundColor = .systemGroupedBackground
 
-    tabCountButton.translatesAutoresizingMaskIntoConstraints = false
-    tabCountButton.titleLabel?.font = .monospacedDigitSystemFont(
-      ofSize: 16,
-      weight: .semibold
-    )
-    tabCountButton.setTitleColor(.label, for: .normal)
-    tabCountButton.backgroundColor = .secondarySystemGroupedBackground
-    tabCountButton.layer.cornerRadius = 12
-    tabCountButton.layer.cornerCurve = .continuous
-    tabCountButton.accessibilityLabel = "打开标签页"
-    tabCountButton.accessibilityIdentifier = "browser.tabCount"
-
-    privateBadge.translatesAutoresizingMaskIntoConstraints = false
-    privateBadge.text = "无痕"
-    privateBadge.textColor = .systemPurple
-    privateBadge.font = .preferredFont(forTextStyle: .caption1)
-    privateBadge.isHidden = true
-
-    moreButton.translatesAutoresizingMaskIntoConstraints = false
-    moreButton.setImage(UIImage(systemName: "ellipsis.circle"), for: .normal)
-    moreButton.tintColor = .label
-    moreButton.showsMenuAsPrimaryAction = true
-    moreButton.accessibilityLabel = "更多"
-    moreButton.accessibilityIdentifier = "browser.more"
-
     contentView.translatesAutoresizingMaskIntoConstraints = false
     contentView.backgroundColor = .systemBackground
     contentView.layer.cornerRadius = 16
@@ -172,9 +144,6 @@ final class BrowserViewController: UIViewController {
     findBar.translatesAutoresizingMaskIntoConstraints = false
     findBar.isHidden = true
 
-    view.addSubview(tabCountButton)
-    view.addSubview(privateBadge)
-    view.addSubview(moreButton)
     view.addSubview(addressBar)
     view.addSubview(contentView)
     view.addSubview(findBar)
@@ -183,31 +152,9 @@ final class BrowserViewController: UIViewController {
     contentView.addSubview(errorView)
 
     NSLayoutConstraint.activate([
-      tabCountButton.topAnchor.constraint(
+      addressBar.topAnchor.constraint(
         equalTo: view.safeAreaLayoutGuide.topAnchor,
         constant: 6
-      ),
-      tabCountButton.leadingAnchor.constraint(
-        equalTo: view.leadingAnchor,
-        constant: 16
-      ),
-      tabCountButton.widthAnchor.constraint(equalToConstant: 46),
-      tabCountButton.heightAnchor.constraint(equalToConstant: 34),
-      privateBadge.leadingAnchor.constraint(
-        equalTo: tabCountButton.trailingAnchor,
-        constant: 10
-      ),
-      privateBadge.centerYAnchor.constraint(equalTo: tabCountButton.centerYAnchor),
-      moreButton.trailingAnchor.constraint(
-        equalTo: view.trailingAnchor,
-        constant: -16
-      ),
-      moreButton.centerYAnchor.constraint(equalTo: tabCountButton.centerYAnchor),
-      moreButton.widthAnchor.constraint(equalToConstant: 44),
-      moreButton.heightAnchor.constraint(equalToConstant: 44),
-      addressBar.topAnchor.constraint(
-        equalTo: tabCountButton.bottomAnchor,
-        constant: 8
       ),
       addressBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
       addressBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
@@ -244,10 +191,6 @@ final class BrowserViewController: UIViewController {
       self?.refreshChrome()
     }
 
-    tabCountButton.addAction(UIAction { [weak self] _ in
-      self?.showTabs()
-    }, for: .touchUpInside)
-
     addressBar.onSubmit = { [weak self] value in
       self?.navigate(to: value)
     }
@@ -270,6 +213,7 @@ final class BrowserViewController: UIViewController {
         webView.reload()
       }
     }
+    addressBar.onTabs = { [weak self] in self?.showTabs() }
 
     toolbar.onBack = { [weak self] in self?.activeWebView?.goBack() }
     toolbar.onForward = { [weak self] in self?.activeWebView?.goForward() }
@@ -568,9 +512,8 @@ final class BrowserViewController: UIViewController {
       canGoForward: tab.canGoForward,
       tabCount: tabManager.tabs.count
     )
-    tabCountButton.setTitle(String(tabManager.tabs.count), for: .normal)
-    privateBadge.isHidden = !tab.isPrivate
-    moreButton.menu = makePageMenu()
+    addressBar.updateTabCount(tabManager.tabs.count, isPrivate: tab.isPrivate)
+    addressBar.pageMenu = makePageMenu()
     homeView.isHidden = tab.url != nil
   }
 

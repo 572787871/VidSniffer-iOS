@@ -17,6 +17,22 @@ final class BrowserUITests: XCTestCase {
     XCTAssertTrue(app.buttons["browser.tabCount"].exists)
     XCTAssertTrue(app.buttons["browser.more"].exists)
     XCTAssertTrue(app.buttons["browser.tabs"].exists)
+    XCTAssertTrue(app.tabBars.buttons["智能解析"].exists)
+    XCTAssertTrue(app.tabBars.buttons["下载中"].exists)
+    XCTAssertTrue(app.tabBars.buttons["文件"].exists)
+  }
+
+  func testParserAndFileManagerHavePrimaryEntrances() {
+    let parser = app.tabBars.buttons["智能解析"]
+    XCTAssertTrue(parser.waitForExistence(timeout: 5))
+    parser.tap()
+    XCTAssertTrue(app.textFields["parser.urlField"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["parser.parseButton"].exists)
+
+    let files = app.tabBars.buttons["文件"]
+    XCTAssertTrue(files.exists)
+    files.tap()
+    XCTAssertTrue(app.navigationBars["已下载"].waitForExistence(timeout: 5))
   }
 
   func testOpenTabSwitcherAndCreateTab() {

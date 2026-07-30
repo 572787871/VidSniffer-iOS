@@ -3,6 +3,19 @@ import WebKit
 @testable import Runner
 
 final class BrowserCoreTests: XCTestCase {
+  func testSmartParserAcceptsDirectMediaURL() async throws {
+    let parser = SmartMediaParser()
+    let url = try XCTUnwrap(
+      URL(string: "https://cdn.example.com/video/sample.mp4")
+    )
+
+    let results = try await parser.parse(url)
+
+    XCTAssertEqual(results.count, 1)
+    XCTAssertEqual(results.first?.url, url)
+    XCTAssertEqual(results.first?.format, "MP4")
+  }
+
   private func makeTemporaryDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory.appendingPathComponent(
       "BrowserCoreTests-\(UUID().uuidString)",

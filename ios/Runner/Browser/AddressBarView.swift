@@ -7,12 +7,24 @@ final class AddressBarView: UIView, UITextFieldDelegate {
   private let clearButton = UIButton(type: .system)
   private let scanButton = UIButton(type: .system)
   private let reloadButton = UIButton(type: .system)
+  private let tabButton = UIButton(type: .system)
+  private let moreButton = UIButton(type: .system)
 
   var onSubmit: ((String) -> Void)?
   var onLongPress: (() -> Void)?
   var onPaste: (() -> Void)?
   var onScan: (() -> Void)?
   var onReloadOrStop: (() -> Void)?
+  var onTabs: (() -> Void)?
+  var pageMenu: UIMenu? {
+    didSet { moreButton.menu = pageMenu }
+  }
+
+  func updateTabCount(_ count: Int, isPrivate: Bool) {
+    tabButton.setTitle("\(count)", for: .normal)
+    tabButton.tintColor = isPrivate ? .systemPurple : .label
+    tabButton.accessibilityValue = "\(count) 个标签页"
+  }
 
   override init(frame: CGRect) {
     super.init(frame: frame)
@@ -97,6 +109,26 @@ final class AddressBarView: UIView, UITextFieldDelegate {
       for: .touchUpInside
     )
 
+    tabButton.translatesAutoresizingMaskIntoConstraints = false
+    tabButton.titleLabel?.font = .monospacedDigitSystemFont(
+      ofSize: 14,
+      weight: .semibold
+    )
+    tabButton.setTitleColor(.label, for: .normal)
+    tabButton.layer.borderWidth = 1.5
+    tabButton.layer.borderColor = UIColor.secondaryLabel.cgColor
+    tabButton.layer.cornerRadius = 7
+    tabButton.accessibilityLabel = "打开标签页"
+    tabButton.accessibilityIdentifier = "browser.tabCount"
+    tabButton.addTarget(self, action: #selector(tabsPressed), for: .touchUpInside)
+
+    moreButton.translatesAutoresizingMaskIntoConstraints = false
+    moreButton.setImage(UIImage(systemName: "ellipsis"), for: .normal)
+    moreButton.tintColor = .label
+    moreButton.showsMenuAsPrimaryAction = true
+    moreButton.accessibilityLabel = "更多"
+    moreButton.accessibilityIdentifier = "browser.more"
+
     progressView.translatesAutoresizingMaskIntoConstraints = false
     progressView.tintColor = .systemBlue
     progressView.trackTintColor = .clear
@@ -107,6 +139,8 @@ final class AddressBarView: UIView, UITextFieldDelegate {
     addSubview(clearButton)
     addSubview(scanButton)
     addSubview(reloadButton)
+    addSubview(tabButton)
+    addSubview(moreButton)
     addSubview(progressView)
     addGestureRecognizer(
       UILongPressGestureRecognizer(target: self, action: #selector(longPressed))
@@ -130,10 +164,18 @@ final class AddressBarView: UIView, UITextFieldDelegate {
       scanButton.centerYAnchor.constraint(equalTo: centerYAnchor),
       scanButton.widthAnchor.constraint(equalToConstant: 34),
       scanButton.heightAnchor.constraint(equalToConstant: 34),
-      reloadButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+      reloadButton.trailingAnchor.constraint(equalTo: tabButton.leadingAnchor, constant: -2),
       reloadButton.centerYAnchor.constraint(equalTo: centerYAnchor),
       reloadButton.widthAnchor.constraint(equalToConstant: 34),
       reloadButton.heightAnchor.constraint(equalToConstant: 34),
+      tabButton.trailingAnchor.constraint(equalTo: moreButton.leadingAnchor, constant: -8),
+      tabButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+      tabButton.widthAnchor.constraint(equalToConstant: 28),
+      tabButton.heightAnchor.constraint(equalToConstant: 28),
+      moreButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+      moreButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+      moreButton.widthAnchor.constraint(equalToConstant: 34),
+      moreButton.heightAnchor.constraint(equalToConstant: 34),
       progressView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
       progressView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
       progressView.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -186,5 +228,9 @@ final class AddressBarView: UIView, UITextFieldDelegate {
 
   @objc private func reloadPressed() {
     onReloadOrStop?()
+  }
+
+  @objc private func tabsPressed() {
+    onTabs?()
   }
 }

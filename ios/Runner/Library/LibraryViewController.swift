@@ -61,12 +61,14 @@ final class LibraryViewController: UIViewController {
     switch scope {
     case .root:
       title = "已下载"
-      navigationItem.leftBarButtonItem = UIBarButtonItem(
-        systemItem: .close,
-        primaryAction: UIAction { [weak self] _ in
-          self?.dismiss(animated: true)
-        }
-      )
+      if navigationController?.presentingViewController != nil {
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+          systemItem: .close,
+          primaryAction: UIAction { [weak self] _ in
+            self?.dismiss(animated: true)
+          }
+        )
+      }
     case let .files(_, title):
       self.title = title
     }
