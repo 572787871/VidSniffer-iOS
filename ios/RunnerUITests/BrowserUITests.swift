@@ -31,7 +31,7 @@ final class BrowserUITests: XCTestCase {
     XCTAssertTrue(newTab.exists)
     newTab.tap()
 
-    let menuItem = app.buttons["新建标签页"]
+    let menuItem = app.collectionViews.buttons["新建标签页"].firstMatch
     XCTAssertTrue(menuItem.waitForExistence(timeout: 2))
     menuItem.tap()
 
