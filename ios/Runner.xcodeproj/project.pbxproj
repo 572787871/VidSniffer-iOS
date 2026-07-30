@@ -39,6 +39,7 @@
 		A0000000000000000000001E /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000022 /* SettingsViewController.swift */; };
 		A0000000000000000000001F /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000023 /* AppLogger.swift */; };
 		A00000000000000000000020 /* BrowserUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000024 /* BrowserUITests.swift */; };
+		A00000000000000000000021 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000026 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -78,6 +79,7 @@
 		B00000000000000000000023 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
 		B00000000000000000000024 /* BrowserUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserUITests.swift; sourceTree = "<group>"; };
 		B00000000000000000000025 /* RunnerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B00000000000000000000026 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXContainerItemProxy section */
@@ -144,6 +146,7 @@
 				D0000000000000000000000A /* Privacy */,
 				D0000000000000000000000B /* Infrastructure */,
 				B0000000000000000000000F /* Info.plist */,
+				B00000000000000000000026 /* PrivacyInfo.xcprivacy */,
 				B0000000000000000000000E /* LaunchScreen.storyboard */,
 				B0000000000000000000000D /* Assets.xcassets */,
 			);
@@ -357,6 +360,7 @@
 			files = (
 				A0000000000000000000000D /* Assets.xcassets in Resources */,
 				A0000000000000000000000E /* LaunchScreen.storyboard in Resources */,
+				A00000000000000000000021 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -164,6 +164,26 @@ jobs:
             build \
             2>&1 | tee build/logs/xcodebuild-release.log
 
+      - name: Validate production bundle
+        run: |
+          set -euo pipefail
+          APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/Runner.app"
+          test -d "$APP_PATH"
+          test -x "$APP_PATH/Runner"
+          test -s "$APP_PATH/Assets.car"
+          test -s "$APP_PATH/PrivacyInfo.xcprivacy"
+          plutil -lint "$APP_PATH/Info.plist"
+          plutil -lint "$APP_PATH/PrivacyInfo.xcprivacy"
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleIcons" \
+            "$APP_PATH/Info.plist" >/dev/null
+          lipo -verify_arch arm64 "$APP_PATH/Runner"
+          if find "$APP_PATH" -type d -name _CodeSignature | grep -q .; then
+            echo "Unsigned artifact unexpectedly contains a signature" >&2
+            exit 1
+          fi
+          du -sh "$APP_PATH" | tee build/logs/release-bundle-size.log
+
       - name: Package unsigned IPA
         run: |
           set -euo pipefail
