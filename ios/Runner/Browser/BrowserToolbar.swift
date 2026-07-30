@@ -56,6 +56,11 @@ final class BrowserToolbar: UIVisualEffectView {
       button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
       button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
     }
+    backButton.accessibilityIdentifier = "browser.back"
+    forwardButton.accessibilityIdentifier = "browser.forward"
+    homeButton.accessibilityIdentifier = "browser.home"
+    shareButton.accessibilityIdentifier = "browser.share"
+    tabsButton.accessibilityIdentifier = "browser.tabs"
     backButton.addGestureRecognizer(
       UILongPressGestureRecognizer(
         target: self,

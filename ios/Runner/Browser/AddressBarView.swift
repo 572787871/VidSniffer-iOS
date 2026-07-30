@@ -64,6 +64,7 @@ final class AddressBarView: UIView, UITextFieldDelegate {
     textField.keyboardType = .webSearch
     textField.returnKeyType = .go
     textField.placeholder = "搜索或输入网址"
+    textField.accessibilityIdentifier = "browser.addressField"
     textField.adjustsFontForContentSizeCategory = true
     textField.font = .preferredFont(forTextStyle: .body)
     textField.addTarget(
@@ -74,6 +75,7 @@ final class AddressBarView: UIView, UITextFieldDelegate {
 
     clearButton.translatesAutoresizingMaskIntoConstraints = false
     clearButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+    clearButton.accessibilityIdentifier = "browser.clearAddress"
     clearButton.tintColor = .tertiaryLabel
     clearButton.addTarget(self, action: #selector(clearText), for: .touchUpInside)
 
@@ -81,12 +83,14 @@ final class AddressBarView: UIView, UITextFieldDelegate {
     scanButton.setImage(UIImage(systemName: "qrcode.viewfinder"), for: .normal)
     scanButton.tintColor = .secondaryLabel
     scanButton.accessibilityLabel = "扫描二维码"
+    scanButton.accessibilityIdentifier = "browser.scanQRCode"
     scanButton.addTarget(self, action: #selector(scanPressed), for: .touchUpInside)
 
     reloadButton.translatesAutoresizingMaskIntoConstraints = false
     reloadButton.setImage(UIImage(systemName: "arrow.clockwise"), for: .normal)
     reloadButton.tintColor = .secondaryLabel
     reloadButton.accessibilityLabel = "重新载入"
+    reloadButton.accessibilityIdentifier = "browser.reload"
     reloadButton.addTarget(
       self,
       action: #selector(reloadPressed),

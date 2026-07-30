@@ -38,6 +38,7 @@
 		A0000000000000000000001D /* ContentBlockerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000021 /* ContentBlockerManager.swift */; };
 		A0000000000000000000001E /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000022 /* SettingsViewController.swift */; };
 		A0000000000000000000001F /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000023 /* AppLogger.swift */; };
+		A00000000000000000000020 /* BrowserUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000024 /* BrowserUITests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -75,10 +76,19 @@
 		B00000000000000000000021 /* ContentBlockerManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentBlockerManager.swift; sourceTree = "<group>"; };
 		B00000000000000000000022 /* SettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewController.swift; sourceTree = "<group>"; };
 		B00000000000000000000023 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
+		B00000000000000000000024 /* BrowserUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserUITests.swift; sourceTree = "<group>"; };
+		B00000000000000000000025 /* RunnerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXContainerItemProxy section */
 		AA0000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E00000000000000000000002 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E00000000000000000000001;
+			remoteInfo = Runner;
+		};
+		AA0000000000000000000003 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = E00000000000000000000002 /* Project object */;
 			proxyType = 1;
@@ -102,6 +112,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C00000000000000000000006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -110,6 +127,7 @@
 			children = (
 				D00000000000000000000002 /* Runner */,
 				D00000000000000000000005 /* RunnerTests */,
+				D0000000000000000000000C /* RunnerUITests */,
 				D00000000000000000000004 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -155,6 +173,7 @@
 			children = (
 				B00000000000000000000011 /* Runner.app */,
 				B00000000000000000000013 /* RunnerTests.xctest */,
+				B00000000000000000000025 /* RunnerUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -225,6 +244,14 @@
 			path = Infrastructure;
 			sourceTree = "<group>";
 		};
+		D0000000000000000000000C /* RunnerUITests */ = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000024 /* BrowserUITests.swift */,
+			);
+			path = RunnerUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -262,6 +289,23 @@
 			productReference = B00000000000000000000013 /* RunnerTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		E00000000000000000000004 /* RunnerUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F0000000000000000000000C /* Build configuration list for PBXNativeTarget "RunnerUITests" */;
+			buildPhases = (
+				C00000000000000000000007 /* Sources */,
+				C00000000000000000000006 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AA0000000000000000000004 /* PBXTargetDependency */,
+			);
+			name = RunnerUITests;
+			productName = RunnerUITests;
+			productReference = B00000000000000000000025 /* RunnerUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -276,6 +320,10 @@
 						CreatedOnToolsVersion = 16.0;
 					};
 					E00000000000000000000003 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = E00000000000000000000001;
+					};
+					E00000000000000000000004 = {
 						CreatedOnToolsVersion = 16.0;
 						TestTargetID = E00000000000000000000001;
 					};
@@ -297,6 +345,7 @@
 			targets = (
 				E00000000000000000000001 /* Runner */,
 				E00000000000000000000003 /* RunnerTests */,
+				E00000000000000000000004 /* RunnerUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -357,6 +406,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C00000000000000000000007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A00000000000000000000020 /* BrowserUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -364,6 +421,11 @@
 			isa = PBXTargetDependency;
 			target = E00000000000000000000001 /* Runner */;
 			targetProxy = AA0000000000000000000001 /* PBXContainerItemProxy */;
+		};
+		AA0000000000000000000004 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E00000000000000000000001 /* Runner */;
+			targetProxy = AA0000000000000000000003 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -499,6 +561,34 @@
 			};
 			name = Release;
 		};
+		F0000000000000000000000A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.vidsniffer.pro.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Runner;
+			};
+			name = Debug;
+		};
+		F0000000000000000000000B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.vidsniffer.pro.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Runner;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -525,6 +615,15 @@
 			buildConfigurations = (
 				F00000000000000000000008 /* Debug */,
 				F00000000000000000000009 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F0000000000000000000000C /* Build configuration list for PBXNativeTarget "RunnerUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F0000000000000000000000A /* Debug */,
+				F0000000000000000000000B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

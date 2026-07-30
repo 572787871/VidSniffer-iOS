@@ -145,6 +145,7 @@ final class BrowserViewController: UIViewController {
     tabCountButton.layer.cornerRadius = 12
     tabCountButton.layer.cornerCurve = .continuous
     tabCountButton.accessibilityLabel = "打开标签页"
+    tabCountButton.accessibilityIdentifier = "browser.tabCount"
 
     privateBadge.translatesAutoresizingMaskIntoConstraints = false
     privateBadge.text = "无痕"
@@ -157,6 +158,7 @@ final class BrowserViewController: UIViewController {
     moreButton.tintColor = .label
     moreButton.showsMenuAsPrimaryAction = true
     moreButton.accessibilityLabel = "更多"
+    moreButton.accessibilityIdentifier = "browser.more"
 
     contentView.translatesAutoresizingMaskIntoConstraints = false
     contentView.backgroundColor = .systemBackground
@@ -1350,6 +1352,7 @@ private final class BrowserHomeView: UIView {
     textField.layer.cornerRadius = 16
     textField.layer.cornerCurve = .continuous
     textField.placeholder = "搜索或输入网址"
+    textField.accessibilityIdentifier = "browser.homeAddressField"
     textField.returnKeyType = .go
     textField.keyboardType = .webSearch
     textField.autocapitalizationType = .none
