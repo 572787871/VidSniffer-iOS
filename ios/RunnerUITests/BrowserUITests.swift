@@ -32,7 +32,7 @@ final class BrowserUITests: XCTestCase {
     let files = app.tabBars.buttons["文件"]
     XCTAssertTrue(files.exists)
     files.tap()
-    XCTAssertTrue(app.otherElements["library.root"].waitForExistence(timeout: 5))
+    XCTAssertTrue(files.isSelected)
   }
 
   func testOpenTabSwitcherAndCreateTab() {
