@@ -50,7 +50,7 @@ struct DetectedMediaResource: Identifiable, Hashable {
     let safeTitle = DownloadDestinationManager.sanitizedFilename(title)
     let ext: String
     switch format {
-    case "HLS": ext = "m3u8"
+    case "HLS": ext = "movpkg"
     case "MOV": ext = "mov"
     case "M4V": ext = "m4v"
     case "WEBM": ext = "webm"

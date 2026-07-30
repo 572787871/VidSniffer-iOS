@@ -653,6 +653,7 @@ final class BrowserViewController: UIViewController {
         headers["Cookie"] = matchingCookies
           .map { "\($0.name)=\($0.value)" }
           .joined(separator: "; ")
+        matchingCookies.forEach(HTTPCookieStorage.shared.setCookie)
       }
       _ = await DownloadManager.shared.enqueue(
         url: resource.url,

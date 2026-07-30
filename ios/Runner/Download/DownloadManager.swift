@@ -15,6 +15,7 @@ final class DownloadManager {
 
   private let repository: DownloadRepository
   private let service: BackgroundDownloadService
+  private let hlsService: HLSAssetDownloadService
   private let destinationManager: DownloadDestinationManager
   private let notificationManager: DownloadNotificationManager
   private var lastPublishedAt: [UUID: Date] = [:]
@@ -23,12 +24,14 @@ final class DownloadManager {
   init(
     repository: DownloadRepository = .shared,
     service: BackgroundDownloadService = .shared,
+    hlsService: HLSAssetDownloadService = .shared,
     destinationManager: DownloadDestinationManager = DownloadDestinationManager(),
     notificationManager: DownloadNotificationManager =
       DownloadNotificationManager()
   ) {
     self.repository = repository
     self.service = service
+    self.hlsService = hlsService
     self.destinationManager = destinationManager
     self.notificationManager = notificationManager
     configureService()
@@ -78,6 +81,10 @@ final class DownloadManager {
     tasks[index].remainingTime = nil
     tasks[index].updatedAt = Date()
     publishAndPersist(tasks[index])
+    if tasks[index].usesHLSAssetDownload {
+      hlsService.pause(taskIdentifier: identifier)
+      return
+    }
     service.pause(taskIdentifier: identifier) { [weak self] resumeData in
       Task { @MainActor in
         guard let self, let currentIndex = self.index(of: id) else { return }
@@ -92,6 +99,15 @@ final class DownloadManager {
 
   func resume(id: UUID) {
     guard let index = index(of: id), tasks[index].state.canResume else { return }
+    if tasks[index].usesHLSAssetDownload,
+       let identifier = tasks[index].sessionTaskIdentifier {
+      tasks[index].state = .downloading
+      tasks[index].errorMessage = nil
+      tasks[index].updatedAt = Date()
+      publishAndPersist(tasks[index])
+      hlsService.resume(taskIdentifier: identifier)
+      return
+    }
     tasks[index].state = .waiting
     tasks[index].errorMessage = nil
     tasks[index].updatedAt = Date()
@@ -102,7 +118,11 @@ final class DownloadManager {
   func cancel(id: UUID) {
     guard let index = index(of: id) else { return }
     if let identifier = tasks[index].sessionTaskIdentifier {
-      service.cancel(taskIdentifier: identifier)
+      if tasks[index].usesHLSAssetDownload {
+        hlsService.cancel(taskIdentifier: identifier)
+      } else {
+        service.cancel(taskIdentifier: identifier)
+      }
     }
     tasks[index].state = .cancelled
     tasks[index].speed = 0
@@ -225,15 +245,35 @@ final class DownloadManager {
         self?.handleFailure(id: id, error: error, resumeData: resumeData)
       }
     }
+    hlsService.onProgress = { [weak self] id, progress in
+      Task { @MainActor in
+        self?.handleHLSProgress(id: id, progress: progress)
+      }
+    }
+    hlsService.onFinished = { [weak self] id, location in
+      Task { @MainActor in self?.handleFinished(id: id, location: location) }
+    }
+    hlsService.onFailure = { [weak self] id, error in
+      Task { @MainActor in
+        self?.handleFailure(id: id, error: error, resumeData: nil)
+      }
+    }
   }
 
   private func restore() async {
     tasks = (try? await repository.tasks()) ?? []
     preferences = (try? await repository.preferences())
       ?? DownloadPreferences()
-    let active = await withCheckedContinuation { continuation in
+    async let directTasks: [(UUID, Int, URLSessionTask.State)] =
+      withCheckedContinuation { continuation in
       service.restoreTasks { continuation.resume(returning: $0) }
     }
+    async let hlsTasks: [(UUID, Int, URLSessionTask.State)] =
+      withCheckedContinuation { continuation in
+      hlsService.restoreTasks { continuation.resume(returning: $0) }
+    }
+    let restored = await (directTasks, hlsTasks)
+    let active = restored.0 + restored.1
     let activeByID = Dictionary(
       uniqueKeysWithValues: active.map { ($0.0, ($0.1, $0.2)) }
     )
@@ -283,6 +323,25 @@ final class DownloadManager {
     guard let index = index(of: id), tasks[index].state == .waiting else {
       return
     }
+    if tasks[index].usesHLSAssetDownload {
+      guard let identifier = hlsService.start(
+        id: id,
+        url: tasks[index].url,
+        title: tasks[index].filename
+      ) else {
+        tasks[index].state = .failed
+        tasks[index].errorMessage = "此 HLS 资源暂时无法建立离线下载任务。"
+        tasks[index].updatedAt = Date()
+        publishAndPersist(tasks[index])
+        startWaitingTasks()
+        return
+      }
+      tasks[index].state = .downloading
+      tasks[index].sessionTaskIdentifier = identifier
+      tasks[index].updatedAt = Date()
+      publishAndPersist(tasks[index])
+      return
+    }
     var request = URLRequest(url: tasks[index].url)
     request.allowsCellularAccess = !preferences.wifiOnly
     request.timeoutInterval = 60
@@ -318,6 +377,39 @@ final class DownloadManager {
     tasks[index].remainingTime = speed > 0 && tasks[index].expectedSize > 0
       ? Double(remainingBytes) / speed
       : nil
+    tasks[index].updatedAt = Date()
+    let now = Date()
+    if now.timeIntervalSince(lastPublishedAt[id] ?? .distantPast) >= 0.2 {
+      lastPublishedAt[id] = now
+      publishAndPersist(tasks[index])
+    }
+  }
+
+  private func handleHLSProgress(id: UUID, progress: Double) {
+    guard let index = index(of: id) else { return }
+    let previousBytes = tasks[index].downloadedSize
+    let previousDate = tasks[index].updatedAt
+    tasks[index].state = .downloading
+    tasks[index].progress = min(1, max(0, progress))
+    if tasks[index].expectedSize > 0 {
+      tasks[index].downloadedSize = Int64(
+        Double(tasks[index].expectedSize) * tasks[index].progress
+      )
+      let elapsed = Date().timeIntervalSince(previousDate)
+      if elapsed > 0.2 {
+        tasks[index].speed = max(
+          0,
+          Double(tasks[index].downloadedSize - previousBytes) / elapsed
+        )
+      }
+      let remainingBytes = max(
+        0,
+        tasks[index].expectedSize - tasks[index].downloadedSize
+      )
+      tasks[index].remainingTime = tasks[index].speed > 0
+        ? Double(remainingBytes) / tasks[index].speed
+        : nil
+    }
     tasks[index].updatedAt = Date()
     let now = Date()
     if now.timeIntervalSince(lastPublishedAt[id] ?? .distantPast) >= 0.2 {

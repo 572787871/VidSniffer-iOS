@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 
 final class BackgroundDownloadService: NSObject {
@@ -74,6 +75,133 @@ final class BackgroundDownloadService: NSObject {
 
   private func id(for task: URLSessionTask) -> UUID? {
     task.taskDescription.flatMap(UUID.init(uuidString:))
+  }
+}
+
+final class HLSAssetDownloadService: NSObject {
+  static let shared = HLSAssetDownloadService()
+
+  var onProgress: ((UUID, Double) -> Void)?
+  var onFinished: ((UUID, URL) -> Void)?
+  var onFailure: ((UUID, Error) -> Void)?
+  var backgroundEventsCompletionHandler: (() -> Void)?
+
+  private lazy var session: AVAssetDownloadURLSession = {
+    let identifier =
+      "\(Bundle.main.bundleIdentifier ?? "VidSniffer").hls-downloads"
+    let configuration = URLSessionConfiguration.background(
+      withIdentifier: identifier
+    )
+    configuration.sessionSendsLaunchEvents = true
+    configuration.isDiscretionary = false
+    configuration.waitsForConnectivity = true
+    let queue = OperationQueue()
+    queue.name = "com.vidsniffer.hls-downloads"
+    queue.maxConcurrentOperationCount = 1
+    return AVAssetDownloadURLSession(
+      configuration: configuration,
+      assetDownloadDelegate: self,
+      delegateQueue: queue
+    )
+  }()
+
+  func start(id: UUID, url: URL, title: String) -> Int? {
+    let asset = AVURLAsset(url: url)
+    guard let task = session.makeAssetDownloadTask(
+      asset: asset,
+      assetTitle: title,
+      assetArtworkData: nil,
+      options: [
+        AVAssetDownloadTaskMinimumRequiredMediaBitrateKey: 0,
+      ]
+    ) else {
+      return nil
+    }
+    task.taskDescription = id.uuidString
+    task.resume()
+    return task.taskIdentifier
+  }
+
+  func pause(taskIdentifier: Int) {
+    session.getAllTasks { tasks in
+      tasks.first { $0.taskIdentifier == taskIdentifier }?.suspend()
+    }
+  }
+
+  func resume(taskIdentifier: Int) {
+    session.getAllTasks { tasks in
+      tasks.first { $0.taskIdentifier == taskIdentifier }?.resume()
+    }
+  }
+
+  func cancel(taskIdentifier: Int) {
+    session.getAllTasks { tasks in
+      tasks.first { $0.taskIdentifier == taskIdentifier }?.cancel()
+    }
+  }
+
+  func restoreTasks(
+    completion: @escaping ([(UUID, Int, URLSessionTask.State)]) -> Void
+  ) {
+    session.getAllTasks { tasks in
+      completion(tasks.compactMap { task in
+        guard let rawID = task.taskDescription,
+              let id = UUID(uuidString: rawID)
+        else {
+          return nil
+        }
+        return (id, task.taskIdentifier, task.state)
+      })
+    }
+  }
+
+  private func id(for task: URLSessionTask) -> UUID? {
+    task.taskDescription.flatMap(UUID.init(uuidString:))
+  }
+}
+
+extension HLSAssetDownloadService: AVAssetDownloadDelegate {
+  func urlSession(
+    _ session: URLSession,
+    assetDownloadTask: AVAssetDownloadTask,
+    didLoad timeRange: CMTimeRange,
+    totalTimeRangesLoaded loadedTimeRanges: [NSValue],
+    timeRangeExpectedToLoad: CMTimeRange
+  ) {
+    guard let id = id(for: assetDownloadTask) else { return }
+    let expected = timeRangeExpectedToLoad.duration.seconds
+    guard expected.isFinite, expected > 0 else { return }
+    let loaded = loadedTimeRanges.reduce(0.0) {
+      $0 + $1.timeRangeValue.duration.seconds
+    }
+    onProgress?(id, min(1, max(0, loaded / expected)))
+  }
+
+  func urlSession(
+    _ session: URLSession,
+    assetDownloadTask: AVAssetDownloadTask,
+    didFinishDownloadingTo location: URL
+  ) {
+    guard let id = id(for: assetDownloadTask) else { return }
+    onFinished?(id, location)
+  }
+
+  func urlSession(
+    _ session: URLSession,
+    task: URLSessionTask,
+    didCompleteWithError error: Error?
+  ) {
+    guard let error, let id = id(for: task) else { return }
+    onFailure?(id, error)
+  }
+
+  func urlSessionDidFinishEvents(
+    forBackgroundURLSession session: URLSession
+  ) {
+    DispatchQueue.main.async { [weak self] in
+      self?.backgroundEventsCompletionHandler?()
+      self?.backgroundEventsCompletionHandler = nil
+    }
   }
 }
 

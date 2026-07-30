@@ -315,6 +315,26 @@ final class BrowserCoreTests: XCTestCase {
     XCTAssertFalse(DownloadTaskState.cancelled.canResume)
   }
 
+  func testHLSResourcesUseSystemOfflineAssetDownload() throws {
+    let url = try XCTUnwrap(
+      URL(string: "https://cdn.example.com/master.m3u8")
+    )
+    let resource = DetectedMediaResource(
+      url: url,
+      title: "Example",
+      mimeType: "application/vnd.apple.mpegurl",
+      format: "HLS"
+    )
+    let task = DownloadTaskModel(
+      url: url,
+      filename: resource.suggestedFilename,
+      mimeType: resource.mimeType
+    )
+
+    XCTAssertEqual(resource.suggestedFilename, "Example.movpkg")
+    XCTAssertTrue(task.usesHLSAssetDownload)
+  }
+
   func testLibraryRepositoryUsesUUIDsAndPreservesFilesWhenFolderRemoved()
     async throws
   {

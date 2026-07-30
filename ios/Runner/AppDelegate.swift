@@ -31,7 +31,12 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     handleEventsForBackgroundURLSession identifier: String,
     completionHandler: @escaping () -> Void
   ) {
-    BackgroundDownloadService.shared.backgroundEventsCompletionHandler =
-      completionHandler
+    if identifier.hasSuffix(".hls-downloads") {
+      HLSAssetDownloadService.shared.backgroundEventsCompletionHandler =
+        completionHandler
+    } else {
+      BackgroundDownloadService.shared.backgroundEventsCompletionHandler =
+        completionHandler
+    }
   }
 }

@@ -54,6 +54,11 @@ struct DownloadTaskModel: Codable, Identifiable, Equatable {
   var localRelativePath: String?
   var sessionTaskIdentifier: Int?
 
+  var usesHLSAssetDownload: Bool {
+    mimeType?.lowercased().contains("mpegurl") == true
+      || originalURL.pathExtension.lowercased() == "m3u8"
+  }
+
   init(
     id: UUID = UUID(),
     url: URL,
