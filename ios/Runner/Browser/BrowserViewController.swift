@@ -628,7 +628,9 @@ final class BrowserViewController: UIViewController {
       guard !Task.isCancelled else { return }
       self?.addressFocusView.update(bookmarks: Array(bookmarks.prefix(8)))
     }
-    let changes = { [weak self] in self?.addressFocusView.alpha = 1 }
+    let changes: () -> Void = { [weak self] in
+      self?.addressFocusView.alpha = 1
+    }
     if UIAccessibility.isReduceMotionEnabled {
       changes()
     } else {
@@ -643,7 +645,9 @@ final class BrowserViewController: UIViewController {
 
   private func hideAddressFocus() {
     guard !addressFocusView.isHidden else { return }
-    let changes = { [weak self] in self?.addressFocusView.alpha = 0 }
+    let changes: () -> Void = { [weak self] in
+      self?.addressFocusView.alpha = 0
+    }
     let completion: (Bool) -> Void = { [weak self] _ in
       self?.addressFocusView.isHidden = true
     }
