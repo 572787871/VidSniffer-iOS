@@ -327,7 +327,9 @@ final class DownloadManager {
       guard let identifier = hlsService.start(
         id: id,
         url: tasks[index].url,
-        title: tasks[index].filename
+        title: tasks[index].filename,
+        requestHeaders: tasks[index].requestHeaders,
+        allowsCellularAccess: !preferences.wifiOnly
       ) else {
         tasks[index].state = .failed
         tasks[index].errorMessage = "此 HLS 资源暂时无法建立离线下载任务。"

@@ -90,6 +90,8 @@ final class BrowserViewController: UIViewController {
   private var lastFailedURL: URL?
   private var sessionPersistenceTask: Task<Void, Never>?
   private var hasRestoredSession = false
+  private var chromeCollapseProgress: CGFloat = 0
+  private var lastPanTranslationY: CGFloat = 0
 
   convenience init() {
     self.init(tabManager: BrowserTabManager())
@@ -121,6 +123,11 @@ final class BrowserViewController: UIViewController {
     restoreSession()
   }
 
+  override func viewSafeAreaInsetsDidChange() {
+    super.viewSafeAreaInsetsDidChange()
+    updateWebContentInsets()
+  }
+
   deinit {
     NotificationCenter.default.removeObserver(self)
     sessionPersistenceTask?.cancel()
@@ -143,8 +150,8 @@ final class BrowserViewController: UIViewController {
     findBar.translatesAutoresizingMaskIntoConstraints = false
     findBar.isHidden = true
 
-    view.addSubview(addressBar)
     view.addSubview(contentView)
+    view.addSubview(addressBar)
     view.addSubview(findBar)
     view.addSubview(toolbar)
     contentView.addSubview(homeView)
@@ -157,10 +164,10 @@ final class BrowserViewController: UIViewController {
       ),
       addressBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
       addressBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-      contentView.topAnchor.constraint(equalTo: addressBar.bottomAnchor, constant: 8),
+      contentView.topAnchor.constraint(equalTo: view.topAnchor),
       contentView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       contentView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      contentView.bottomAnchor.constraint(equalTo: findBar.topAnchor, constant: -8),
+      contentView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
       findBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
       findBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
       findBar.bottomAnchor.constraint(equalTo: toolbar.topAnchor, constant: -8),
@@ -168,7 +175,7 @@ final class BrowserViewController: UIViewController {
       toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
       toolbar.bottomAnchor.constraint(
         equalTo: view.safeAreaLayoutGuide.bottomAnchor,
-        constant: -6
+        constant: -12
       ),
       toolbar.heightAnchor.constraint(equalToConstant: 56),
       homeView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -209,8 +216,8 @@ final class BrowserViewController: UIViewController {
         webView.reload()
       }
     }
-    addressBar.onDetect = { [weak self] in
-      self?.showDetectedResources()
+    addressBar.onFocus = { [weak self] in
+      self?.setChromeCollapsed(false, animated: true)
     }
     addressBar.onUser = { [weak self] in
       self?.showUserCenter()
@@ -219,6 +226,7 @@ final class BrowserViewController: UIViewController {
     toolbar.onBack = { [weak self] in self?.activeWebView?.goBack() }
     toolbar.onForward = { [weak self] in self?.activeWebView?.goForward() }
     toolbar.onTabs = { [weak self] in self?.showTabs() }
+    toolbar.onDetect = { [weak self] in self?.showDetectedResources() }
     toolbar.onBackHistory = { [weak self] in
       self?.showNavigationHistory(isBackList: true)
     }
@@ -432,6 +440,7 @@ final class BrowserViewController: UIViewController {
       return
     }
     configure(webView)
+    setChromeCollapsed(false, animated: false)
     webView.translatesAutoresizingMaskIntoConstraints = false
     contentView.insertSubview(webView, belowSubview: homeView)
     NSLayoutConstraint.activate([
@@ -455,6 +464,15 @@ final class BrowserViewController: UIViewController {
     webView.uiDelegate = self
     webView.allowsBackForwardNavigationGestures = true
     webView.scrollView.keyboardDismissMode = .interactive
+    webView.scrollView.panGestureRecognizer.removeTarget(
+      self,
+      action: #selector(browserPanChanged(_:))
+    )
+    webView.scrollView.panGestureRecognizer.addTarget(
+      self,
+      action: #selector(browserPanChanged(_:))
+    )
+    updateWebContentInsets(for: webView)
     if refreshControl.superview == nil {
       refreshControl.addTarget(
         self,
@@ -515,13 +533,11 @@ final class BrowserViewController: UIViewController {
     toolbar.update(
       canGoBack: tab.canGoBack,
       canGoForward: tab.canGoForward,
-      tabCount: tabManager.tabs.count
+      tabCount: tabManager.tabs.count,
+      resourceCount: tab.videoResources.resources.count,
+      isDetecting: tab.isLoading && tab.videoResources.resources.isEmpty
     )
-    addressBar.updateDetectedResourceCount(
-      tab.videoResources.resources.count,
-      isLoading: tab.isLoading && tab.videoResources.resources.isEmpty
-    )
-    toolbar.pageMenu = makePageMenu()
+    addressBar.pageMenu = makePageMenu()
     homeView.isHidden = tab.url != nil
   }
 
@@ -573,7 +589,7 @@ final class BrowserViewController: UIViewController {
       activityItems: [url],
       applicationActivities: nil
     )
-    controller.popoverPresentationController?.sourceView = toolbar.moreButton
+    controller.popoverPresentationController?.sourceView = addressBar.detectButton
     present(controller, animated: true)
   }
 
@@ -604,12 +620,7 @@ final class BrowserViewController: UIViewController {
       self?.preview(resource)
     }
     let navigation = UINavigationController(rootViewController: controller)
-    navigation.modalPresentationStyle = .pageSheet
-    if let sheet = navigation.sheetPresentationController {
-      sheet.detents = [.medium(), .large()]
-      sheet.prefersGrabberVisible = true
-      sheet.preferredCornerRadius = 28
-    }
+    configureOpaqueSheet(navigation, detents: [.medium(), .large()])
     present(navigation, animated: true)
   }
 
@@ -655,17 +666,42 @@ final class BrowserViewController: UIViewController {
           .joined(separator: "; ")
         matchingCookies.forEach(HTTPCookieStorage.shared.setCookie)
       }
+      let inspection = await VideoResourceMetadataService.shared.inspect(
+        resource,
+        requestHeaders: headers
+      )
+      var resolvedResource = resource
+      if let mimeType = inspection.mimeType {
+        resolvedResource.mimeType = mimeType
+        resolvedResource.format = DetectedMediaResource.format(
+          for: resolvedResource.url,
+          mimeType: mimeType
+        )
+      }
+      if inspection.expectedSize > 0 {
+        resolvedResource.expectedSize = inspection.expectedSize
+      }
+      if let duration = inspection.duration {
+        resolvedResource.duration = duration
+      }
+      if resolvedResource.mimeType?.lowercased().contains("text/html") == true {
+        self.showNotice(
+          title: "无法下载",
+          message: "服务器返回的是网页而不是视频，请重新播放视频后检测。"
+        )
+        return
+      }
       _ = await DownloadManager.shared.enqueue(
-        url: resource.url,
-        filename: resource.suggestedFilename,
-        mimeType: resource.mimeType,
-        expectedSize: resource.expectedSize,
+        url: resolvedResource.url,
+        filename: resolvedResource.suggestedFilename,
+        mimeType: resolvedResource.mimeType,
+        expectedSize: resolvedResource.expectedSize,
         requestHeaders: headers
       )
       if showsConfirmation {
         self.showNotice(
           title: "已加入下载",
-          message: "\(resource.quality) · \(resource.format)"
+          message: "\(resolvedResource.quality) · \(resolvedResource.format)"
         )
       }
     }
@@ -683,12 +719,7 @@ final class BrowserViewController: UIViewController {
       self?.showBrowserLibrary(showHistory: true)
     }
     let navigation = UINavigationController(rootViewController: controller)
-    navigation.modalPresentationStyle = .pageSheet
-    if let sheet = navigation.sheetPresentationController {
-      sheet.detents = [.medium(), .large()]
-      sheet.prefersGrabberVisible = true
-      sheet.preferredCornerRadius = 28
-    }
+    configureOpaqueSheet(navigation, detents: [.medium(), .large()])
     present(navigation, animated: true)
   }
 
@@ -700,12 +731,85 @@ final class BrowserViewController: UIViewController {
       controller?.dismiss(animated: true)
     }
     let navigation = UINavigationController(rootViewController: controller)
-    navigation.modalPresentationStyle = .pageSheet
-    if let sheet = navigation.sheetPresentationController {
-      sheet.detents = [.medium(), .large()]
-      sheet.prefersGrabberVisible = true
-    }
+    navigation.modalPresentationStyle = .fullScreen
+    navigation.modalTransitionStyle = .crossDissolve
     present(navigation, animated: true)
+  }
+
+  @objc private func browserPanChanged(_ recognizer: UIPanGestureRecognizer) {
+    guard recognizer.view === activeWebView?.scrollView else { return }
+    let translation = recognizer.translation(in: recognizer.view)
+    switch recognizer.state {
+    case .began:
+      lastPanTranslationY = translation.y
+    case .changed:
+      let delta = translation.y - lastPanTranslationY
+      lastPanTranslationY = translation.y
+      chromeCollapseProgress = min(
+        1,
+        max(0, chromeCollapseProgress - (delta / 82))
+      )
+      applyChromeCollapseProgress()
+    case .ended, .cancelled:
+      let velocity = recognizer.velocity(in: recognizer.view).y
+      let shouldCollapse = velocity < -180
+        || (velocity <= 180 && chromeCollapseProgress > 0.48)
+      setChromeCollapsed(shouldCollapse, animated: true)
+    default:
+      break
+    }
+  }
+
+  private func setChromeCollapsed(_ collapsed: Bool, animated: Bool) {
+    let target: CGFloat = collapsed ? 1 : 0
+    let changes = { [weak self] in
+      self?.chromeCollapseProgress = target
+      self?.applyChromeCollapseProgress()
+    }
+    guard animated,
+          !UIAccessibility.isReduceMotionEnabled
+    else {
+      changes()
+      return
+    }
+    UIViewPropertyAnimator(
+      duration: 0.28,
+      dampingRatio: 1,
+      animations: changes
+    ).startAnimation()
+  }
+
+  private func applyChromeCollapseProgress() {
+    addressBar.setCollapseProgress(chromeCollapseProgress)
+    toolbar.setCollapseProgress(chromeCollapseProgress)
+  }
+
+  private func updateWebContentInsets() {
+    tabManager.tabs.compactMap(\.webView).forEach {
+      updateWebContentInsets(for: $0)
+    }
+  }
+
+  private func updateWebContentInsets(for webView: WKWebView) {
+    let top = view.safeAreaInsets.top + 62
+    let bottom = view.safeAreaInsets.bottom + 72
+    guard webView.scrollView.contentInset.top != top
+      || webView.scrollView.contentInset.bottom != bottom
+    else {
+      return
+    }
+    webView.scrollView.contentInset = UIEdgeInsets(
+      top: top,
+      left: 0,
+      bottom: bottom,
+      right: 0
+    )
+    webView.scrollView.verticalScrollIndicatorInsets = UIEdgeInsets(
+      top: top,
+      left: 0,
+      bottom: bottom,
+      right: 0
+    )
   }
 
   private func captureCurrentSnapshot() {
@@ -956,11 +1060,7 @@ final class BrowserViewController: UIViewController {
       controller?.dismiss(animated: true)
     }
     let navigation = UINavigationController(rootViewController: controller)
-    navigation.modalPresentationStyle = .pageSheet
-    if let sheet = navigation.sheetPresentationController {
-      sheet.detents = [.medium(), .large()]
-      sheet.prefersGrabberVisible = true
-    }
+    configureOpaqueSheet(navigation, detents: [.medium(), .large()])
     present(navigation, animated: true)
   }
 
@@ -968,12 +1068,28 @@ final class BrowserViewController: UIViewController {
     let controller = DownloadViewController()
     let navigation = UINavigationController(rootViewController: controller)
     navigation.navigationBar.prefersLargeTitles = true
-    navigation.modalPresentationStyle = .pageSheet
-    if let sheet = navigation.sheetPresentationController {
-      sheet.detents = [.medium(), .large()]
-      sheet.prefersGrabberVisible = true
-    }
+    configureOpaqueSheet(navigation, detents: [.medium(), .large()])
     present(navigation, animated: true)
+  }
+
+  private func configureOpaqueSheet(
+    _ navigation: UINavigationController,
+    detents: [UISheetPresentationController.Detent]
+  ) {
+    navigation.modalPresentationStyle = .pageSheet
+    navigation.view.backgroundColor = .systemGroupedBackground
+    navigation.topViewController?.view.backgroundColor = .systemGroupedBackground
+    let appearance = UINavigationBarAppearance()
+    appearance.configureWithOpaqueBackground()
+    appearance.backgroundColor = .systemGroupedBackground
+    appearance.shadowColor = .separator
+    navigation.navigationBar.standardAppearance = appearance
+    navigation.navigationBar.scrollEdgeAppearance = appearance
+    navigation.navigationBar.compactAppearance = appearance
+    guard let sheet = navigation.sheetPresentationController else { return }
+    sheet.detents = detents
+    sheet.prefersGrabberVisible = true
+    sheet.preferredCornerRadius = 28
   }
 
   private func showLibrary() {

@@ -9,30 +9,53 @@ final class BrowserToolbar: UIVisualEffectView {
   var onBack: (() -> Void)?
   var onForward: (() -> Void)?
   var onTabs: (() -> Void)?
+  var onDetect: (() -> Void)?
   var onBackHistory: (() -> Void)?
   var onForwardHistory: (() -> Void)?
-  var pageMenu: UIMenu? {
-    didSet { moreButton.menu = pageMenu }
-  }
-
   private let tabCountLabel = UILabel()
+  private let resourceCountLabel = UILabel()
 
   init() {
-    super.init(effect: UIBlurEffect(style: .systemChromeMaterial))
+    super.init(effect: UIBlurEffect(style: .systemUltraThinMaterial))
     configure()
   }
 
   required init?(coder: NSCoder) {
     super.init(coder: coder)
-    effect = UIBlurEffect(style: .systemChromeMaterial)
+    effect = UIBlurEffect(style: .systemUltraThinMaterial)
     configure()
   }
 
-  func update(canGoBack: Bool, canGoForward: Bool, tabCount: Int) {
+  func update(
+    canGoBack: Bool,
+    canGoForward: Bool,
+    tabCount: Int,
+    resourceCount: Int,
+    isDetecting: Bool
+  ) {
     backButton.isEnabled = canGoBack
     forwardButton.isEnabled = canGoForward
     tabsButton.accessibilityLabel = "标签页，共 \(tabCount) 个"
     tabCountLabel.text = tabCount > 99 ? "99+" : String(tabCount)
+    resourceCountLabel.text = resourceCount > 99
+      ? "99+"
+      : String(resourceCount)
+    resourceCountLabel.isHidden = resourceCount == 0
+    moreButton.tintColor = resourceCount > 0 ? .systemBlue : .label
+    moreButton.accessibilityLabel = resourceCount > 0
+      ? "检测到 \(resourceCount) 个视频资源"
+      : (isDetecting ? "正在检测视频" : "视频检测")
+    moreButton.accessibilityValue = resourceCount > 0
+      ? String(resourceCount)
+      : nil
+  }
+
+  func setCollapseProgress(_ progress: CGFloat) {
+    let value = min(1, max(0, progress))
+    transform = CGAffineTransform(translationX: 0, y: 76 * value)
+      .scaledBy(x: 1 - 0.04 * value, y: 1 - 0.04 * value)
+    alpha = 1 - (0.88 * value)
+    isUserInteractionEnabled = value < 0.9
   }
 
   private func configure() {
@@ -45,7 +68,7 @@ final class BrowserToolbar: UIVisualEffectView {
       (backButton, "chevron.backward", #selector(backPressed), "browser.back"),
       (forwardButton, "chevron.forward", #selector(forwardPressed), "browser.forward"),
       (tabsButton, "square.on.square", #selector(tabsPressed), "browser.tabs"),
-      (moreButton, "ellipsis", #selector(noop), "browser.more"),
+      (moreButton, "sparkles", #selector(detectPressed), "browser.videoDetect"),
     ]
     for (button, imageName, selector, identifier) in items {
       button.setImage(UIImage(systemName: imageName), for: .normal)
@@ -55,8 +78,7 @@ final class BrowserToolbar: UIVisualEffectView {
       button.widthAnchor.constraint(greaterThanOrEqualToConstant: 52).isActive = true
       button.heightAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
     }
-    moreButton.showsMenuAsPrimaryAction = true
-    moreButton.accessibilityLabel = "更多"
+    moreButton.accessibilityLabel = "视频检测"
 
     backButton.addGestureRecognizer(
       UILongPressGestureRecognizer(target: self, action: #selector(backLongPressed))
@@ -74,11 +96,34 @@ final class BrowserToolbar: UIVisualEffectView {
     tabCountLabel.layer.cornerCurve = .continuous
     tabCountLabel.clipsToBounds = true
     tabsButton.addSubview(tabCountLabel)
+    resourceCountLabel.translatesAutoresizingMaskIntoConstraints = false
+    resourceCountLabel.font = .monospacedDigitSystemFont(
+      ofSize: 9,
+      weight: .bold
+    )
+    resourceCountLabel.textAlignment = .center
+    resourceCountLabel.textColor = .white
+    resourceCountLabel.backgroundColor = .systemBlue
+    resourceCountLabel.layer.cornerRadius = 7
+    resourceCountLabel.layer.cornerCurve = .continuous
+    resourceCountLabel.clipsToBounds = true
+    resourceCountLabel.isHidden = true
+    moreButton.addSubview(resourceCountLabel)
     NSLayoutConstraint.activate([
       tabCountLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 14),
       tabCountLabel.heightAnchor.constraint(equalToConstant: 14),
       tabCountLabel.trailingAnchor.constraint(equalTo: tabsButton.trailingAnchor, constant: -5),
       tabCountLabel.topAnchor.constraint(equalTo: tabsButton.topAnchor, constant: 5),
+      resourceCountLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 14),
+      resourceCountLabel.heightAnchor.constraint(equalToConstant: 14),
+      resourceCountLabel.trailingAnchor.constraint(
+        equalTo: moreButton.trailingAnchor,
+        constant: -5
+      ),
+      resourceCountLabel.topAnchor.constraint(
+        equalTo: moreButton.topAnchor,
+        constant: 5
+      ),
     ])
 
     let stack = UIStackView(arrangedSubviews: items.map(\.0))
@@ -97,7 +142,7 @@ final class BrowserToolbar: UIVisualEffectView {
   @objc private func backPressed() { onBack?() }
   @objc private func forwardPressed() { onForward?() }
   @objc private func tabsPressed() { onTabs?() }
-  @objc private func noop() {}
+  @objc private func detectPressed() { onDetect?() }
 
   @objc private func backLongPressed(_ recognizer: UILongPressGestureRecognizer) {
     guard recognizer.state == .began else { return }

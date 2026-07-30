@@ -44,13 +44,15 @@ struct DetectedMediaResource: Identifiable, Hashable {
 
   var isHLS: Bool {
     format == "HLS"
+      || mimeType?.lowercased().contains("mpegurl") == true
+      || url.pathExtension.lowercased() == "m3u8"
   }
 
   var suggestedFilename: String {
     let safeTitle = DownloadDestinationManager.sanitizedFilename(title)
     let ext: String
     switch format {
-    case "HLS": ext = "movpkg"
+    case _ where isHLS: ext = "movpkg"
     case "MOV": ext = "mov"
     case "M4V": ext = "m4v"
     case "WEBM": ext = "webm"
@@ -193,24 +195,48 @@ final class VideoResourceStore {
             url: url,
             mimeType: payload["type"] as? String,
             assertedByPlayer: payload["player"] as? Bool == true
-          ),
-          knownURLs.insert(Self.canonicalKey(for: url)).inserted
+          )
     else {
       return
     }
 
+    let key = Self.canonicalKey(for: url)
     let width = Self.intValue(payload["width"])
     let height = Self.intValue(payload["height"])
     let duration = Self.doubleValue(payload["duration"])
+    let mimeType = payload["type"] as? String
     let title = (payload["title"] as? String)?
       .trimmingCharacters(in: .whitespacesAndNewlines)
     let poster = (payload["poster"] as? String).flatMap {
       URL(string: $0, relativeTo: fallbackPageURL)?.absoluteURL
     }
+    if knownURLs.contains(key) {
+      update(key: key) {
+        if let mimeType, !mimeType.isEmpty {
+          $0.mimeType = mimeType
+          $0.format = DetectedMediaResource.format(
+            for: $0.url,
+            mimeType: mimeType
+          )
+        }
+        if height > 0 { $0.quality = "\(height)p" }
+        if duration > 0 { $0.duration = duration }
+        if let poster { $0.posterURL = poster }
+        if let title, !title.isEmpty { $0.title = title }
+      }
+      if let resource = resources.first(where: {
+        Self.canonicalKey(for: $0.url) == key
+      }) {
+        enrich(resource)
+      }
+      return
+    }
+
+    knownURLs.insert(key)
     let resource = DetectedMediaResource(
       url: url,
       title: title?.isEmpty == false ? title! : fallbackTitle,
-      mimeType: payload["type"] as? String,
+      mimeType: mimeType,
       quality: Self.quality(height: height, url: url),
       duration: duration > 0 ? duration : nil,
       posterURL: poster,
@@ -234,6 +260,10 @@ final class VideoResourceStore {
       guard !Task.isCancelled else { return }
       self.update(url: resource.url) {
         $0.mimeType = result.mimeType ?? $0.mimeType
+        $0.format = DetectedMediaResource.format(
+          for: $0.url,
+          mimeType: $0.mimeType
+        )
         $0.expectedSize = result.expectedSize > 0
           ? result.expectedSize
           : $0.expectedSize
@@ -266,7 +296,16 @@ final class VideoResourceStore {
     url: URL,
     change: (inout DetectedMediaResource) -> Void
   ) {
-    guard let index = resources.firstIndex(where: { $0.url == url }) else {
+    update(key: Self.canonicalKey(for: url), change: change)
+  }
+
+  private func update(
+    key: String,
+    change: (inout DetectedMediaResource) -> Void
+  ) {
+    guard let index = resources.firstIndex(where: {
+      Self.canonicalKey(for: $0.url) == key
+    }) else {
       return
     }
     change(&resources[index])
@@ -355,16 +394,24 @@ actor VideoResourceMetadataService {
     var variants: [HLSVariant] = []
   }
 
-  func inspect(_ resource: DetectedMediaResource) async -> Result {
+  func inspect(
+    _ resource: DetectedMediaResource,
+    requestHeaders: [String: String]? = nil
+  ) async -> Result {
     var result = Result(duration: resource.duration)
     var request = URLRequest(url: resource.url)
     request.httpMethod = resource.isHLS ? "GET" : "HEAD"
     request.timeoutInterval = 12
-    request.setValue(
-      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
-        + "AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
-      forHTTPHeaderField: "User-Agent"
-    )
+    requestHeaders?.forEach {
+      request.setValue($0.value, forHTTPHeaderField: $0.key)
+    }
+    if request.value(forHTTPHeaderField: "User-Agent") == nil {
+      request.setValue(
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
+          + "AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
+        forHTTPHeaderField: "User-Agent"
+      )
+    }
     if let pageURL = resource.pageURL {
       request.setValue(pageURL.absoluteString, forHTTPHeaderField: "Referer")
     }
@@ -372,11 +419,24 @@ actor VideoResourceMetadataService {
       let (data, response) = try await URLSession.shared.data(for: request)
       result.mimeType = response.mimeType
       result.expectedSize = max(0, response.expectedContentLength)
-      if resource.isHLS,
-         let manifest = String(data: data, encoding: .utf8) {
+      let responseIsHLS = response.mimeType?.lowercased()
+        .contains("mpegurl") == true
+      var manifestData = data
+      var manifestResponse = response
+      if responseIsHLS, request.httpMethod == "HEAD" {
+        var manifestRequest = request
+        manifestRequest.httpMethod = "GET"
+        let responseValue = try await URLSession.shared.data(
+          for: manifestRequest
+        )
+        manifestData = responseValue.0
+        manifestResponse = responseValue.1
+      }
+      if (resource.isHLS || responseIsHLS),
+         let manifest = String(data: manifestData, encoding: .utf8) {
         result.variants = HLSManifestParser.variants(
           in: manifest,
-          baseURL: response.url ?? resource.url
+          baseURL: manifestResponse.url ?? resource.url
         )
         result.duration = HLSManifestParser.duration(in: manifest)
           ?? result.duration

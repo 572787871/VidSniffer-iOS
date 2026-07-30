@@ -35,16 +35,9 @@ final class BrowserUITests: XCTestCase {
     XCTAssertTrue(tabs.waitForExistence(timeout: 5))
     tabs.tap()
 
-    let navigationBar = app.navigationBars["标签页"]
-    XCTAssertTrue(navigationBar.waitForExistence(timeout: 5))
-
-    let newTab = navigationBar.buttons["tabs.new"]
-    XCTAssertTrue(newTab.exists)
+    let newTab = app.buttons["tabs.new"]
+    XCTAssertTrue(newTab.waitForExistence(timeout: 5))
     newTab.tap()
-
-    let menuItem = app.collectionViews.buttons["新建标签页"].firstMatch
-    XCTAssertTrue(menuItem.waitForExistence(timeout: 2))
-    menuItem.tap()
 
     XCTAssertTrue(
       app.textFields["browser.addressField"].waitForExistence(timeout: 5)

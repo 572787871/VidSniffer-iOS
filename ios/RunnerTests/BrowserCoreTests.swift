@@ -35,6 +35,58 @@ final class BrowserCoreTests: XCTestCase {
     }
   }
 
+  func testVideoResourceStoreUpgradesDuplicateURLToHLS() async throws {
+    let url = try XCTUnwrap(
+      URL(string: "https://cdn.example.com/playback?id=42")
+    )
+    await MainActor.run {
+      let store = VideoResourceStore()
+      store.receive(
+        payload: [
+          "url": url.absoluteString,
+          "type": "",
+          "title": "Example",
+          "player": true,
+        ],
+        fallbackPageURL: URL(string: "https://example.com/watch"),
+        fallbackTitle: "Fallback"
+      )
+      store.receive(
+        payload: [
+          "url": url.absoluteString,
+          "type": "application/vnd.apple.mpegurl",
+          "title": "Example",
+          "player": true,
+        ],
+        fallbackPageURL: URL(string: "https://example.com/watch"),
+        fallbackTitle: "Fallback"
+      )
+
+      XCTAssertEqual(store.resources.count, 1)
+      XCTAssertEqual(store.resources.first?.format, "HLS")
+      XCTAssertTrue(store.resources.first?.isHLS == true)
+      XCTAssertEqual(store.resources.first?.suggestedFilename, "Example.movpkg")
+    }
+  }
+
+  func testContentRulesHideStructuredInlineAdvertisements() throws {
+    var settings = BrowserSettings()
+    settings.blocksAds = true
+    let data = try XCTUnwrap(
+      ContentBlockerManager.rulesJSON(settings: settings)
+        .data(using: .utf8)
+    )
+    let rules = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+    )
+    let selectors = rules.compactMap {
+      ($0["action"] as? [String: Any])?["selector"] as? String
+    }.joined(separator: ",")
+
+    XCTAssertTrue(selectors.contains("[data-event='ad_click']"))
+    XCTAssertTrue(selectors.contains(".xqbj-component-adfloat"))
+  }
+
   func testHLSManifestParserSortDataCanExposeEveryVariant() throws {
     let base = try XCTUnwrap(
       URL(string: "https://cdn.example.com/master.m3u8")

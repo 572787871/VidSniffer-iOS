@@ -23,8 +23,11 @@ final class AddressBarView: UIView, UITextFieldDelegate {
   var onLongPress: (() -> Void)?
   var onPaste: (() -> Void)?
   var onReloadOrStop: (() -> Void)?
-  var onDetect: (() -> Void)?
   var onUser: (() -> Void)?
+  var onFocus: (() -> Void)?
+  var pageMenu: UIMenu? {
+    didSet { detectButton.menu = pageMenu }
+  }
 
   override init(frame: CGRect) {
     super.init(frame: frame)
@@ -54,19 +57,28 @@ final class AddressBarView: UIView, UITextFieldDelegate {
   }
 
   func updateDetectedResourceCount(_ count: Int, isLoading: Bool) {
-    countLabel.text = count > 99 ? "99+" : "\(count)"
-    countLabel.isHidden = count == 0
-    detectButton.tintColor = count > 0 ? .systemBlue : .label
-    detectButton.setImage(
-      UIImage(systemName: isLoading
-        ? "wand.and.rays.inverse"
-        : (count > 0 ? "play.rectangle.on.rectangle.fill" : "wand.and.rays")),
-      for: .normal
-    )
-    detectButton.accessibilityLabel = count > 0
-      ? "检测到 \(count) 个视频资源"
-      : (isLoading ? "正在检测视频" : "视频检测")
-    detectButton.accessibilityValue = count > 0 ? "\(count)" : nil
+    countLabel.isHidden = true
+  }
+
+  func setCollapseProgress(_ progress: CGFloat) {
+    let value = min(1, max(0, progress))
+    detectMaterial.alpha = 1 - value
+    userMaterial.alpha = 1 - value
+    detectMaterial.transform = CGAffineTransform(
+      translationX: -12 * value,
+      y: -3 * value
+    ).scaledBy(x: 1 - 0.18 * value, y: 1 - 0.18 * value)
+    userMaterial.transform = CGAffineTransform(
+      translationX: 12 * value,
+      y: -3 * value
+    ).scaledBy(x: 1 - 0.18 * value, y: 1 - 0.18 * value)
+    addressMaterial.transform = CGAffineTransform(
+      translationX: 0,
+      y: -5 * value
+    ).scaledBy(x: 1 - 0.34 * value, y: 1 - 0.18 * value)
+    addressMaterial.layer.cornerRadius = 18 - (3 * value)
+    detectMaterial.isUserInteractionEnabled = value < 0.9
+    userMaterial.isUserInteractionEnabled = value < 0.9
   }
 
   private func configure() {
@@ -84,10 +96,11 @@ final class AddressBarView: UIView, UITextFieldDelegate {
     userMaterial.layer.cornerRadius = 22
 
     detectButton.translatesAutoresizingMaskIntoConstraints = false
-    detectButton.setImage(UIImage(systemName: "wand.and.rays"), for: .normal)
+    detectButton.setImage(UIImage(systemName: "ellipsis"), for: .normal)
     detectButton.tintColor = .label
-    detectButton.accessibilityIdentifier = "browser.videoDetect"
-    detectButton.addTarget(self, action: #selector(detectPressed), for: .touchUpInside)
+    detectButton.accessibilityIdentifier = "browser.more"
+    detectButton.accessibilityLabel = "更多"
+    detectButton.showsMenuAsPrimaryAction = true
     detectMaterial.contentView.addSubview(detectButton)
 
     countLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -245,6 +258,7 @@ final class AddressBarView: UIView, UITextFieldDelegate {
   }
 
   func textFieldDidBeginEditing(_ textField: UITextField) {
+    onFocus?()
     textField.selectAll(nil)
     updateTrailingButton(isLoading: false)
   }
@@ -284,6 +298,5 @@ final class AddressBarView: UIView, UITextFieldDelegate {
     onLongPress?()
   }
 
-  @objc private func detectPressed() { onDetect?() }
   @objc private func userPressed() { onUser?() }
 }

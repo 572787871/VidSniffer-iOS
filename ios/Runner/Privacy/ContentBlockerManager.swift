@@ -5,7 +5,7 @@ import WebKit
 final class ContentBlockerManager {
   static let shared = ContentBlockerManager()
 
-  private let identifier = "VidSniffer.BasicContentBlocker.v1"
+  private let identifier = "VidSniffer.ContentBlocker.v2"
   private var cachedRuleList: WKContentRuleList?
   private var compilationTask: Task<WKContentRuleList?, Never>?
 
@@ -67,15 +67,46 @@ final class ContentBlockerManager {
       rules.append([
         "trigger": [
           "url-filter": ".*",
-          "resource-type": ["image", "style-sheet", "script", "font"],
           "if-domain": [
             "*doubleclick.net",
             "*googlesyndication.com",
             "*googleadservices.com",
             "*adservice.google.com",
+            "*adnxs.com",
+            "*adsrvr.org",
+            "*adsterra.com",
+            "*exoclick.com",
+            "*exosrv.com",
+            "*juicyads.com",
+            "*popads.net",
+            "*popcash.net",
+            "*propellerads.com",
+            "*trafficjunky.com",
+            "*tsyndicate.com",
           ],
         ],
         "action": ["type": "block"],
+      ])
+      rules.append([
+        "trigger": ["url-filter": ".*"],
+        "action": [
+          "type": "css-display-none",
+          "selector": [
+            ".adsbygoogle",
+            ".xqbj-component-adfloat",
+            "[data-ad]",
+            "[data-ad-id]",
+            "[data-ad_type]",
+            "[data-event='ad_click']",
+            "[data-page_name*='广告']",
+            "[id^='ad-card-']",
+            "iframe[src*='doubleclick']",
+            "iframe[src*='googlesyndication']",
+            "iframe[src*='adservice']",
+            "iframe[id^='ad_']",
+            "iframe[class*=' ad-']",
+          ].joined(separator: ","),
+        ],
       ])
     }
     if settings.blocksTrackers || settings.preventsCrossSiteTracking {

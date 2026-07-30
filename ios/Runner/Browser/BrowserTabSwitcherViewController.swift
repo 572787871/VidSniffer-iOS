@@ -20,6 +20,13 @@ final class BrowserTabSwitcherViewController: UIViewController {
 
   private let manager: BrowserTabManager
   private var isSelectingTabs = false
+  private var showingPrivateTabs = false
+  private var searchQuery = ""
+  private let topBar = UIStackView()
+  private let bottomBar = UIVisualEffectView(
+    effect: UIBlurEffect(style: .systemUltraThinMaterial)
+  )
+  private let modeControl = UISegmentedControl(items: ["普通", "无痕"])
   private lazy var collectionView = UICollectionView(
     frame: .zero,
     collectionViewLayout: makeLayout()
@@ -38,13 +45,9 @@ final class BrowserTabSwitcherViewController: UIViewController {
 
   override func viewDidLoad() {
     super.viewDidLoad()
-    title = "标签页"
     view.backgroundColor = .systemGroupedBackground
-    navigationItem.leftBarButtonItem = UIBarButtonItem(
-      systemItem: .close,
-      primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) }
-    )
-    navigationItem.rightBarButtonItems = makeToolbarItems()
+    navigationController?.setNavigationBarHidden(true, animated: false)
+    configureChrome()
 
     collectionView.translatesAutoresizingMaskIntoConstraints = false
     collectionView.backgroundColor = .clear
@@ -58,18 +61,130 @@ final class BrowserTabSwitcherViewController: UIViewController {
       BrowserTabCell.self,
       forCellWithReuseIdentifier: BrowserTabCell.reuseIdentifier
     )
-    collectionView.register(
-      BrowserTabSectionHeader.self,
-      forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
-      withReuseIdentifier: BrowserTabSectionHeader.reuseIdentifier
-    )
     view.addSubview(collectionView)
     NSLayoutConstraint.activate([
       collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      collectionView.topAnchor.constraint(equalTo: view.topAnchor),
-      collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      collectionView.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 8),
+      collectionView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -12),
     ])
+  }
+
+  private func configureChrome() {
+    topBar.translatesAutoresizingMaskIntoConstraints = false
+    topBar.axis = .horizontal
+    topBar.alignment = .center
+    topBar.distribution = .equalSpacing
+
+    let management = UIButton(type: .system)
+    management.configuration = .filled()
+    management.configuration?.image = UIImage(systemName: "ellipsis")
+    management.configuration?.baseForegroundColor = .label
+    management.configuration?.baseBackgroundColor = .secondarySystemGroupedBackground
+    management.configuration?.cornerStyle = .capsule
+    management.menu = makeManagementMenu()
+    management.showsMenuAsPrimaryAction = true
+    management.accessibilityIdentifier = "tabs.management"
+    management.accessibilityLabel = "标签页管理"
+
+    let search = UIButton(type: .system)
+    search.configuration = .filled()
+    search.configuration?.image = UIImage(systemName: "magnifyingglass")
+    search.configuration?.baseForegroundColor = .label
+    search.configuration?.baseBackgroundColor = .secondarySystemGroupedBackground
+    search.configuration?.cornerStyle = .capsule
+    search.addAction(UIAction { [weak self] _ in
+      self?.showTabSearch()
+    }, for: .touchUpInside)
+    search.accessibilityIdentifier = "tabs.search"
+    search.accessibilityLabel = "搜索标签页"
+
+    [management, search].forEach {
+      $0.widthAnchor.constraint(equalToConstant: 52).isActive = true
+      $0.heightAnchor.constraint(equalToConstant: 52).isActive = true
+      topBar.addArrangedSubview($0)
+    }
+    view.addSubview(topBar)
+
+    bottomBar.translatesAutoresizingMaskIntoConstraints = false
+    bottomBar.layer.cornerRadius = 30
+    bottomBar.layer.cornerCurve = .continuous
+    bottomBar.clipsToBounds = true
+
+    let add = UIButton(type: .system)
+    add.configuration = .filled()
+    add.configuration?.image = UIImage(systemName: "plus")
+    add.configuration?.baseForegroundColor = .label
+    add.configuration?.baseBackgroundColor = .secondarySystemGroupedBackground
+    add.configuration?.cornerStyle = .capsule
+    add.addAction(UIAction { [weak self] _ in
+      self?.createTab(isPrivate: self?.showingPrivateTabs ?? false)
+    }, for: .touchUpInside)
+    add.accessibilityIdentifier = "tabs.new"
+    add.accessibilityLabel = "新建标签页"
+
+    modeControl.selectedSegmentIndex = 0
+    modeControl.addTarget(
+      self,
+      action: #selector(modeChanged),
+      for: .valueChanged
+    )
+
+    let done = UIButton(type: .system)
+    done.configuration = .filled()
+    done.configuration?.image = UIImage(systemName: "checkmark")
+    done.configuration?.baseForegroundColor = .white
+    done.configuration?.baseBackgroundColor = .systemBlue
+    done.configuration?.cornerStyle = .capsule
+    done.addAction(UIAction { [weak self] _ in
+      self?.dismiss(animated: true)
+    }, for: .touchUpInside)
+    done.accessibilityIdentifier = "tabs.done"
+    done.accessibilityLabel = "完成"
+
+    [add, done].forEach {
+      $0.widthAnchor.constraint(equalToConstant: 52).isActive = true
+      $0.heightAnchor.constraint(equalToConstant: 52).isActive = true
+    }
+    let stack = UIStackView(arrangedSubviews: [add, modeControl, done])
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    stack.axis = .horizontal
+    stack.alignment = .center
+    stack.spacing = 10
+    bottomBar.contentView.addSubview(stack)
+    view.addSubview(bottomBar)
+
+    NSLayoutConstraint.activate([
+      topBar.topAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.topAnchor,
+        constant: 12
+      ),
+      topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 22),
+      topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -22),
+      topBar.heightAnchor.constraint(equalToConstant: 52),
+      bottomBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 18),
+      bottomBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -18),
+      bottomBar.bottomAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.bottomAnchor,
+        constant: -12
+      ),
+      bottomBar.heightAnchor.constraint(equalToConstant: 64),
+      stack.leadingAnchor.constraint(
+        equalTo: bottomBar.contentView.leadingAnchor,
+        constant: 6
+      ),
+      stack.trailingAnchor.constraint(
+        equalTo: bottomBar.contentView.trailingAnchor,
+        constant: -6
+      ),
+      stack.topAnchor.constraint(equalTo: bottomBar.contentView.topAnchor, constant: 6),
+      stack.bottomAnchor.constraint(
+        equalTo: bottomBar.contentView.bottomAnchor,
+        constant: -6
+      ),
+      modeControl.widthAnchor.constraint(greaterThanOrEqualToConstant: 140),
+    ])
+    updateModeTitles()
   }
 
   private func makeToolbarItems() -> [UIBarButtonItem] {
@@ -139,8 +254,50 @@ final class BrowserTabSwitcherViewController: UIViewController {
 
   private func createTab(isPrivate: Bool) {
     let tab = manager.createTab(isPrivate: isPrivate)
+    showingPrivateTabs = isPrivate
+    modeControl.selectedSegmentIndex = isPrivate ? 1 : 0
+    updateModeTitles()
     collectionView.reloadData()
     onSelectTab?(tab.id)
+  }
+
+  @objc private func modeChanged() {
+    showingPrivateTabs = modeControl.selectedSegmentIndex == 1
+    searchQuery = ""
+    collectionView.reloadData()
+    updateModeTitles()
+  }
+
+  private func updateModeTitles() {
+    modeControl.setTitle(
+      "\(manager.tabs(isPrivate: false).count) 个标签页",
+      forSegmentAt: 0
+    )
+    modeControl.setTitle(
+      "无痕 \(manager.tabs(isPrivate: true).count)",
+      forSegmentAt: 1
+    )
+  }
+
+  private func showTabSearch() {
+    let alert = UIAlertController(
+      title: "搜索标签页",
+      message: nil,
+      preferredStyle: .alert
+    )
+    alert.addTextField {
+      $0.placeholder = "标题或网址"
+      $0.text = self.searchQuery
+      $0.clearButtonMode = .whileEditing
+    }
+    alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+    alert.addAction(UIAlertAction(title: "搜索", style: .default) {
+      [weak self, weak alert] _ in
+      self?.searchQuery = alert?.textFields?.first?.text?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      self?.collectionView.reloadData()
+    })
+    present(alert, animated: true)
   }
 
   private func confirmCloseAll(isPrivate: Bool) {
@@ -154,6 +311,7 @@ final class BrowserTabSwitcherViewController: UIViewController {
     alert.addAction(UIAlertAction(title: "全部关闭", style: .destructive) {
       [weak self] _ in
       self?.manager.closeAllTabs(isPrivate: isPrivate)
+      self?.updateModeTitles()
       self?.collectionView.reloadData()
     })
     present(alert, animated: true)
@@ -161,6 +319,7 @@ final class BrowserTabSwitcherViewController: UIViewController {
 
   private func enterSelection(selecting tabID: UUID) {
     isSelectingTabs = true
+    navigationController?.setNavigationBarHidden(false, animated: true)
     collectionView.allowsMultipleSelection = true
     navigationItem.leftBarButtonItem = UIBarButtonItem(
       title: "取消",
@@ -190,6 +349,7 @@ final class BrowserTabSwitcherViewController: UIViewController {
     )
     navigationItem.rightBarButtonItems = makeToolbarItems()
     title = "标签页"
+    navigationController?.setNavigationBarHidden(true, animated: true)
   }
 
   private func updateSelectionControls() {
@@ -216,6 +376,7 @@ final class BrowserTabSwitcherViewController: UIViewController {
       return sectionTabs[path.item].id
     }
     ids.forEach(manager.closeTab(id:))
+    updateModeTitles()
     collectionView.reloadData()
     leaveSelection()
   }
@@ -231,8 +392,13 @@ final class BrowserTabSwitcherViewController: UIViewController {
   }
 
   private func tabs(in section: Int) -> [BrowserTab] {
-    guard let section = Section(rawValue: section) else { return [] }
-    return manager.tabs(isPrivate: section.isPrivate)
+    let values = manager.tabs(isPrivate: showingPrivateTabs)
+    guard !searchQuery.isEmpty else { return values }
+    return values.filter {
+      $0.title.localizedCaseInsensitiveContains(searchQuery)
+        || $0.url?.absoluteString.localizedCaseInsensitiveContains(searchQuery)
+          == true
+    }
   }
 
   private func makeLayout() -> UICollectionViewLayout {
@@ -266,16 +432,6 @@ final class BrowserTabSwitcherViewController: UIViewController {
         bottom: 24,
         trailing: 11
       )
-      section.boundarySupplementaryItems = [
-        NSCollectionLayoutBoundarySupplementaryItem(
-          layoutSize: NSCollectionLayoutSize(
-            widthDimension: .fractionalWidth(1),
-            heightDimension: .absolute(42)
-          ),
-          elementKind: UICollectionView.elementKindSectionHeader,
-          alignment: .top
-        ),
-      ]
       return section
     }
   }
@@ -286,7 +442,7 @@ extension BrowserTabSwitcherViewController:
   UICollectionViewDelegate
 {
   func numberOfSections(in collectionView: UICollectionView) -> Int {
-    Section.allCases.count
+    1
   }
 
   func collectionView(
@@ -312,31 +468,10 @@ extension BrowserTabSwitcherViewController:
       isSelectedTab: tab.id == manager.selectedTabID
     ) { [weak self, weak collectionView] in
       self?.manager.closeTab(id: tab.id)
+      self?.updateModeTitles()
       collectionView?.reloadData()
     }
     return cell
-  }
-
-  func collectionView(
-    _ collectionView: UICollectionView,
-    viewForSupplementaryElementOfKind kind: String,
-    at indexPath: IndexPath
-  ) -> UICollectionReusableView {
-    guard let header = collectionView.dequeueReusableSupplementaryView(
-      ofKind: kind,
-      withReuseIdentifier: BrowserTabSectionHeader.reuseIdentifier,
-      for: indexPath
-    ) as? BrowserTabSectionHeader,
-      let section = Section(rawValue: indexPath.section)
-    else {
-      return UICollectionReusableView()
-    }
-    header.configure(
-      title: section.title,
-      count: tabs(in: indexPath.section).count,
-      isPrivate: section.isPrivate
-    )
-    return header
   }
 
   func collectionView(

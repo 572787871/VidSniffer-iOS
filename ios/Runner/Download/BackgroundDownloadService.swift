@@ -105,8 +105,29 @@ final class HLSAssetDownloadService: NSObject {
     )
   }()
 
-  func start(id: UUID, url: URL, title: String) -> Int? {
-    let asset = AVURLAsset(url: url)
+  func start(
+    id: UUID,
+    url: URL,
+    title: String,
+    requestHeaders: [String: String]?,
+    allowsCellularAccess: Bool
+  ) -> Int? {
+    var options: [String: Any] = [
+      AVURLAssetAllowsCellularAccessKey: allowsCellularAccess,
+    ]
+    if #available(iOS 17.0, *) {
+      options[AVURLAssetOverrideMIMETypeKey] =
+        "application/vnd.apple.mpegurl"
+    }
+    if #available(iOS 16.0, *),
+       let userAgent = requestHeaders?["User-Agent"] {
+      options[AVURLAssetHTTPUserAgentKey] = userAgent
+    }
+    if let cookies = HTTPCookieStorage.shared.cookies(for: url),
+       !cookies.isEmpty {
+      options[AVURLAssetHTTPCookiesKey] = cookies
+    }
+    let asset = AVURLAsset(url: url, options: options)
     guard let task = session.makeAssetDownloadTask(
       asset: asset,
       assetTitle: title,
