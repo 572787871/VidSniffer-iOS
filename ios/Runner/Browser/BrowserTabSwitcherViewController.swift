@@ -44,16 +44,7 @@ final class BrowserTabSwitcherViewController: UIViewController {
       systemItem: .close,
       primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) }
     )
-    navigationItem.rightBarButtonItems = [
-      UIBarButtonItem(
-        image: UIImage(systemName: "ellipsis.circle"),
-        menu: makeManagementMenu()
-      ),
-      UIBarButtonItem(
-        image: UIImage(systemName: "plus"),
-        menu: makeNewTabMenu()
-      ),
-    ]
+    navigationItem.rightBarButtonItems = makeToolbarItems()
 
     collectionView.translatesAutoresizingMaskIntoConstraints = false
     collectionView.backgroundColor = .clear
@@ -79,6 +70,22 @@ final class BrowserTabSwitcherViewController: UIViewController {
       collectionView.topAnchor.constraint(equalTo: view.topAnchor),
       collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
     ])
+  }
+
+  private func makeToolbarItems() -> [UIBarButtonItem] {
+    let management = UIBarButtonItem(
+      image: UIImage(systemName: "ellipsis.circle"),
+      menu: makeManagementMenu()
+    )
+    management.accessibilityIdentifier = "tabs.management"
+    management.accessibilityLabel = "标签页管理"
+    let newTab = UIBarButtonItem(
+      image: UIImage(systemName: "plus"),
+      menu: makeNewTabMenu()
+    )
+    newTab.accessibilityIdentifier = "tabs.new"
+    newTab.accessibilityLabel = "新建标签页"
+    return [management, newTab]
   }
 
   private func makeNewTabMenu() -> UIMenu {
@@ -181,16 +188,7 @@ final class BrowserTabSwitcherViewController: UIViewController {
       systemItem: .close,
       primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) }
     )
-    navigationItem.rightBarButtonItems = [
-      UIBarButtonItem(
-        image: UIImage(systemName: "ellipsis.circle"),
-        menu: makeManagementMenu()
-      ),
-      UIBarButtonItem(
-        image: UIImage(systemName: "plus"),
-        menu: makeNewTabMenu()
-      ),
-    ]
+    navigationItem.rightBarButtonItems = makeToolbarItems()
     title = "标签页"
   }
 
