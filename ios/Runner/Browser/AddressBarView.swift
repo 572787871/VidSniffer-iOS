@@ -24,11 +24,9 @@ final class AddressBarView: UIView, UITextFieldDelegate {
   var onPaste: (() -> Void)?
   var onReloadOrStop: (() -> Void)?
   var onUser: (() -> Void)?
+  var onDownloads: (() -> Void)?
   var onFocus: (() -> Void)?
   var onBlur: (() -> Void)?
-  var pageMenu: UIMenu? {
-    didSet { detectButton.menu = pageMenu }
-  }
   private var expandedText = ""
   private var compactText = ""
   private var collapseProgress: CGFloat = 0
@@ -63,40 +61,33 @@ final class AddressBarView: UIView, UITextFieldDelegate {
   }
 
   func updateDetectedResourceCount(_ count: Int, isLoading: Bool) {
-    countLabel.isHidden = true
+    // Video resources are surfaced from the bottom detection control.
+  }
+
+  func updateDownloadCount(_ count: Int) {
+    countLabel.text = count > 99 ? "99+" : "\(count)"
+    countLabel.isHidden = count == 0
+    userButton.accessibilityValue = count == 0 ? nil : "\(count) 个进行中的任务"
   }
 
   func setCollapseProgress(_ progress: CGFloat) {
-    let value = min(1, max(0, progress))
-    collapseProgress = value
+    // The address rail remains visible while the page scrolls. Only the
+    // bottom browsing controls collapse so the current URL and downloads
+    // are always reachable.
+    collapseProgress = 0
     if !textField.isFirstResponder {
-      textField.text = value > 0.72 ? compactText : expandedText
-      textField.textAlignment = value > 0.72 ? .center : .left
+      textField.text = expandedText
+      textField.textAlignment = .left
     }
-    detectMaterial.alpha = 1 - value
-    userMaterial.alpha = 1 - value
-    detectMaterial.transform = CGAffineTransform(
-      translationX: -12 * value,
-      y: -3 * value
-    ).scaledBy(x: 1 - 0.18 * value, y: 1 - 0.18 * value)
-    userMaterial.transform = CGAffineTransform(
-      translationX: 12 * value,
-      y: -3 * value
-    ).scaledBy(x: 1 - 0.18 * value, y: 1 - 0.18 * value)
-    addressMaterial.transform = CGAffineTransform(
-      translationX: 0,
-      y: -5 * value
-    ).scaledBy(x: 1 - 0.34 * value, y: 1 - 0.18 * value)
-    addressMaterial.layer.cornerRadius = 18 - (3 * value)
-    detectMaterial.isUserInteractionEnabled = value < 0.9
-    userMaterial.isUserInteractionEnabled = value < 0.9
+    [detectMaterial, userMaterial, addressMaterial].forEach {
+      $0.alpha = 1
+      $0.transform = .identity
+      $0.isUserInteractionEnabled = true
+    }
   }
 
   func setPageThemeColor(_ color: UIColor?, collapseProgress: CGFloat) {
-    let value = min(1, max(0, collapseProgress))
-    addressMaterial.contentView.backgroundColor = color?.withAlphaComponent(
-      0.18 * value
-    )
+    addressMaterial.contentView.backgroundColor = .secondarySystemBackground
   }
 
   private func configure() {
@@ -109,16 +100,23 @@ final class AddressBarView: UIView, UITextFieldDelegate {
       $0.clipsToBounds = true
       addSubview($0)
     }
-    addressMaterial.layer.cornerRadius = 18
-    detectMaterial.layer.cornerRadius = 22
-    userMaterial.layer.cornerRadius = 22
+    addressMaterial.layer.cornerRadius = 15
+    detectMaterial.layer.cornerRadius = 15
+    userMaterial.layer.cornerRadius = 15
+    [addressMaterial, detectMaterial, userMaterial].forEach {
+      $0.layer.borderWidth = 0.75
+      $0.layer.borderColor = UIColor.systemBlue.withAlphaComponent(0.16).cgColor
+    }
+    detectMaterial.contentView.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.10)
+    addressMaterial.contentView.backgroundColor = .secondarySystemBackground
+    userMaterial.contentView.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.10)
 
     detectButton.translatesAutoresizingMaskIntoConstraints = false
-    detectButton.setImage(UIImage(systemName: "ellipsis"), for: .normal)
-    detectButton.tintColor = .label
-    detectButton.accessibilityIdentifier = "browser.more"
-    detectButton.accessibilityLabel = "更多"
-    detectButton.showsMenuAsPrimaryAction = true
+    detectButton.setImage(UIImage(systemName: "person.crop.circle"), for: .normal)
+    detectButton.tintColor = .systemBlue
+    detectButton.accessibilityIdentifier = "browser.user"
+    detectButton.accessibilityLabel = "用户中心"
+    detectButton.addTarget(self, action: #selector(userPressed), for: .touchUpInside)
     detectMaterial.contentView.addSubview(detectButton)
 
     countLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -130,7 +128,7 @@ final class AddressBarView: UIView, UITextFieldDelegate {
     countLabel.layer.cornerCurve = .continuous
     countLabel.clipsToBounds = true
     countLabel.isHidden = true
-    detectMaterial.contentView.addSubview(countLabel)
+    userMaterial.contentView.addSubview(countLabel)
 
     securityImageView.translatesAutoresizingMaskIntoConstraints = false
     securityImageView.tintColor = .secondaryLabel
@@ -167,11 +165,11 @@ final class AddressBarView: UIView, UITextFieldDelegate {
     addressMaterial.contentView.addSubview(progressView)
 
     userButton.translatesAutoresizingMaskIntoConstraints = false
-    userButton.setImage(UIImage(systemName: "person.crop.circle.fill"), for: .normal)
-    userButton.tintColor = .label
-    userButton.accessibilityLabel = "用户中心"
-    userButton.accessibilityIdentifier = "browser.user"
-    userButton.addTarget(self, action: #selector(userPressed), for: .touchUpInside)
+    userButton.setImage(UIImage(systemName: "arrow.down.circle"), for: .normal)
+    userButton.tintColor = .systemBlue
+    userButton.accessibilityLabel = "下载中心"
+    userButton.accessibilityIdentifier = "browser.downloadCenter"
+    userButton.addTarget(self, action: #selector(downloadsPressed), for: .touchUpInside)
     userMaterial.contentView.addSubview(userButton)
 
     addressMaterial.addGestureRecognizer(
@@ -190,8 +188,8 @@ final class AddressBarView: UIView, UITextFieldDelegate {
       detectButton.bottomAnchor.constraint(equalTo: detectMaterial.contentView.bottomAnchor),
       countLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 14),
       countLabel.heightAnchor.constraint(equalToConstant: 14),
-      countLabel.trailingAnchor.constraint(equalTo: detectMaterial.trailingAnchor, constant: -1),
-      countLabel.topAnchor.constraint(equalTo: detectMaterial.topAnchor, constant: 1),
+      countLabel.trailingAnchor.constraint(equalTo: userMaterial.trailingAnchor, constant: 2),
+      countLabel.topAnchor.constraint(equalTo: userMaterial.topAnchor, constant: -2),
 
       addressMaterial.leadingAnchor.constraint(
         equalTo: detectMaterial.trailingAnchor,
@@ -320,4 +318,6 @@ final class AddressBarView: UIView, UITextFieldDelegate {
   }
 
   @objc private func userPressed() { onUser?() }
+
+  @objc private func downloadsPressed() { onDownloads?() }
 }

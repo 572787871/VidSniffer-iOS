@@ -787,8 +787,15 @@ extension VideoResourceSheetViewController:
     buttonConfiguration.cornerStyle = .capsule
     let button = UIButton(configuration: buttonConfiguration)
     button.accessibilityLabel = "下载 \(resource.quality)"
-    button.addAction(UIAction { [weak self] _ in
-      self?.onDownload?(resource)
+    button.addAction(UIAction { [weak self, weak button] _ in
+      guard let self, self.onDownload != nil else { return }
+      UIImpactFeedbackGenerator(style: .light).impactOccurred()
+      var queuedConfiguration = button?.configuration
+      queuedConfiguration?.image = UIImage(systemName: "checkmark")
+      queuedConfiguration?.title = "已加入"
+      button?.configuration = queuedConfiguration
+      button?.isEnabled = false
+      self.onDownload?(resource)
     }, for: .touchUpInside)
     cell.accessoryView = button
     return cell

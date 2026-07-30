@@ -16,7 +16,7 @@ final class BrowserUITests: XCTestCase {
     )
     XCTAssertTrue(app.buttons["browser.videoDetect"].exists)
     XCTAssertTrue(app.buttons["browser.user"].exists)
-    XCTAssertTrue(app.buttons["browser.more"].exists)
+    XCTAssertTrue(app.buttons["browser.downloadCenter"].exists)
     XCTAssertTrue(app.buttons["browser.tabs"].exists)
     XCTAssertTrue(app.buttons["browser.back"].exists)
     XCTAssertTrue(app.buttons["browser.forward"].exists)

@@ -16,13 +16,13 @@ final class BrowserToolbar: UIVisualEffectView {
   private let resourceCountLabel = UILabel()
 
   init() {
-    super.init(effect: UIBlurEffect(style: .systemUltraThinMaterial))
+    super.init(effect: UIBlurEffect(style: .systemThinMaterial))
     configure()
   }
 
   required init?(coder: NSCoder) {
     super.init(coder: coder)
-    effect = UIBlurEffect(style: .systemUltraThinMaterial)
+    effect = UIBlurEffect(style: .systemThinMaterial)
     configure()
   }
 
@@ -60,9 +60,12 @@ final class BrowserToolbar: UIVisualEffectView {
 
   private func configure() {
     translatesAutoresizingMaskIntoConstraints = false
-    layer.cornerRadius = 26
+    layer.cornerRadius = 18
     layer.cornerCurve = .continuous
+    layer.borderWidth = 0.75
+    layer.borderColor = UIColor.systemBlue.withAlphaComponent(0.16).cgColor
     clipsToBounds = true
+    contentView.backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.72)
 
     let items: [(UIButton, String, Selector, String)] = [
       (backButton, "chevron.backward", #selector(backPressed), "browser.back"),
@@ -79,6 +82,9 @@ final class BrowserToolbar: UIVisualEffectView {
       button.heightAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
     }
     moreButton.accessibilityLabel = "视频检测"
+    moreButton.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.11)
+    moreButton.layer.cornerRadius = 12
+    moreButton.layer.cornerCurve = .continuous
 
     backButton.addGestureRecognizer(
       UILongPressGestureRecognizer(target: self, action: #selector(backLongPressed))

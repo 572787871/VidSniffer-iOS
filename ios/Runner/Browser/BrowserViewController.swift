@@ -141,9 +141,7 @@ final class BrowserViewController: UIViewController {
   }
 
   override var preferredStatusBarStyle: UIStatusBarStyle {
-    chromeCollapseProgress > 0.72 && pageThemeIsDark
-      ? .lightContent
-      : .default
+    pageThemeIsDark ? .lightContent : .default
   }
 
   private func configureView() {
@@ -242,6 +240,9 @@ final class BrowserViewController: UIViewController {
     addressBar.onUser = { [weak self] in
       self?.showUserCenter()
     }
+    addressBar.onDownloads = { [weak self] in
+      self?.showDownloadCenter()
+    }
 
     toolbar.onBack = { [weak self] in self?.activeWebView?.goBack() }
     toolbar.onForward = { [weak self] in self?.activeWebView?.goForward() }
@@ -303,6 +304,12 @@ final class BrowserViewController: UIViewController {
       self,
       selector: #selector(browserSettingsDidChange),
       name: .browserSettingsDidChange,
+      object: nil
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(downloadTasksDidChange),
+      name: .downloadTasksDidChange,
       object: nil
     )
   }
@@ -424,6 +431,10 @@ final class BrowserViewController: UIViewController {
       }
       activeWebView?.reload()
     }
+  }
+
+  @objc private func downloadTasksDidChange() {
+    refreshChrome()
   }
 
   private func configureDownloadCoordinator() {
@@ -563,7 +574,15 @@ final class BrowserViewController: UIViewController {
       resourceCount: tab.videoResources.resources.count,
       isDetecting: tab.isLoading && tab.videoResources.resources.isEmpty
     )
-    addressBar.pageMenu = makePageMenu()
+    let activeDownloadCount = DownloadManager.shared.tasks.filter {
+      switch $0.state {
+      case .waiting, .downloading, .paused, .merging, .verifying:
+        return true
+      case .completed, .failed, .cancelled:
+        return false
+      }
+    }.count
+    addressBar.updateDownloadCount(activeDownloadCount)
     homeView.isHidden = tab.url != nil
   }
 
@@ -700,10 +719,7 @@ final class BrowserViewController: UIViewController {
     }
   }
 
-  private func enqueueDownload(
-    _ resource: DetectedMediaResource,
-    showsConfirmation: Bool = true
-  ) {
+  private func enqueueDownload(_ resource: DetectedMediaResource) {
     guard let webView = activeWebView else { return }
     Task { [weak self, weak webView] in
       guard let self, let webView else { return }
@@ -733,47 +749,50 @@ final class BrowserViewController: UIViewController {
           .joined(separator: "; ")
         matchingCookies.forEach(HTTPCookieStorage.shared.setCookie)
       }
-      let inspection = await VideoResourceMetadataService.shared.inspect(
-        resource,
-        requestHeaders: headers
-      )
       var resolvedResource = resource
-      if inspection.isHLS {
+      if resource.isHLS {
+        // The playlist was already validated by the detector. Avoid delaying
+        // the visible queue insertion with a second network probe.
         resolvedResource.mimeType = "application/vnd.apple.mpegurl"
         resolvedResource.format = "HLS"
-      } else if let mimeType = inspection.mimeType {
-        resolvedResource.mimeType = mimeType
-        resolvedResource.format = DetectedMediaResource.format(
-          for: resolvedResource.url,
-          mimeType: mimeType
-        )
-      }
-      if inspection.expectedSize > 0, !inspection.isHLS {
-        resolvedResource.expectedSize = inspection.expectedSize
-      } else if inspection.isHLS {
         resolvedResource.expectedSize = 0
-      }
-      if let duration = inspection.duration {
-        resolvedResource.duration = duration
-      }
-      if inspection.isInvalidMedia {
-        self.showNotice(
-          title: "无法下载",
-          message: "服务器返回的是网页而不是视频，请重新播放视频后检测。"
+      } else {
+        let inspection = await VideoResourceMetadataService.shared.inspect(
+          resource,
+          requestHeaders: headers
         )
-        return
+        if inspection.isInvalidMedia {
+          self.showNotice(
+            title: "无法下载",
+            message: "服务器返回的是网页而不是视频，请重新播放视频后检测。"
+          )
+          return
+        }
+        if let mimeType = inspection.mimeType {
+          resolvedResource.mimeType = mimeType
+          resolvedResource.format = DetectedMediaResource.format(
+            for: resolvedResource.url,
+            mimeType: mimeType
+          )
+        }
+        if inspection.expectedSize > 0 {
+          resolvedResource.expectedSize = inspection.expectedSize
+        }
+        if let duration = inspection.duration {
+          resolvedResource.duration = duration
+        }
       }
-      _ = await DownloadManager.shared.enqueue(
+      let queuedTask = await DownloadManager.shared.enqueue(
         url: resolvedResource.url,
         filename: resolvedResource.suggestedFilename,
         mimeType: resolvedResource.mimeType,
         expectedSize: resolvedResource.expectedSize,
         requestHeaders: headers
       )
-      if showsConfirmation {
+      if queuedTask == nil {
         self.showNotice(
-          title: "已加入下载",
-          message: "\(resolvedResource.quality) · \(resolvedResource.format)"
+          title: "加入下载失败",
+          message: "没有创建下载任务，请稍后重试。"
         )
       }
     }
@@ -852,12 +871,10 @@ final class BrowserViewController: UIViewController {
   }
 
   private func applyChromeCollapseProgress() {
-    addressBar.setCollapseProgress(chromeCollapseProgress)
+    addressBar.setCollapseProgress(0)
     toolbar.setCollapseProgress(chromeCollapseProgress)
     let theme = pageThemeColor ?? .systemBackground
-    let background = chromeCollapseProgress > 0.01
-      ? theme
-      : UIColor.systemGroupedBackground
+    let background = theme
     view.backgroundColor = background
     contentView.backgroundColor = background
     if #available(iOS 15.0, *) {
@@ -865,7 +882,7 @@ final class BrowserViewController: UIViewController {
     }
     addressBar.setPageThemeColor(
       pageThemeColor,
-      collapseProgress: chromeCollapseProgress
+      collapseProgress: 0
     )
     if let webView = activeWebView {
       updateWebContentInsets(for: webView)
@@ -880,7 +897,7 @@ final class BrowserViewController: UIViewController {
   }
 
   private func updateWebContentInsets(for webView: WKWebView) {
-    let top = view.safeAreaInsets.top + 62 - (14 * chromeCollapseProgress)
+    let top = view.safeAreaInsets.top + 62
     let bottom = (view.safeAreaInsets.bottom + 72)
       * (1 - chromeCollapseProgress)
     guard webView.scrollView.contentInset.top != top
@@ -1155,9 +1172,13 @@ final class BrowserViewController: UIViewController {
   }
 
   private func showDownloads() {
-    let controller = DownloadViewController()
+    showDownloadCenter()
+  }
+
+  private func showDownloadCenter() {
+    let controller = DownloadCenterViewController()
     let navigation = UINavigationController(rootViewController: controller)
-    navigation.navigationBar.prefersLargeTitles = true
+    navigation.navigationBar.prefersLargeTitles = false
     configureOpaqueSheet(navigation, detents: [.medium(), .large()])
     present(navigation, animated: true)
   }
@@ -2061,5 +2082,109 @@ private final class QRScannerViewController:
     }
     captureSession.stopRunning()
     onResult?(value)
+  }
+}
+
+@MainActor
+private final class DownloadCenterViewController: UIViewController {
+  private let segmentedControl = UISegmentedControl(
+    items: ["下载进度", "文件管理"]
+  )
+  private let contentView = UIView()
+  private let downloadsController = DownloadViewController()
+  private let libraryController = LibraryViewController()
+  private var currentController: UIViewController?
+
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    title = "下载中心"
+    view.backgroundColor = .systemGroupedBackground
+    navigationItem.rightBarButtonItem = UIBarButtonItem(
+      systemItem: .close,
+      primaryAction: UIAction { [weak self] _ in
+        self?.dismiss(animated: true)
+      }
+    )
+
+    segmentedControl.translatesAutoresizingMaskIntoConstraints = false
+    segmentedControl.selectedSegmentIndex = 0
+    segmentedControl.accessibilityIdentifier = "downloadCenter.segment"
+    segmentedControl.addTarget(
+      self,
+      action: #selector(selectionChanged),
+      for: .valueChanged
+    )
+    contentView.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(segmentedControl)
+    view.addSubview(contentView)
+    NSLayoutConstraint.activate([
+      segmentedControl.topAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.topAnchor,
+        constant: 10
+      ),
+      segmentedControl.leadingAnchor.constraint(
+        equalTo: view.leadingAnchor,
+        constant: 20
+      ),
+      segmentedControl.trailingAnchor.constraint(
+        equalTo: view.trailingAnchor,
+        constant: -20
+      ),
+      contentView.topAnchor.constraint(
+        equalTo: segmentedControl.bottomAnchor,
+        constant: 10
+      ),
+      contentView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      contentView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      contentView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ])
+    show(downloadsController)
+  }
+
+  @objc private func selectionChanged() {
+    show(
+      segmentedControl.selectedSegmentIndex == 0
+        ? downloadsController
+        : libraryController
+    )
+  }
+
+  private func show(_ controller: UIViewController) {
+    guard currentController !== controller else { return }
+    let previous = currentController
+    previous?.willMove(toParent: nil)
+    addChild(controller)
+    controller.view.translatesAutoresizingMaskIntoConstraints = false
+    controller.view.alpha = 0
+    contentView.addSubview(controller.view)
+    NSLayoutConstraint.activate([
+      controller.view.topAnchor.constraint(equalTo: contentView.topAnchor),
+      controller.view.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+      controller.view.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+      controller.view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+    ])
+    controller.didMove(toParent: self)
+    currentController = controller
+
+    let changes = {
+      previous?.view.alpha = 0
+      controller.view.alpha = 1
+    }
+    let completion: (Bool) -> Void = { _ in
+      previous?.view.removeFromSuperview()
+      previous?.removeFromParent()
+    }
+    if UIAccessibility.isReduceMotionEnabled {
+      changes()
+      completion(true)
+    } else {
+      UIView.transition(
+        with: contentView,
+        duration: 0.22,
+        options: [.transitionCrossDissolve, .beginFromCurrentState],
+        animations: changes,
+        completion: completion
+      )
+    }
   }
 }
