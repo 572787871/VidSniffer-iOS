@@ -25,9 +25,13 @@ final class AddressBarView: UIView, UITextFieldDelegate {
   var onReloadOrStop: (() -> Void)?
   var onUser: (() -> Void)?
   var onFocus: (() -> Void)?
+  var onBlur: (() -> Void)?
   var pageMenu: UIMenu? {
     didSet { detectButton.menu = pageMenu }
   }
+  private var expandedText = ""
+  private var compactText = ""
+  private var collapseProgress: CGFloat = 0
 
   override init(frame: CGRect) {
     super.init(frame: frame)
@@ -46,7 +50,9 @@ final class AddressBarView: UIView, UITextFieldDelegate {
     isLoading: Bool
   ) {
     if !textField.isFirstResponder {
-      textField.text = text
+      expandedText = text
+      compactText = URL(string: text)?.host ?? text
+      textField.text = collapseProgress > 0.72 ? compactText : expandedText
     }
     securityImageView.image = UIImage(
       systemName: isSecure ? "lock.fill" : "magnifyingglass"
@@ -62,6 +68,11 @@ final class AddressBarView: UIView, UITextFieldDelegate {
 
   func setCollapseProgress(_ progress: CGFloat) {
     let value = min(1, max(0, progress))
+    collapseProgress = value
+    if !textField.isFirstResponder {
+      textField.text = value > 0.72 ? compactText : expandedText
+      textField.textAlignment = value > 0.72 ? .center : .left
+    }
     detectMaterial.alpha = 1 - value
     userMaterial.alpha = 1 - value
     detectMaterial.transform = CGAffineTransform(
@@ -79,6 +90,13 @@ final class AddressBarView: UIView, UITextFieldDelegate {
     addressMaterial.layer.cornerRadius = 18 - (3 * value)
     detectMaterial.isUserInteractionEnabled = value < 0.9
     userMaterial.isUserInteractionEnabled = value < 0.9
+  }
+
+  func setPageThemeColor(_ color: UIColor?, collapseProgress: CGFloat) {
+    let value = min(1, max(0, collapseProgress))
+    addressMaterial.contentView.backgroundColor = color?.withAlphaComponent(
+      0.18 * value
+    )
   }
 
   private func configure() {
@@ -264,6 +282,9 @@ final class AddressBarView: UIView, UITextFieldDelegate {
   }
 
   func textFieldDidEndEditing(_ textField: UITextField) {
+    onBlur?()
+    textField.textAlignment = collapseProgress > 0.72 ? .center : .left
+    textField.text = collapseProgress > 0.72 ? compactText : expandedText
     updateTrailingButton(isLoading: false)
   }
 

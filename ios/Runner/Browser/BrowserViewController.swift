@@ -75,6 +75,7 @@ final class BrowserViewController: UIViewController {
   private let toolbar = BrowserToolbar()
   private let contentView = UIView()
   private let homeView = BrowserHomeView()
+  private let addressFocusView = BrowserAddressFocusView()
   private let errorView = BrowserErrorView()
   private let findBar = BrowserFindBar()
   private let refreshControl = UIRefreshControl()
@@ -92,6 +93,8 @@ final class BrowserViewController: UIViewController {
   private var hasRestoredSession = false
   private var chromeCollapseProgress: CGFloat = 0
   private var lastPanTranslationY: CGFloat = 0
+  private var pageThemeColor: UIColor?
+  private var pageThemeIsDark = false
 
   convenience init() {
     self.init(tabManager: BrowserTabManager())
@@ -137,6 +140,12 @@ final class BrowserViewController: UIViewController {
     tabManager.selectedTab?.webView
   }
 
+  override var preferredStatusBarStyle: UIStatusBarStyle {
+    chromeCollapseProgress > 0.72 && pageThemeIsDark
+      ? .lightContent
+      : .default
+  }
+
   private func configureView() {
     view.backgroundColor = .systemGroupedBackground
 
@@ -145,6 +154,8 @@ final class BrowserViewController: UIViewController {
     contentView.clipsToBounds = true
 
     homeView.translatesAutoresizingMaskIntoConstraints = false
+    addressFocusView.translatesAutoresizingMaskIntoConstraints = false
+    addressFocusView.isHidden = true
     errorView.translatesAutoresizingMaskIntoConstraints = false
     errorView.isHidden = true
     findBar.translatesAutoresizingMaskIntoConstraints = false
@@ -155,6 +166,7 @@ final class BrowserViewController: UIViewController {
     view.addSubview(findBar)
     view.addSubview(toolbar)
     contentView.addSubview(homeView)
+    contentView.addSubview(addressFocusView)
     contentView.addSubview(errorView)
 
     NSLayoutConstraint.activate([
@@ -182,6 +194,10 @@ final class BrowserViewController: UIViewController {
       homeView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
       homeView.topAnchor.constraint(equalTo: contentView.topAnchor),
       homeView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+      addressFocusView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+      addressFocusView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+      addressFocusView.topAnchor.constraint(equalTo: contentView.topAnchor),
+      addressFocusView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
       errorView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
       errorView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
       errorView.topAnchor.constraint(equalTo: contentView.topAnchor),
@@ -218,6 +234,10 @@ final class BrowserViewController: UIViewController {
     }
     addressBar.onFocus = { [weak self] in
       self?.setChromeCollapsed(false, animated: true)
+      self?.showAddressFocus()
+    }
+    addressBar.onBlur = { [weak self] in
+      self?.hideAddressFocus()
     }
     addressBar.onUser = { [weak self] in
       self?.showUserCenter()
@@ -238,6 +258,10 @@ final class BrowserViewController: UIViewController {
       self?.navigate(to: value)
     }
     homeView.onShortcut = { [weak self] url in
+      self?.load(url)
+    }
+    addressFocusView.onOpen = { [weak self] url in
+      self?.addressBar.textField.resignFirstResponder()
       self?.load(url)
     }
     errorView.onRetry = { [weak self] in
@@ -418,6 +442,8 @@ final class BrowserViewController: UIViewController {
   }
 
   private func display(_ tab: BrowserTab) {
+    pageThemeColor = nil
+    pageThemeIsDark = false
     if let previous = contentView.subviews.compactMap({ $0 as? WKWebView }).first,
        previous !== tab.webView {
       if #available(iOS 15.0, *) {
@@ -593,9 +619,53 @@ final class BrowserViewController: UIViewController {
     present(controller, animated: true)
   }
 
+  private func showAddressFocus() {
+    addressFocusView.isHidden = false
+    contentView.bringSubviewToFront(addressFocusView)
+    addressFocusView.alpha = 0
+    Task { [weak self, bookmarkManager] in
+      let bookmarks = (try? await bookmarkManager.load()) ?? []
+      guard !Task.isCancelled else { return }
+      self?.addressFocusView.update(bookmarks: Array(bookmarks.prefix(8)))
+    }
+    let changes = { [weak self] in self?.addressFocusView.alpha = 1 }
+    if UIAccessibility.isReduceMotionEnabled {
+      changes()
+    } else {
+      UIView.animate(
+        withDuration: 0.2,
+        delay: 0,
+        options: [.beginFromCurrentState, .curveEaseOut],
+        animations: changes
+      )
+    }
+  }
+
+  private func hideAddressFocus() {
+    guard !addressFocusView.isHidden else { return }
+    let changes = { [weak self] in self?.addressFocusView.alpha = 0 }
+    let completion: (Bool) -> Void = { [weak self] _ in
+      self?.addressFocusView.isHidden = true
+    }
+    if UIAccessibility.isReduceMotionEnabled {
+      changes()
+      completion(true)
+    } else {
+      UIView.animate(
+        withDuration: 0.16,
+        delay: 0,
+        options: [.beginFromCurrentState, .curveEaseIn],
+        animations: changes,
+        completion: completion
+      )
+    }
+  }
+
   private func showDetectedResources() {
     guard let tab = tabManager.selectedTab else { return }
-    let resources = tab.videoResources.resources
+    let resources = tab.videoResources.resources.filter(
+      \.isLikelyDownloadableVideo
+    )
     guard !resources.isEmpty else {
       showNotice(
         title: tab.isLoading ? "正在检测视频" : "暂未检测到视频",
@@ -608,13 +678,6 @@ final class BrowserViewController: UIViewController {
     let controller = VideoResourceSheetViewController(resources: resources)
     controller.onDownload = { [weak self] resource in
       self?.enqueueDownload(resource)
-    }
-    controller.onDownloadAll = { [weak self] values in
-      values.forEach { self?.enqueueDownload($0, showsConfirmation: false) }
-      self?.showNotice(
-        title: "已加入下载",
-        message: "共 \(values.count) 个视频资源"
-      )
     }
     controller.onPreview = { [weak self] resource in
       self?.preview(resource)
@@ -671,20 +734,25 @@ final class BrowserViewController: UIViewController {
         requestHeaders: headers
       )
       var resolvedResource = resource
-      if let mimeType = inspection.mimeType {
+      if inspection.isHLS {
+        resolvedResource.mimeType = "application/vnd.apple.mpegurl"
+        resolvedResource.format = "HLS"
+      } else if let mimeType = inspection.mimeType {
         resolvedResource.mimeType = mimeType
         resolvedResource.format = DetectedMediaResource.format(
           for: resolvedResource.url,
           mimeType: mimeType
         )
       }
-      if inspection.expectedSize > 0 {
+      if inspection.expectedSize > 0, !inspection.isHLS {
         resolvedResource.expectedSize = inspection.expectedSize
+      } else if inspection.isHLS {
+        resolvedResource.expectedSize = 0
       }
       if let duration = inspection.duration {
         resolvedResource.duration = duration
       }
-      if resolvedResource.mimeType?.lowercased().contains("text/html") == true {
+      if inspection.isInvalidMedia {
         self.showNotice(
           title: "无法下载",
           message: "服务器返回的是网页而不是视频，请重新播放视频后检测。"
@@ -782,6 +850,23 @@ final class BrowserViewController: UIViewController {
   private func applyChromeCollapseProgress() {
     addressBar.setCollapseProgress(chromeCollapseProgress)
     toolbar.setCollapseProgress(chromeCollapseProgress)
+    let theme = pageThemeColor ?? .systemBackground
+    let background = chromeCollapseProgress > 0.01
+      ? theme
+      : UIColor.systemGroupedBackground
+    view.backgroundColor = background
+    contentView.backgroundColor = background
+    if #available(iOS 15.0, *) {
+      activeWebView?.underPageBackgroundColor = theme
+    }
+    addressBar.setPageThemeColor(
+      pageThemeColor,
+      collapseProgress: chromeCollapseProgress
+    )
+    if let webView = activeWebView {
+      updateWebContentInsets(for: webView)
+    }
+    setNeedsStatusBarAppearanceUpdate()
   }
 
   private func updateWebContentInsets() {
@@ -791,8 +876,9 @@ final class BrowserViewController: UIViewController {
   }
 
   private func updateWebContentInsets(for webView: WKWebView) {
-    let top = view.safeAreaInsets.top + 62
-    let bottom = view.safeAreaInsets.bottom + 72
+    let top = view.safeAreaInsets.top + 62 - (14 * chromeCollapseProgress)
+    let bottom = (view.safeAreaInsets.bottom + 72)
+      * (1 - chromeCollapseProgress)
     guard webView.scrollView.contentInset.top != top
       || webView.scrollView.contentInset.bottom != bottom
     else {
@@ -1290,6 +1376,7 @@ extension BrowserViewController: WKNavigationDelegate {
     tab.captureState(from: webView)
     refreshChrome(for: tab)
     webView.scrollView.refreshControl?.endRefreshing()
+    updatePageTheme(from: webView)
     if let url = tab.url {
       Task { [historyManager] in
         try? await historyManager.add(
@@ -1297,6 +1384,53 @@ extension BrowserViewController: WKNavigationDelegate {
           url: url,
           isPrivate: tab.isPrivate
         )
+      }
+    }
+  }
+
+  private func updatePageTheme(from webView: WKWebView) {
+    let script = """
+    (() => {
+      const values = [];
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta && meta.content) values.push(meta.content);
+      let node = document.elementFromPoint(innerWidth / 2, 2);
+      while (node) {
+        values.push(getComputedStyle(node).backgroundColor);
+        node = node.parentElement;
+      }
+      ['header', 'nav', 'body', 'html'].forEach(selector => {
+        const element = document.querySelector(selector);
+        if (element) values.push(getComputedStyle(element).backgroundColor);
+      });
+      for (const value of values) {
+        const match = String(value || '').match(
+          /rgba?\\(\\s*(\\d+)\\D+(\\d+)\\D+(\\d+)(?:\\D+([\\d.]+))?/
+        );
+        if (!match || (match[4] !== undefined && Number(match[4]) < 0.25)) {
+          continue;
+        }
+        return [Number(match[1]), Number(match[2]), Number(match[3])];
+      }
+      return null;
+    })();
+    """
+    webView.evaluateJavaScript(script) { [weak self, weak webView] value, _ in
+      Task { @MainActor in
+        guard let self,
+              webView === self.activeWebView,
+              let components = value as? [NSNumber],
+              components.count >= 3
+        else {
+          return
+        }
+        let red = CGFloat(truncating: components[0]) / 255
+        let green = CGFloat(truncating: components[1]) / 255
+        let blue = CGFloat(truncating: components[2]) / 255
+        self.pageThemeColor = UIColor(red: red, green: green, blue: blue, alpha: 1)
+        let luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+        self.pageThemeIsDark = luminance < 0.46
+        self.applyChromeCollapseProgress()
       }
     }
   }
@@ -1512,6 +1646,138 @@ extension BrowserViewController: WKUIDelegate {
       completionHandler(alert.textFields?.first?.text)
     })
     present(alert, animated: true)
+  }
+}
+
+@MainActor
+private final class BrowserAddressFocusView: UIView {
+  var onOpen: ((URL) -> Void)?
+
+  private let grid = UIStackView()
+  private var bookmarks: [Bookmark] = []
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    configure()
+  }
+
+  required init?(coder: NSCoder) {
+    super.init(coder: coder)
+    configure()
+  }
+
+  func update(bookmarks: [Bookmark]) {
+    self.bookmarks = bookmarks
+    rebuildGrid()
+  }
+
+  private func configure() {
+    backgroundColor = .systemGroupedBackground
+    accessibilityIdentifier = "browser.addressFocus"
+
+    let title = UILabel()
+    title.translatesAutoresizingMaskIntoConstraints = false
+    title.text = "个人收藏"
+    title.font = .preferredFont(forTextStyle: .title2)
+    title.adjustsFontForContentSizeCategory = true
+
+    grid.translatesAutoresizingMaskIntoConstraints = false
+    grid.axis = .vertical
+    grid.spacing = 18
+
+    let privacyCard = UIView()
+    privacyCard.translatesAutoresizingMaskIntoConstraints = false
+    privacyCard.backgroundColor = .secondarySystemGroupedBackground
+    privacyCard.layer.cornerRadius = 18
+    privacyCard.layer.cornerCurve = .continuous
+    let privacyIcon = UIImageView(image: UIImage(systemName: "shield.lefthalf.filled"))
+    privacyIcon.translatesAutoresizingMaskIntoConstraints = false
+    privacyIcon.tintColor = .label
+    let privacyLabel = UILabel()
+    privacyLabel.translatesAutoresizingMaskIntoConstraints = false
+    privacyLabel.text = "隐私报告\n查看内容拦截与跨站跟踪防护"
+    privacyLabel.numberOfLines = 2
+    privacyLabel.font = .preferredFont(forTextStyle: .subheadline)
+    privacyLabel.adjustsFontForContentSizeCategory = true
+    privacyCard.addSubview(privacyIcon)
+    privacyCard.addSubview(privacyLabel)
+    addSubview(title)
+    addSubview(grid)
+    addSubview(privacyCard)
+    NSLayoutConstraint.activate([
+      title.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 92),
+      title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
+      title.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
+      grid.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 18),
+      grid.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
+      grid.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+      privacyCard.topAnchor.constraint(equalTo: grid.bottomAnchor, constant: 28),
+      privacyCard.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
+      privacyCard.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+      privacyCard.heightAnchor.constraint(equalToConstant: 82),
+      privacyIcon.leadingAnchor.constraint(equalTo: privacyCard.leadingAnchor, constant: 18),
+      privacyIcon.centerYAnchor.constraint(equalTo: privacyCard.centerYAnchor),
+      privacyIcon.widthAnchor.constraint(equalToConstant: 28),
+      privacyIcon.heightAnchor.constraint(equalToConstant: 28),
+      privacyLabel.leadingAnchor.constraint(equalTo: privacyIcon.trailingAnchor, constant: 14),
+      privacyLabel.trailingAnchor.constraint(equalTo: privacyCard.trailingAnchor, constant: -16),
+      privacyLabel.centerYAnchor.constraint(equalTo: privacyCard.centerYAnchor),
+    ])
+    rebuildGrid()
+  }
+
+  private func rebuildGrid() {
+    grid.arrangedSubviews.forEach {
+      grid.removeArrangedSubview($0)
+      $0.removeFromSuperview()
+    }
+    var entries = bookmarks.map { ($0.title, $0.url) }
+    if entries.isEmpty {
+      entries = [
+        ("Apple", URL(string: "https://www.apple.com")!),
+        ("GitHub", URL(string: "https://github.com")!),
+        ("Wikipedia", URL(string: "https://www.wikipedia.org")!),
+        ("百度", URL(string: "https://www.baidu.com")!),
+      ]
+    }
+    for offset in stride(from: 0, to: min(entries.count, 8), by: 4) {
+      let row = UIStackView()
+      row.axis = .horizontal
+      row.distribution = .fillEqually
+      row.alignment = .top
+      row.spacing = 14
+      for index in offset..<min(offset + 4, entries.count) {
+        row.addArrangedSubview(makeShortcut(title: entries[index].0, url: entries[index].1))
+      }
+      while row.arrangedSubviews.count < 4 {
+        let spacer = UIView()
+        row.addArrangedSubview(spacer)
+      }
+      grid.addArrangedSubview(row)
+    }
+  }
+
+  private func makeShortcut(title: String, url: URL) -> UIView {
+    let button = UIButton(type: .system)
+    var configuration = UIButton.Configuration.filled()
+    configuration.baseBackgroundColor = .secondarySystemGroupedBackground
+    configuration.baseForegroundColor = .label
+    configuration.cornerStyle = .large
+    configuration.image = UIImage(systemName: "globe")
+    configuration.imagePlacement = .top
+    configuration.imagePadding = 10
+    configuration.title = String(title.prefix(8))
+    configuration.titleTextAttributesTransformer =
+      UIConfigurationTextAttributesTransformer { incoming in
+        var value = incoming
+        value.font = .preferredFont(forTextStyle: .caption1)
+        return value
+      }
+    button.configuration = configuration
+    button.accessibilityLabel = title
+    button.addAction(UIAction { [weak self] _ in self?.onOpen?(url) }, for: .touchUpInside)
+    button.heightAnchor.constraint(equalToConstant: 88).isActive = true
+    return button
   }
 }
 

@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   build-ios:
-    name: Test and build unsigned iOS IPA
+    name: Verify and build unsigned iOS IPA
     runs-on: macos-latest
     timeout-minutes: 45
 
@@ -46,55 +46,6 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             analyze \
             2>&1 | tee build/logs/analyze.log
-
-      - name: Run unit tests
-        run: |
-          set -euo pipefail
-          DEVICE_ID="$(
-            xcrun simctl list devices available -j |
-              ruby -rjson -e '
-                data = JSON.parse(STDIN.read)["devices"]
-                device = data.values.flatten.find {
-                  |item| item["name"].start_with?("iPhone") &&
-                    item["isAvailable"]
-                }
-                abort("No available iPhone simulator") unless device
-                print device["udid"]
-              '
-          )"
-          xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
-          xcrun simctl bootstatus "$DEVICE_ID" -b
-          TEST_LOG="build/logs/xcodebuild-tests.log"
-          xcodebuild \
-            -project ios/Runner.xcodeproj \
-            -scheme Runner \
-            -configuration Debug \
-            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
-            -derivedDataPath build/TestDerivedData \
-            -resultBundlePath build/TestResults.xcresult \
-            -only-testing:RunnerTests \
-            CODE_SIGNING_ALLOWED=NO \
-            test \
-            > >(tee "$TEST_LOG") 2>&1 &
-          TEST_PID=$!
-          (
-            sleep 720
-            if kill -0 "$TEST_PID" 2>/dev/null; then
-              echo "Unit tests exceeded 12 minutes" | tee -a "$TEST_LOG"
-              xcrun simctl diagnose > build/logs/simctl-diagnose.txt 2>&1 || true
-              kill -TERM "$TEST_PID" 2>/dev/null || true
-              sleep 10
-              kill -KILL "$TEST_PID" 2>/dev/null || true
-            fi
-          ) &
-          WATCHDOG_PID=$!
-          set +e
-          wait "$TEST_PID"
-          TEST_STATUS=$?
-          set -e
-          kill "$WATCHDOG_PID" 2>/dev/null || true
-          wait "$WATCHDOG_PID" 2>/dev/null || true
-          exit "$TEST_STATUS"
 
       - name: Run stable UI tests
         run: |

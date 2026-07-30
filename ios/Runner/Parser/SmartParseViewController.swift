@@ -63,6 +63,13 @@ struct DetectedMediaResource: Identifiable, Hashable {
     return "\(safeTitle).\(ext)"
   }
 
+  var isLikelyDownloadableVideo: Bool {
+    if isHLS { return true }
+    if let duration, duration.isFinite, duration > 0 { return true }
+    if expectedSize > 0 { return expectedSize >= 64 * 1_024 }
+    return mimeType?.lowercased().hasPrefix("video/") == true
+  }
+
   static func format(for url: URL, mimeType: String?) -> String {
     let mime = mimeType?.lowercased() ?? ""
     let ext = url.pathExtension.lowercased()
@@ -258,15 +265,27 @@ final class VideoResourceStore {
       guard let self else { return }
       let result = await VideoResourceMetadataService.shared.inspect(resource)
       guard !Task.isCancelled else { return }
+      if result.isInvalidMedia {
+        self.remove(key: key)
+        self.enrichmentTasks[key] = nil
+        return
+      }
       self.update(url: resource.url) {
-        $0.mimeType = result.mimeType ?? $0.mimeType
-        $0.format = DetectedMediaResource.format(
-          for: $0.url,
-          mimeType: $0.mimeType
-        )
-        $0.expectedSize = result.expectedSize > 0
-          ? result.expectedSize
-          : $0.expectedSize
+        if result.isHLS {
+          $0.mimeType = "application/vnd.apple.mpegurl"
+          $0.format = "HLS"
+        } else {
+          $0.mimeType = result.mimeType ?? $0.mimeType
+          $0.format = DetectedMediaResource.format(
+            for: $0.url,
+            mimeType: $0.mimeType
+          )
+        }
+        $0.expectedSize = result.isHLS
+          ? 0
+          : (result.expectedSize > 0
+            ? result.expectedSize
+            : $0.expectedSize)
         $0.duration = result.duration ?? $0.duration
       }
       for variant in result.variants {
@@ -309,6 +328,12 @@ final class VideoResourceStore {
       return
     }
     change(&resources[index])
+    sortAndPublish()
+  }
+
+  private func remove(key: String) {
+    resources.removeAll { Self.canonicalKey(for: $0.url) == key }
+    knownURLs.remove(key)
     sortAndPublish()
   }
 
@@ -392,6 +417,8 @@ actor VideoResourceMetadataService {
     var expectedSize: Int64 = 0
     var duration: TimeInterval?
     var variants: [HLSVariant] = []
+    var isHLS = false
+    var isInvalidMedia = false
   }
 
   func inspect(
@@ -423,7 +450,14 @@ actor VideoResourceMetadataService {
         .contains("mpegurl") == true
       var manifestData = data
       var manifestResponse = response
-      if responseIsHLS, request.httpMethod == "HEAD" {
+      let knownVideoExtensions = ["mp4", "m4v", "mov", "webm"]
+      let isAmbiguousPlayerURL =
+        !knownVideoExtensions.contains(resource.url.pathExtension.lowercased())
+        && resource.mimeType?.lowercased().hasPrefix("video/") != true
+      let mayBeSmallManifest = response.expectedContentLength <= 2_000_000
+        || response.expectedContentLength < 0
+      if request.httpMethod == "HEAD",
+         responseIsHLS || (isAmbiguousPlayerURL && mayBeSmallManifest) {
         var manifestRequest = request
         manifestRequest.httpMethod = "GET"
         let responseValue = try await URLSession.shared.data(
@@ -432,8 +466,14 @@ actor VideoResourceMetadataService {
         manifestData = responseValue.0
         manifestResponse = responseValue.1
       }
-      if (resource.isHLS || responseIsHLS),
-         let manifest = String(data: manifestData, encoding: .utf8) {
+      let manifest = String(data: manifestData, encoding: .utf8)
+      let manifestIsHLS = manifest?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .hasPrefix("#EXTM3U") == true
+      result.isHLS = resource.isHLS || responseIsHLS || manifestIsHLS
+      if result.isHLS, let manifest {
+        result.mimeType = "application/vnd.apple.mpegurl"
+        result.expectedSize = 0
         result.variants = HLSManifestParser.variants(
           in: manifest,
           baseURL: manifestResponse.url ?? resource.url
@@ -441,6 +481,10 @@ actor VideoResourceMetadataService {
         result.duration = HLSManifestParser.duration(in: manifest)
           ?? result.duration
       }
+      let mime = response.mimeType?.lowercased() ?? ""
+      result.isInvalidMedia = mime.hasPrefix("text/")
+        || mime.contains("json")
+        || mime.hasPrefix("image/")
     } catch {
       return result
     }
@@ -640,14 +684,13 @@ final class VideoDetectionBridge: NSObject, WKScriptMessageHandler {
 @MainActor
 final class VideoResourceSheetViewController: UIViewController {
   var onDownload: ((DetectedMediaResource) -> Void)?
-  var onDownloadAll: (([DetectedMediaResource]) -> Void)?
   var onPreview: ((DetectedMediaResource) -> Void)?
 
   private let tableView = UITableView(frame: .zero, style: .insetGrouped)
   private var resources: [DetectedMediaResource]
 
   init(resources: [DetectedMediaResource]) {
-    self.resources = resources
+    self.resources = resources.filter(\.isLikelyDownloadableVideo)
     super.init(nibName: nil, bundle: nil)
   }
 
@@ -662,13 +705,6 @@ final class VideoResourceSheetViewController: UIViewController {
     navigationItem.leftBarButtonItem = UIBarButtonItem(
       systemItem: .close,
       primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) }
-    )
-    navigationItem.rightBarButtonItem = UIBarButtonItem(
-      title: "全部下载",
-      primaryAction: UIAction { [weak self] _ in
-        guard let self else { return }
-        self.onDownloadAll?(self.resources)
-      }
     )
 
     tableView.translatesAutoresizingMaskIntoConstraints = false
@@ -746,6 +782,8 @@ extension VideoResourceSheetViewController:
 
     var buttonConfiguration = UIButton.Configuration.tinted()
     buttonConfiguration.image = UIImage(systemName: "arrow.down")
+    buttonConfiguration.title = "下载"
+    buttonConfiguration.imagePadding = 5
     buttonConfiguration.cornerStyle = .capsule
     let button = UIButton(configuration: buttonConfiguration)
     button.accessibilityLabel = "下载 \(resource.quality)"
@@ -776,7 +814,10 @@ extension VideoResourceSheetViewController:
   }
 
   private func metadataText(for resource: DetectedMediaResource) -> String {
-    var values = [resource.quality, resource.format]
+    var values = [
+      resource.quality,
+      resource.isHLS ? "HLS 视频" : resource.format,
+    ]
     if resource.expectedSize > 0 {
       values.append(ByteCountFormatter.string(
         fromByteCount: resource.expectedSize,

@@ -52,9 +52,9 @@ final class BrowserToolbar: UIVisualEffectView {
 
   func setCollapseProgress(_ progress: CGFloat) {
     let value = min(1, max(0, progress))
-    transform = CGAffineTransform(translationX: 0, y: 76 * value)
+    transform = CGAffineTransform(translationX: 0, y: 112 * value)
       .scaledBy(x: 1 - 0.04 * value, y: 1 - 0.04 * value)
-    alpha = 1 - (0.88 * value)
+    alpha = 1 - value
     isUserInteractionEnabled = value < 0.9
   }
 
