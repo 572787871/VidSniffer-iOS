@@ -56,6 +56,7 @@ final class LibraryViewController: UIViewController {
 
   override func viewDidLoad() {
     super.viewDidLoad()
+    view.accessibilityIdentifier = "library.root"
     view.backgroundColor = .systemGroupedBackground
     navigationController?.navigationBar.prefersLargeTitles = true
     switch scope {
