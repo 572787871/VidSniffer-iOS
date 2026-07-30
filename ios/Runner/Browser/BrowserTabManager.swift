@@ -65,8 +65,12 @@ final class BrowserTabManager {
     if let webView = tab.webView {
       tab.captureState(from: webView)
       webView.stopLoading()
+      webView.configuration.userContentController.removeScriptMessageHandler(
+        forName: VideoDetectionBridge.messageName
+      )
       webView.removeFromSuperview()
     }
+    tab.videoDetectionBridge = nil
     if !tab.isPrivate {
       recentlyClosed.insert(tab.makeSnapshot(), at: 0)
       recentlyClosed = Array(recentlyClosed.prefix(20))
@@ -151,7 +155,12 @@ final class BrowserTabManager {
   ) {
     for tab in tabs where !tab.isPrivate {
       tab.webView?.stopLoading()
+      tab.webView?.configuration.userContentController
+        .removeScriptMessageHandler(
+          forName: VideoDetectionBridge.messageName
+        )
       tab.webView?.removeFromSuperview()
+      tab.videoDetectionBridge = nil
     }
     tabs.removeAll { !$0.isPrivate }
     tabs.insert(
@@ -179,6 +188,19 @@ final class BrowserTabManager {
       : WKWebsiteDataStore.default()
     configuration.allowsInlineMediaPlayback = true
     configuration.mediaTypesRequiringUserActionForPlayback = []
+    let bridge = VideoDetectionBridge(
+      store: tab.videoResources
+    ) { [weak tab] in
+      (tab?.url, tab?.title ?? "视频")
+    }
+    configuration.userContentController.add(
+      bridge,
+      name: VideoDetectionBridge.messageName
+    )
+    configuration.userContentController.addUserScript(
+      VideoDetectionBridge.userScript
+    )
+    tab.videoDetectionBridge = bridge
 
     let webView = WKWebView(frame: .zero, configuration: configuration)
     webView.allowsBackForwardNavigationGestures = true
@@ -223,8 +245,12 @@ final class BrowserTabManager {
     webView.stopLoading()
     webView.navigationDelegate = nil
     webView.uiDelegate = nil
+    webView.configuration.userContentController.removeScriptMessageHandler(
+      forName: VideoDetectionBridge.messageName
+    )
     webView.removeFromSuperview()
     candidate.webView = nil
+    candidate.videoDetectionBridge = nil
   }
 
   private func notifyChanges(selected tab: BrowserTab) {

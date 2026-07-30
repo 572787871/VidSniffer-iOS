@@ -1,67 +1,6 @@
 import UIKit
 
 @MainActor
-final class MainTabBarController: UITabBarController {
-  override func viewDidLoad() {
-    super.viewDidLoad()
-    configureAppearance()
-
-    let browser = BrowserViewController()
-    browser.tabBarItem = UITabBarItem(
-      title: "浏览器",
-      image: UIImage(systemName: "globe"),
-      selectedImage: UIImage(systemName: "globe")
-    )
-
-    let parser = navigation(
-      root: SmartParseViewController(),
-      title: "智能解析",
-      image: "link.badge.plus"
-    )
-    let downloads = navigation(
-      root: DownloadViewController(),
-      title: "下载中",
-      image: "arrow.down.circle"
-    )
-    let library = navigation(
-      root: LibraryLandingViewController(),
-      title: "文件",
-      image: "folder"
-    )
-
-    viewControllers = [browser, parser, downloads, library]
-    tabBar.accessibilityIdentifier = "main.tabBar"
-  }
-
-  private func navigation(
-    root: UIViewController,
-    title: String,
-    image: String
-  ) -> UINavigationController {
-    let controller = UINavigationController(rootViewController: root)
-    controller.navigationBar.prefersLargeTitles = true
-    controller.tabBarItem = UITabBarItem(
-      title: title,
-      image: UIImage(systemName: image),
-      selectedImage: UIImage(systemName: image + ".fill")
-        ?? UIImage(systemName: image)
-    )
-    return controller
-  }
-
-  private func configureAppearance() {
-    let appearance = UITabBarAppearance()
-    appearance.configureWithDefaultBackground()
-    appearance.backgroundEffect = UIBlurEffect(style: .systemChromeMaterial)
-    tabBar.standardAppearance = appearance
-    if #available(iOS 15.0, *) {
-      tabBar.scrollEdgeAppearance = appearance
-    }
-    tabBar.tintColor = .systemBlue
-  }
-}
-
-@MainActor
 final class LibraryLandingViewController: UIViewController {
   private enum Row {
     case all(Int)
@@ -215,6 +154,105 @@ extension LibraryLandingViewController: UITableViewDataSource, UITableViewDelega
       open(folderID: nil, title: "全部视频")
     case let .folder(folder, _):
       open(folderID: folder.id, title: folder.name)
+    }
+  }
+}
+
+@MainActor
+final class UserCenterViewController: UITableViewController {
+  var onShowDownloads: (() -> Void)?
+  var onShowLibrary: (() -> Void)?
+  var onShowSettings: (() -> Void)?
+  var onShowBookmarks: (() -> Void)?
+  var onShowHistory: (() -> Void)?
+
+  private enum Row: Int, CaseIterable {
+    case downloads
+    case library
+    case history
+    case bookmarks
+    case settings
+
+    var title: String {
+      switch self {
+      case .downloads: return "下载管理"
+      case .library: return "文件管理"
+      case .history: return "浏览历史"
+      case .bookmarks: return "收藏"
+      case .settings: return "浏览器与隐私设置"
+      }
+    }
+
+    var symbol: String {
+      switch self {
+      case .downloads: return "arrow.down.circle"
+      case .library: return "folder"
+      case .history: return "clock.arrow.circlepath"
+      case .bookmarks: return "bookmark"
+      case .settings: return "gearshape"
+      }
+    }
+  }
+
+  init() {
+    super.init(style: .insetGrouped)
+  }
+
+  required init?(coder: NSCoder) {
+    super.init(coder: coder)
+  }
+
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    title = "用户中心"
+    navigationItem.largeTitleDisplayMode = .always
+    navigationController?.navigationBar.prefersLargeTitles = true
+    navigationItem.rightBarButtonItem = UIBarButtonItem(
+      systemItem: .close,
+      primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) }
+    )
+    tableView.backgroundColor = .systemGroupedBackground
+    tableView.rowHeight = 58
+  }
+
+  override func tableView(
+    _ tableView: UITableView,
+    numberOfRowsInSection section: Int
+  ) -> Int {
+    Row.allCases.count
+  }
+
+  override func tableView(
+    _ tableView: UITableView,
+    cellForRowAt indexPath: IndexPath
+  ) -> UITableViewCell {
+    let identifier = "UserCenterCell"
+    let cell = tableView.dequeueReusableCell(withIdentifier: identifier)
+      ?? UITableViewCell(style: .default, reuseIdentifier: identifier)
+    let row = Row(rawValue: indexPath.row)!
+    var content = cell.defaultContentConfiguration()
+    content.text = row.title
+    content.image = UIImage(systemName: row.symbol)
+    content.imageProperties.tintColor = .systemBlue
+    cell.contentConfiguration = content
+    cell.accessoryType = .disclosureIndicator
+    return cell
+  }
+
+  override func tableView(
+    _ tableView: UITableView,
+    didSelectRowAt indexPath: IndexPath
+  ) {
+    tableView.deselectRow(at: indexPath, animated: true)
+    dismiss(animated: true) { [weak self] in
+      guard let self, let row = Row(rawValue: indexPath.row) else { return }
+      switch row {
+      case .downloads: self.onShowDownloads?()
+      case .library: self.onShowLibrary?()
+      case .history: self.onShowHistory?()
+      case .bookmarks: self.onShowBookmarks?()
+      case .settings: self.onShowSettings?()
+      }
     }
   }
 }

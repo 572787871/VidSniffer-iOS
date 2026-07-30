@@ -3,17 +3,69 @@ import WebKit
 @testable import Runner
 
 final class BrowserCoreTests: XCTestCase {
-  func testSmartParserAcceptsDirectMediaURL() async throws {
-    let parser = SmartMediaParser()
+  func testVideoResourceStoreAcceptsAndDeduplicatesDirectMediaURL() async throws {
     let url = try XCTUnwrap(
       URL(string: "https://cdn.example.com/video/sample.mp4")
     )
+    await MainActor.run {
+      let store = VideoResourceStore()
+      let payload: [String: Any] = [
+        "url": url.absoluteString,
+        "type": "video/mp4",
+        "title": "Sample",
+        "height": 1080,
+        "duration": 65,
+      ]
+      store.receive(
+        payload: payload,
+        fallbackPageURL: URL(string: "https://example.com/watch"),
+        fallbackTitle: "Fallback"
+      )
+      store.receive(
+        payload: payload,
+        fallbackPageURL: URL(string: "https://example.com/watch"),
+        fallbackTitle: "Fallback"
+      )
 
-    let results = try await parser.parse(url)
+      XCTAssertEqual(store.resources.count, 1)
+      XCTAssertEqual(store.resources.first?.url, url)
+      XCTAssertEqual(store.resources.first?.format, "MP4")
+      XCTAssertEqual(store.resources.first?.quality, "1080p")
+      XCTAssertEqual(store.resources.first?.duration, 65)
+    }
+  }
 
-    XCTAssertEqual(results.count, 1)
-    XCTAssertEqual(results.first?.url, url)
-    XCTAssertEqual(results.first?.format, "MP4")
+  func testHLSManifestParserSortDataCanExposeEveryVariant() throws {
+    let base = try XCTUnwrap(
+      URL(string: "https://cdn.example.com/master.m3u8")
+    )
+    let manifest = """
+    #EXTM3U
+    #EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1920x1080
+    high/index.m3u8
+    #EXT-X-STREAM-INF:BANDWIDTH=900000,RESOLUTION=1280x720
+    medium/index.m3u8
+    """
+
+    let variants = HLSManifestParser.variants(in: manifest, baseURL: base)
+
+    XCTAssertEqual(variants.count, 2)
+    XCTAssertEqual(variants[0].height, 1080)
+    XCTAssertEqual(
+      variants[1].url.absoluteString,
+      "https://cdn.example.com/medium/index.m3u8"
+    )
+  }
+
+  func testHLSManifestDurationUsesAllSegments() {
+    let manifest = """
+    #EXTM3U
+    #EXTINF:4.5,
+    one.ts
+    #EXTINF:5.25,
+    two.ts
+    """
+    XCTAssertEqual(HLSManifestParser.duration(in: manifest), 9.75)
   }
 
   private func makeTemporaryDirectory() throws -> URL {

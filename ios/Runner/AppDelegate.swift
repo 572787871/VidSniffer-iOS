@@ -12,7 +12,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     ]?
   ) -> Bool {
     let window = UIWindow(frame: UIScreen.main.bounds)
-    window.rootViewController = MainTabBarController()
+    window.rootViewController = BrowserViewController()
     window.makeKeyAndVisible()
     self.window = window
     return true

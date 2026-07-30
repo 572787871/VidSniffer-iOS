@@ -134,8 +134,6 @@ final class BrowserViewController: UIViewController {
 
     contentView.translatesAutoresizingMaskIntoConstraints = false
     contentView.backgroundColor = .systemBackground
-    contentView.layer.cornerRadius = 16
-    contentView.layer.cornerCurve = .continuous
     contentView.clipsToBounds = true
 
     homeView.translatesAutoresizingMaskIntoConstraints = false
@@ -202,9 +200,6 @@ final class BrowserViewController: UIViewController {
       guard let value = UIPasteboard.general.string else { return }
       self?.navigate(to: value)
     }
-    addressBar.onScan = { [weak self] in
-      self?.showQRScanner()
-    }
     addressBar.onReloadOrStop = { [weak self] in
       guard let webView = self?.activeWebView else { return }
       if webView.isLoading {
@@ -213,12 +208,15 @@ final class BrowserViewController: UIViewController {
         webView.reload()
       }
     }
-    addressBar.onTabs = { [weak self] in self?.showTabs() }
+    addressBar.onDetect = { [weak self] in
+      self?.showDetectedResources()
+    }
+    addressBar.onUser = { [weak self] in
+      self?.showUserCenter()
+    }
 
     toolbar.onBack = { [weak self] in self?.activeWebView?.goBack() }
     toolbar.onForward = { [weak self] in self?.activeWebView?.goForward() }
-    toolbar.onHome = { [weak self] in self?.showHome() }
-    toolbar.onShare = { [weak self] in self?.shareCurrentPage() }
     toolbar.onTabs = { [weak self] in self?.showTabs() }
     toolbar.onBackHistory = { [weak self] in
       self?.showNavigationHistory(isBackList: true)
@@ -421,6 +419,12 @@ final class BrowserViewController: UIViewController {
 
     observations.removeAll()
     errorView.isHidden = true
+    tab.videoResources.onChange = { [weak self, weak tab] _ in
+      guard let self, let tab, self.tabManager.selectedTabID == tab.id else {
+        return
+      }
+      self.refreshChrome(for: tab)
+    }
     guard let webView = tab.webView else {
       homeView.isHidden = false
       refreshChrome(for: tab)
@@ -512,8 +516,11 @@ final class BrowserViewController: UIViewController {
       canGoForward: tab.canGoForward,
       tabCount: tabManager.tabs.count
     )
-    addressBar.updateTabCount(tabManager.tabs.count, isPrivate: tab.isPrivate)
-    addressBar.pageMenu = makePageMenu()
+    addressBar.updateDetectedResourceCount(
+      tab.videoResources.resources.count,
+      isLoading: tab.isLoading && tab.videoResources.resources.isEmpty
+    )
+    toolbar.pageMenu = makePageMenu()
     homeView.isHidden = tab.url != nil
   }
 
@@ -565,8 +572,122 @@ final class BrowserViewController: UIViewController {
       activityItems: [url],
       applicationActivities: nil
     )
-    controller.popoverPresentationController?.sourceView = toolbar.shareButton
+    controller.popoverPresentationController?.sourceView = toolbar.moreButton
     present(controller, animated: true)
+  }
+
+  private func showDetectedResources() {
+    guard let tab = tabManager.selectedTab else { return }
+    let resources = tab.videoResources.resources
+    guard !resources.isEmpty else {
+      showNotice(
+        title: tab.isLoading ? "正在检测视频" : "暂未检测到视频",
+        message: tab.isLoading
+          ? "网页仍在载入，检测结果会自动更新。"
+          : "播放网页中的视频后再试，浏览器会捕获播放器实际请求的资源。"
+      )
+      return
+    }
+    let controller = VideoResourceSheetViewController(resources: resources)
+    controller.onDownload = { [weak self] resource in
+      self?.enqueueDownload(resource)
+    }
+    controller.onDownloadAll = { [weak self] values in
+      values.forEach { self?.enqueueDownload($0, showsConfirmation: false) }
+      self?.showNotice(
+        title: "已加入下载",
+        message: "共 \(values.count) 个视频资源"
+      )
+    }
+    controller.onPreview = { [weak self] resource in
+      self?.preview(resource)
+    }
+    let navigation = UINavigationController(rootViewController: controller)
+    navigation.modalPresentationStyle = .pageSheet
+    if let sheet = navigation.sheetPresentationController {
+      sheet.detents = [.medium(), .large()]
+      sheet.prefersGrabberVisible = true
+      sheet.preferredCornerRadius = 28
+    }
+    present(navigation, animated: true)
+  }
+
+  private func preview(_ resource: DetectedMediaResource) {
+    let playerController = AVPlayerViewController()
+    playerController.player = AVPlayer(url: resource.url)
+    playerController.modalPresentationStyle = .fullScreen
+    present(playerController, animated: true) {
+      playerController.player?.play()
+    }
+  }
+
+  private func enqueueDownload(
+    _ resource: DetectedMediaResource,
+    showsConfirmation: Bool = true
+  ) {
+    guard let webView = activeWebView else { return }
+    Task { [weak self, weak webView] in
+      guard let self, let webView else { return }
+      let cookies: [HTTPCookie] = await withCheckedContinuation { continuation in
+        webView.configuration.websiteDataStore.httpCookieStore.getAllCookies {
+          continuation.resume(returning: $0)
+        }
+      }
+      var headers: [String: String] = [
+        "User-Agent": webView.customUserAgent
+          ?? "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
+          + "AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
+      ]
+      if let pageURL = resource.pageURL {
+        headers["Referer"] = pageURL.absoluteString
+      }
+      let matchingCookies = cookies.filter { cookie in
+        guard let host = resource.url.host else { return false }
+        let domain = cookie.domain.trimmingCharacters(
+          in: CharacterSet(charactersIn: ".")
+        )
+        return host == domain || host.hasSuffix(".\(domain)")
+      }
+      if !matchingCookies.isEmpty {
+        headers["Cookie"] = matchingCookies
+          .map { "\($0.name)=\($0.value)" }
+          .joined(separator: "; ")
+      }
+      _ = await DownloadManager.shared.enqueue(
+        url: resource.url,
+        filename: resource.suggestedFilename,
+        mimeType: resource.mimeType,
+        expectedSize: resource.expectedSize,
+        requestHeaders: headers
+      )
+      if showsConfirmation {
+        self.showNotice(
+          title: "已加入下载",
+          message: "\(resource.quality) · \(resource.format)"
+        )
+      }
+    }
+  }
+
+  private func showUserCenter() {
+    let controller = UserCenterViewController()
+    controller.onShowDownloads = { [weak self] in self?.showDownloads() }
+    controller.onShowLibrary = { [weak self] in self?.showLibrary() }
+    controller.onShowSettings = { [weak self] in self?.showSettings() }
+    controller.onShowBookmarks = { [weak self] in
+      self?.showBrowserLibrary(showHistory: false)
+    }
+    controller.onShowHistory = { [weak self] in
+      self?.showBrowserLibrary(showHistory: true)
+    }
+    let navigation = UINavigationController(rootViewController: controller)
+    navigation.modalPresentationStyle = .pageSheet
+    if let sheet = navigation.sheetPresentationController {
+      sheet.detents = [.medium(), .large()]
+      sheet.prefersGrabberVisible = true
+      sheet.preferredCornerRadius = 28
+    }
+    present(navigation, animated: true)
   }
 
   private func showTabs() {
@@ -1013,6 +1134,18 @@ extension BrowserViewController: WKNavigationDelegate {
     decidePolicyFor navigationResponse: WKNavigationResponse,
     decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
   ) {
+    if let tab = tab(for: webView),
+       let url = navigationResponse.response.url {
+      tab.videoResources.receive(
+        payload: [
+          "url": url.absoluteString,
+          "type": navigationResponse.response.mimeType ?? "",
+          "title": tab.title,
+        ],
+        fallbackPageURL: tab.url,
+        fallbackTitle: tab.title
+      )
+    }
     if #available(iOS 14.5, *),
        !navigationResponse.canShowMIMEType {
       decisionHandler(.download)
@@ -1026,6 +1159,9 @@ extension BrowserViewController: WKNavigationDelegate {
     didStartProvisionalNavigation navigation: WKNavigation?
   ) {
     errorView.isHidden = true
+    if let tab = tab(for: webView) {
+      tab.videoResources.reset()
+    }
   }
 
   func webView(
@@ -1279,80 +1415,8 @@ private final class BrowserHomeView: UIView {
   }
 
   private func configure() {
-    backgroundColor = .systemGroupedBackground
-
-    let title = UILabel()
-    title.text = "浏览器"
-    title.font = .preferredFont(forTextStyle: .largeTitle)
-    title.adjustsFontForContentSizeCategory = true
-
-    let subtitle = UILabel()
-    subtitle.text = "搜索网页或输入网址"
-    subtitle.font = .preferredFont(forTextStyle: .subheadline)
-    subtitle.textColor = .secondaryLabel
-
-    textField.backgroundColor = .secondarySystemGroupedBackground
-    textField.layer.cornerRadius = 16
-    textField.layer.cornerCurve = .continuous
-    textField.placeholder = "搜索或输入网址"
-    textField.accessibilityIdentifier = "browser.homeAddressField"
-    textField.returnKeyType = .go
-    textField.keyboardType = .webSearch
-    textField.autocapitalizationType = .none
-    textField.autocorrectionType = .no
-    textField.leftView = UIImageView(image: UIImage(systemName: "magnifyingglass"))
-    textField.leftViewMode = .always
-    textField.addAction(UIAction { [weak self] _ in
-      guard let value = self?.textField.text else { return }
-      self?.onOpen?(value)
-      self?.textField.resignFirstResponder()
-    }, for: .editingDidEndOnExit)
-    textField.heightAnchor.constraint(equalToConstant: 54).isActive = true
-
-    let shortcuts: [(String, String, String)] = [
-      ("Google", "g.circle.fill", "https://www.google.com"),
-      ("Bing", "b.circle.fill", "https://www.bing.com"),
-      ("Wikipedia", "w.circle.fill", "https://www.wikipedia.org"),
-      ("GitHub", "chevron.left.forwardslash.chevron.right", "https://github.com"),
-      ("Apple", "apple.logo", "https://www.apple.com"),
-    ]
-    let shortcutStack = UIStackView()
-    shortcutStack.axis = .horizontal
-    shortcutStack.distribution = .fillEqually
-    shortcutStack.spacing = 8
-    for (name, icon, value) in shortcuts {
-      let button = UIButton(type: .system)
-      var configuration = UIButton.Configuration.gray()
-      configuration.title = name
-      configuration.image = UIImage(systemName: icon)
-      configuration.imagePlacement = .top
-      configuration.imagePadding = 7
-      configuration.baseForegroundColor = .label
-      configuration.cornerStyle = .large
-      button.configuration = configuration
-      button.addAction(UIAction { [weak self] _ in
-        guard let url = URL(string: value) else { return }
-        self?.onShortcut?(url)
-      }, for: .touchUpInside)
-      shortcutStack.addArrangedSubview(button)
-    }
-    shortcutStack.heightAnchor.constraint(equalToConstant: 82).isActive = true
-
-    let stack = UIStackView(arrangedSubviews: [
-      title,
-      subtitle,
-      textField,
-      shortcutStack,
-    ])
-    stack.translatesAutoresizingMaskIntoConstraints = false
-    stack.axis = .vertical
-    stack.spacing = 12
-    addSubview(stack)
-    NSLayoutConstraint.activate([
-      stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
-      stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
-      stack.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 34),
-    ])
+    backgroundColor = .systemBackground
+    accessibilityIdentifier = "browser.blankPage"
   }
 }
 

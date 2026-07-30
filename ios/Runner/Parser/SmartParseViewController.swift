@@ -1,293 +1,741 @@
+import AVFoundation
+import AVKit
 import UIKit
+import WebKit
 
-struct ParsedMedia: Hashable {
+struct DetectedMediaResource: Identifiable, Hashable {
+  let id: UUID
   let url: URL
-  let title: String
+  var title: String
+  var mimeType: String?
+  var quality: String
+  var format: String
+  var expectedSize: Int64
+  var bitrate: Int
+  var duration: TimeInterval?
+  var posterURL: URL?
+  var pageURL: URL?
 
-  var format: String {
-    url.pathExtension.isEmpty
-      ? "媒体"
-      : url.pathExtension.uppercased()
+  init(
+    id: UUID = UUID(),
+    url: URL,
+    title: String,
+    mimeType: String? = nil,
+    quality: String = "自动",
+    format: String? = nil,
+    expectedSize: Int64 = 0,
+    bitrate: Int = 0,
+    duration: TimeInterval? = nil,
+    posterURL: URL? = nil,
+    pageURL: URL? = nil
+  ) {
+    self.id = id
+    self.url = url
+    self.title = title
+    self.mimeType = mimeType
+    self.quality = quality
+    self.format = format ?? Self.format(for: url, mimeType: mimeType)
+    self.expectedSize = expectedSize
+    self.bitrate = bitrate
+    self.duration = duration
+    self.posterURL = posterURL
+    self.pageURL = pageURL
+  }
+
+  var isHLS: Bool {
+    format == "HLS"
+  }
+
+  var suggestedFilename: String {
+    let safeTitle = DownloadDestinationManager.sanitizedFilename(title)
+    let ext: String
+    switch format {
+    case "HLS": ext = "m3u8"
+    case "MOV": ext = "mov"
+    case "M4V": ext = "m4v"
+    case "WEBM": ext = "webm"
+    default: ext = url.pathExtension.isEmpty
+      ? "mp4"
+      : url.pathExtension.lowercased()
+    }
+    return "\(safeTitle).\(ext)"
+  }
+
+  static func format(for url: URL, mimeType: String?) -> String {
+    let mime = mimeType?.lowercased() ?? ""
+    let ext = url.pathExtension.lowercased()
+    if ext == "m3u8" || mime.contains("mpegurl") {
+      return "HLS"
+    }
+    if ext == "m4v" { return "M4V" }
+    if ext == "mov" { return "MOV" }
+    if ext == "webm" || mime.contains("webm") { return "WEBM" }
+    return "MP4"
   }
 }
 
-actor SmartMediaParser {
-  private let mediaExtensions = ["m3u8", "mp4", "m4v", "mov", "webm"]
+struct HLSVariant: Equatable {
+  let url: URL
+  let bandwidth: Int
+  let width: Int
+  let height: Int
+}
 
-  func parse(_ pageURL: URL) async throws -> [ParsedMedia] {
-    if mediaExtensions.contains(pageURL.pathExtension.lowercased()) {
-      return [ParsedMedia(
-        url: pageURL,
-        title: pageURL.deletingPathExtension().lastPathComponent
-      )]
+enum HLSManifestParser {
+  static func variants(in manifest: String, baseURL: URL) -> [HLSVariant] {
+    let lines = manifest.components(separatedBy: .newlines)
+    var results: [HLSVariant] = []
+    var index = 0
+    while index < lines.count {
+      let line = lines[index].trimmingCharacters(in: .whitespaces)
+      guard line.hasPrefix("#EXT-X-STREAM-INF:") else {
+        index += 1
+        continue
+      }
+      let attributes = parseAttributes(
+        String(line.dropFirst("#EXT-X-STREAM-INF:".count))
+      )
+      var next = index + 1
+      while next < lines.count {
+        let candidate = lines[next].trimmingCharacters(in: .whitespaces)
+        if !candidate.isEmpty && !candidate.hasPrefix("#") {
+          let dimensions = attributes["RESOLUTION"]?
+            .split(separator: "x")
+            .compactMap { Int($0) } ?? []
+          if let url = URL(string: candidate, relativeTo: baseURL)?.absoluteURL {
+            results.append(HLSVariant(
+              url: url,
+              bandwidth: Int(attributes["BANDWIDTH"] ?? "") ?? 0,
+              width: dimensions.first ?? 0,
+              height: dimensions.count > 1 ? dimensions[1] : 0
+            ))
+          }
+          break
+        }
+        next += 1
+      }
+      index = next + 1
+    }
+    return results
+  }
+
+  static func duration(in manifest: String) -> TimeInterval? {
+    let values = manifest
+      .components(separatedBy: .newlines)
+      .compactMap { line -> Double? in
+        guard line.hasPrefix("#EXTINF:") else { return nil }
+        return Double(
+          line
+            .dropFirst("#EXTINF:".count)
+            .split(separator: ",", maxSplits: 1)
+            .first ?? ""
+        )
+      }
+    guard !values.isEmpty else { return nil }
+    return values.reduce(0, +)
+  }
+
+  private static func parseAttributes(_ value: String) -> [String: String] {
+    var result: [String: String] = [:]
+    var current = ""
+    var isQuoted = false
+    var parts: [String] = []
+    for character in value {
+      if character == "\"" { isQuoted.toggle() }
+      if character == "," && !isQuoted {
+        parts.append(current)
+        current = ""
+      } else {
+        current.append(character)
+      }
+    }
+    if !current.isEmpty { parts.append(current) }
+    for part in parts {
+      let pair = part.split(separator: "=", maxSplits: 1).map(String.init)
+      if pair.count == 2 {
+        result[pair[0]] = pair[1].trimmingCharacters(
+          in: CharacterSet(charactersIn: "\"")
+        )
+      }
+    }
+    return result
+  }
+}
+
+@MainActor
+final class VideoResourceStore {
+  private(set) var resources: [DetectedMediaResource] = []
+  var onChange: (([DetectedMediaResource]) -> Void)?
+
+  private var knownURLs = Set<String>()
+  private var enrichmentTasks: [String: Task<Void, Never>] = [:]
+
+  deinit {
+    enrichmentTasks.values.forEach { $0.cancel() }
+  }
+
+  func reset() {
+    enrichmentTasks.values.forEach { $0.cancel() }
+    enrichmentTasks.removeAll()
+    knownURLs.removeAll()
+    resources.removeAll()
+    onChange?(resources)
+  }
+
+  func receive(
+    payload: [String: Any],
+    fallbackPageURL: URL?,
+    fallbackTitle: String
+  ) {
+    guard let rawURL = payload["url"] as? String,
+          let url = URL(string: rawURL, relativeTo: fallbackPageURL)?.absoluteURL,
+          Self.isMediaCandidate(
+            url: url,
+            mimeType: payload["type"] as? String,
+            assertedByPlayer: payload["player"] as? Bool == true
+          ),
+          knownURLs.insert(Self.canonicalKey(for: url)).inserted
+    else {
+      return
     }
 
-    var request = URLRequest(url: pageURL)
-    request.timeoutInterval = 20
+    let width = Self.intValue(payload["width"])
+    let height = Self.intValue(payload["height"])
+    let duration = Self.doubleValue(payload["duration"])
+    let title = (payload["title"] as? String)?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let poster = (payload["poster"] as? String).flatMap {
+      URL(string: $0, relativeTo: fallbackPageURL)?.absoluteURL
+    }
+    let resource = DetectedMediaResource(
+      url: url,
+      title: title?.isEmpty == false ? title! : fallbackTitle,
+      mimeType: payload["type"] as? String,
+      quality: Self.quality(height: height, url: url),
+      duration: duration > 0 ? duration : nil,
+      posterURL: poster,
+      pageURL: fallbackPageURL
+    )
+    resources.append(resource)
+    sortAndPublish()
+    enrich(resource)
+
+    if width > 0 && height > 0 {
+      update(url: url) { $0.quality = "\(height)p" }
+    }
+  }
+
+  private func enrich(_ resource: DetectedMediaResource) {
+    let key = Self.canonicalKey(for: resource.url)
+    enrichmentTasks[key]?.cancel()
+    enrichmentTasks[key] = Task { [weak self] in
+      guard let self else { return }
+      let result = await VideoResourceMetadataService.shared.inspect(resource)
+      guard !Task.isCancelled else { return }
+      self.update(url: resource.url) {
+        $0.mimeType = result.mimeType ?? $0.mimeType
+        $0.expectedSize = result.expectedSize > 0
+          ? result.expectedSize
+          : $0.expectedSize
+        $0.duration = result.duration ?? $0.duration
+      }
+      for variant in result.variants {
+        let variantKey = Self.canonicalKey(for: variant.url)
+        guard self.knownURLs.insert(variantKey).inserted else { continue }
+        self.resources.append(DetectedMediaResource(
+          url: variant.url,
+          title: resource.title,
+          mimeType: "application/vnd.apple.mpegurl",
+          quality: variant.height > 0 ? "\(variant.height)p" : "自动",
+          format: "HLS",
+          expectedSize: result.duration.map {
+            Int64((Double(variant.bandwidth) / 8) * $0)
+          } ?? 0,
+          bitrate: variant.bandwidth,
+          duration: result.duration ?? resource.duration,
+          posterURL: resource.posterURL,
+          pageURL: resource.pageURL
+        ))
+      }
+      self.sortAndPublish()
+      self.enrichmentTasks[key] = nil
+    }
+  }
+
+  private func update(
+    url: URL,
+    change: (inout DetectedMediaResource) -> Void
+  ) {
+    guard let index = resources.firstIndex(where: { $0.url == url }) else {
+      return
+    }
+    change(&resources[index])
+    sortAndPublish()
+  }
+
+  private func sortAndPublish() {
+    resources.sort {
+      let left = Self.qualityNumber($0.quality)
+      let right = Self.qualityNumber($1.quality)
+      if left != right { return left > right }
+      if $0.format != $1.format { return $0.format < $1.format }
+      return $0.url.absoluteString < $1.url.absoluteString
+    }
+    onChange?(resources)
+  }
+
+  private static func isMediaCandidate(
+    url: URL,
+    mimeType: String?,
+    assertedByPlayer: Bool
+  ) -> Bool {
+    guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+      return false
+    }
+    let ext = url.pathExtension.lowercased()
+    if ["mp4", "m4v", "mov", "webm", "m3u8"].contains(ext) {
+      return true
+    }
+    let mime = mimeType?.lowercased() ?? ""
+    return assertedByPlayer
+      || mime.hasPrefix("video/")
+      || mime.contains("mpegurl")
+      || mime.contains("x-mpegurl")
+  }
+
+  private static func canonicalKey(for url: URL) -> String {
+    var components = URLComponents(
+      url: url,
+      resolvingAgainstBaseURL: false
+    )
+    components?.fragment = nil
+    return components?.string ?? url.absoluteString
+  }
+
+  private static func quality(height: Int, url: URL) -> String {
+    if height > 0 { return "\(height)p" }
+    let value = url.absoluteString.lowercased()
+    for quality in [4320, 2160, 1440, 1080, 720, 540, 480, 360, 240] {
+      if value.range(
+        of: #"(^|[^0-9])\#(quality)p?([^0-9]|$)"#,
+        options: .regularExpression
+      ) != nil {
+        return "\(quality)p"
+      }
+    }
+    return "自动"
+  }
+
+  private static func qualityNumber(_ value: String) -> Int {
+    Int(value.filter(\.isNumber)) ?? 0
+  }
+
+  private static func intValue(_ value: Any?) -> Int {
+    if let value = value as? Int { return value }
+    if let value = value as? Double { return Int(value) }
+    if let value = value as? String { return Int(value) ?? 0 }
+    return 0
+  }
+
+  private static func doubleValue(_ value: Any?) -> Double {
+    if let value = value as? Double { return value }
+    if let value = value as? Int { return Double(value) }
+    if let value = value as? String { return Double(value) ?? 0 }
+    return 0
+  }
+}
+
+actor VideoResourceMetadataService {
+  static let shared = VideoResourceMetadataService()
+
+  struct Result {
+    var mimeType: String?
+    var expectedSize: Int64 = 0
+    var duration: TimeInterval?
+    var variants: [HLSVariant] = []
+  }
+
+  func inspect(_ resource: DetectedMediaResource) async -> Result {
+    var result = Result(duration: resource.duration)
+    var request = URLRequest(url: resource.url)
+    request.httpMethod = resource.isHLS ? "GET" : "HEAD"
+    request.timeoutInterval = 12
     request.setValue(
       "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
         + "AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
       forHTTPHeaderField: "User-Agent"
     )
-    request.setValue(
-      "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      forHTTPHeaderField: "Accept"
+    if let pageURL = resource.pageURL {
+      request.setValue(pageURL.absoluteString, forHTTPHeaderField: "Referer")
+    }
+    do {
+      let (data, response) = try await URLSession.shared.data(for: request)
+      result.mimeType = response.mimeType
+      result.expectedSize = max(0, response.expectedContentLength)
+      if resource.isHLS,
+         let manifest = String(data: data, encoding: .utf8) {
+        result.variants = HLSManifestParser.variants(
+          in: manifest,
+          baseURL: response.url ?? resource.url
+        )
+        result.duration = HLSManifestParser.duration(in: manifest)
+          ?? result.duration
+      }
+    } catch {
+      return result
+    }
+    return result
+  }
+}
+
+final class VideoDetectionBridge: NSObject, WKScriptMessageHandler {
+  static let messageName = "vidSnifferResource"
+
+  private weak var store: VideoResourceStore?
+  private let pageContext: () -> (URL?, String)
+
+  init(
+    store: VideoResourceStore,
+    pageContext: @escaping () -> (URL?, String)
+  ) {
+    self.store = store
+    self.pageContext = pageContext
+  }
+
+  func userContentController(
+    _ userContentController: WKUserContentController,
+    didReceive message: WKScriptMessage
+  ) {
+    guard message.name == Self.messageName,
+          let payload = message.body as? [String: Any]
+    else {
+      return
+    }
+    let context = pageContext()
+    Task { @MainActor [weak store] in
+      store?.receive(
+        payload: payload,
+        fallbackPageURL: context.0,
+        fallbackTitle: context.1
+      )
+    }
+  }
+
+  static var userScript: WKUserScript {
+    WKUserScript(
+      source: scriptSource,
+      injectionTime: .atDocumentStart,
+      forMainFrameOnly: false
     )
-    let (data, response) = try await URLSession.shared.data(for: request)
-    guard let http = response as? HTTPURLResponse,
-          (200..<400).contains(http.statusCode)
-    else {
-      throw URLError(.badServerResponse)
-    }
-    let html = String(decoding: data, as: UTF8.self)
-      .replacingOccurrences(of: "\\/", with: "/")
-      .replacingOccurrences(of: "&amp;", with: "&")
-      .replacingOccurrences(of: "\\u0026", with: "&")
-    let title = pageTitle(in: html) ?? pageURL.host ?? "视频"
-    return candidates(in: html, relativeTo: pageURL).map {
-      ParsedMedia(url: $0, title: title)
-    }
   }
 
-  private func candidates(in html: String, relativeTo pageURL: URL) -> [URL] {
-    let pattern =
-      #"(?:https?:)?(?:\\?/)?[^"'<>\s]+?\.(?:m3u8|mp4|m4v|mov|webm)(?:\?[^"'<>\s]*)?"#
-    guard let expression = try? NSRegularExpression(
-      pattern: pattern,
-      options: [.caseInsensitive]
-    ) else {
-      return []
+  private static let scriptSource = #"""
+  (() => {
+    if (window.__vidSnifferInstalled) return;
+    window.__vidSnifferInstalled = true;
+    const sent = new Set();
+    const absolute = value => {
+      try { return new URL(value, document.baseURI).href; } catch (_) { return ""; }
+    };
+    const report = (value, type = "", element = null) => {
+      const url = absolute(value);
+      if (!url || sent.has(url) || !/^https?:/i.test(url)) return;
+      const lower = url.toLowerCase();
+      const mediaType = String(type || "").toLowerCase();
+      const video = element && element.tagName === "VIDEO"
+        ? element
+        : (element && element.closest ? element.closest("video") : null);
+      if (!/\.(m3u8|mp4|m4v|mov|webm)(?:$|[?#])/i.test(lower)
+          && !mediaType.startsWith("video/")
+          && !mediaType.includes("mpegurl")
+          && !video) return;
+      sent.add(url);
+      window.webkit.messageHandlers.vidSnifferResource.postMessage({
+        url,
+        type: type || (element && element.type) || "",
+        title: document.title || location.hostname,
+        duration: video && Number.isFinite(video.duration) ? video.duration : 0,
+        width: video ? (video.videoWidth || 0) : 0,
+        height: video ? (video.videoHeight || 0) : 0,
+        poster: video ? absolute(video.poster || "") : "",
+        player: Boolean(video)
+      });
+    };
+    const scan = root => {
+      if (!root || !root.querySelectorAll) return;
+      root.querySelectorAll("video, video source").forEach(node => {
+        report(node.currentSrc || node.src || node.getAttribute("src"), node.type, node);
+      });
+      root.querySelectorAll(
+        "meta[property='og:video'], meta[property='og:video:url'], "
+          + "meta[name='twitter:player:stream'], link[type^='video/'], "
+          + "a[href*='.m3u8'], a[href*='.mp4']"
+      ).forEach(node => {
+        report(node.content || node.href || node.getAttribute("content"));
+      });
+    };
+    const originalFetch = window.fetch;
+    if (originalFetch) {
+      window.fetch = function(input, init) {
+        const value = typeof input === "string" ? input : input && input.url;
+        report(value);
+        return originalFetch.apply(this, arguments).then(response => {
+          report(response.url, response.headers && response.headers.get("content-type"));
+          return response;
+        });
+      };
     }
-    let range = NSRange(html.startIndex..., in: html)
-    var seen = Set<String>()
-    return expression.matches(in: html, range: range).compactMap { match in
-      guard let valueRange = Range(match.range, in: html) else { return nil }
-      var value = String(html[valueRange])
-        .replacingOccurrences(of: "\\", with: "")
-        .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-      if value.hasPrefix("//") {
-        value = "\(pageURL.scheme ?? "https"):\(value)"
+    const originalOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url) {
+      report(url);
+      this.addEventListener("load", () => {
+        report(this.responseURL, this.getResponseHeader("content-type"));
+      }, { once: true });
+      return originalOpen.apply(this, arguments);
+    };
+    if (window.PerformanceObserver) {
+      try {
+        new PerformanceObserver(list => {
+          list.getEntries().forEach(entry => report(entry.name));
+        }).observe({ type: "resource", buffered: true });
+      } catch (_) {}
+    }
+    const observer = new MutationObserver(records => {
+      records.forEach(record => {
+        record.addedNodes.forEach(node => {
+          if (node.nodeType === 1) {
+            if (node.matches && node.matches("video, source")) {
+              report(node.currentSrc || node.src || node.getAttribute("src"), node.type, node);
+            }
+            scan(node);
+          }
+        });
+        if (record.type === "attributes") {
+          const node = record.target;
+          report(node.currentSrc || node.src || node.getAttribute("src"), node.type, node);
+        }
+      });
+    });
+    const attachObserver = () => {
+      if (!document.documentElement) return;
+      observer.observe(document.documentElement, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ["src", "type"]
+      });
+    };
+    const scanInlineConfiguration = () => {
+      const scripts = Array.from(document.scripts);
+      let index = 0;
+      let scanned = 0;
+      const next = deadline => {
+        while (index < scripts.length
+               && scanned < 1500000
+               && (!deadline || deadline.timeRemaining() > 2)) {
+          const text = scripts[index++].textContent || "";
+          scanned += text.length;
+          const normalized = text
+            .replace(/\\\//g, "/")
+            .replace(/\\u0026/gi, "&");
+          const matches = normalized.match(
+            /(?:https?:)?\/\/[^"'<>\\s]+?\.(?:m3u8|mp4|m4v|mov|webm)(?:\?[^"'<>\\s]*)?/gi
+          ) || [];
+          matches.forEach(report);
+        }
+        if (index < scripts.length && scanned < 1500000) {
+          if (window.requestIdleCallback) {
+            requestIdleCallback(next, { timeout: 500 });
+          } else {
+            setTimeout(() => next(null), 0);
+          }
+        }
+      };
+      if (window.requestIdleCallback) {
+        requestIdleCallback(next, { timeout: 500 });
+      } else {
+        setTimeout(() => next(null), 0);
       }
-      guard let url = URL(string: value, relativeTo: pageURL)?.absoluteURL,
-            ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
-            seen.insert(url.absoluteString).inserted
-      else {
-        return nil
-      }
-      return url
-    }
-  }
-
-  private func pageTitle(in html: String) -> String? {
-    guard let expression = try? NSRegularExpression(
-      pattern: #"<title[^>]*>(.*?)</title>"#,
-      options: [.caseInsensitive, .dotMatchesLineSeparators]
-    ),
-    let match = expression.firstMatch(
-      in: html,
-      range: NSRange(html.startIndex..., in: html)
-    ),
-    let range = Range(match.range(at: 1), in: html)
-    else {
-      return nil
-    }
-    return String(html[range])
-      .replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-  }
+    };
+    const finishScan = () => {
+      attachObserver();
+      scan(document);
+      scanInlineConfiguration();
+      document.querySelectorAll("video").forEach(video => {
+        ["loadedmetadata", "durationchange"].forEach(name => {
+          video.addEventListener(name, () => {
+            report(video.currentSrc || video.src, video.type, video);
+            scan(video.parentElement || document);
+          }, { passive: true });
+        });
+      });
+    };
+    if (document.documentElement) attachObserver();
+    document.addEventListener("DOMContentLoaded", finishScan, { once: true });
+    window.addEventListener("load", finishScan, { once: true });
+  })();
+  """#
 }
 
 @MainActor
-final class SmartParseViewController: UIViewController {
-  private let parser = SmartMediaParser()
-  private let input = UITextField()
-  private let parseButton = UIButton(type: .system)
-  private let activity = UIActivityIndicatorView(style: .medium)
+final class VideoResourceSheetViewController: UIViewController {
+  var onDownload: ((DetectedMediaResource) -> Void)?
+  var onDownloadAll: (([DetectedMediaResource]) -> Void)?
+  var onPreview: ((DetectedMediaResource) -> Void)?
+
   private let tableView = UITableView(frame: .zero, style: .insetGrouped)
-  private let stateLabel = UILabel()
-  private var results: [ParsedMedia] = []
-  private var parseTask: Task<Void, Never>?
+  private var resources: [DetectedMediaResource]
+
+  init(resources: [DetectedMediaResource]) {
+    self.resources = resources
+    super.init(nibName: nil, bundle: nil)
+  }
+
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
 
   override func viewDidLoad() {
     super.viewDidLoad()
-    title = "智能解析"
-    navigationItem.largeTitleDisplayMode = .always
+    title = "检测到 \(resources.count) 个视频资源"
     view.backgroundColor = .systemGroupedBackground
-    configureView()
-  }
-
-  deinit {
-    parseTask?.cancel()
-  }
-
-  private func configureView() {
-    let card = UIVisualEffectView(
-      effect: UIBlurEffect(style: .systemChromeMaterial)
+    navigationItem.leftBarButtonItem = UIBarButtonItem(
+      systemItem: .close,
+      primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) }
     )
-    card.translatesAutoresizingMaskIntoConstraints = false
-    card.layer.cornerRadius = 20
-    card.layer.cornerCurve = .continuous
-    card.clipsToBounds = true
-
-    input.translatesAutoresizingMaskIntoConstraints = false
-    input.placeholder = "粘贴网页或媒体网址"
-    input.keyboardType = .URL
-    input.autocapitalizationType = .none
-    input.autocorrectionType = .no
-    input.returnKeyType = .search
-    input.clearButtonMode = .whileEditing
-    input.accessibilityIdentifier = "parser.urlField"
-    input.addAction(UIAction { [weak self] _ in self?.startParsing() },
-                    for: .editingDidEndOnExit)
-
-    var configuration = UIButton.Configuration.filled()
-    configuration.title = "解析"
-    configuration.image = UIImage(systemName: "sparkles")
-    configuration.imagePadding = 6
-    configuration.cornerStyle = .capsule
-    parseButton.configuration = configuration
-    parseButton.translatesAutoresizingMaskIntoConstraints = false
-    parseButton.accessibilityIdentifier = "parser.parseButton"
-    parseButton.addAction(UIAction { [weak self] _ in
-      self?.startParsing()
-    }, for: .touchUpInside)
-
-    activity.translatesAutoresizingMaskIntoConstraints = false
-    activity.hidesWhenStopped = true
+    navigationItem.rightBarButtonItem = UIBarButtonItem(
+      title: "全部下载",
+      primaryAction: UIAction { [weak self] _ in
+        guard let self else { return }
+        self.onDownloadAll?(self.resources)
+      }
+    )
 
     tableView.translatesAutoresizingMaskIntoConstraints = false
+    tableView.backgroundColor = .clear
     tableView.dataSource = self
     tableView.delegate = self
-    tableView.backgroundColor = .clear
-    tableView.keyboardDismissMode = .interactive
-
-    stateLabel.translatesAutoresizingMaskIntoConstraints = false
-    stateLabel.text = "粘贴链接后解析可下载媒体"
-    stateLabel.textColor = .secondaryLabel
-    stateLabel.font = .preferredFont(forTextStyle: .body)
-    stateLabel.textAlignment = .center
-    stateLabel.numberOfLines = 0
-
-    view.addSubview(card)
-    card.contentView.addSubview(input)
-    card.contentView.addSubview(parseButton)
-    card.contentView.addSubview(activity)
+    tableView.rowHeight = 104
+    tableView.accessibilityIdentifier = "browser.detectedResources"
     view.addSubview(tableView)
-    view.addSubview(stateLabel)
-
     NSLayoutConstraint.activate([
-      card.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-      card.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-      card.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-      card.heightAnchor.constraint(equalToConstant: 66),
-      input.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor, constant: 16),
-      input.centerYAnchor.constraint(equalTo: card.contentView.centerYAnchor),
-      input.trailingAnchor.constraint(equalTo: parseButton.leadingAnchor, constant: -10),
-      parseButton.trailingAnchor.constraint(equalTo: card.contentView.trailingAnchor, constant: -10),
-      parseButton.centerYAnchor.constraint(equalTo: card.contentView.centerYAnchor),
-      activity.centerXAnchor.constraint(equalTo: parseButton.centerXAnchor),
-      activity.centerYAnchor.constraint(equalTo: parseButton.centerYAnchor),
-      tableView.topAnchor.constraint(equalTo: card.bottomAnchor, constant: 8),
+      tableView.topAnchor.constraint(equalTo: view.topAnchor),
       tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-      stateLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-      stateLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-      stateLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 30),
-      stateLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -30),
     ])
   }
 
-  private func startParsing() {
-    guard let raw = input.text,
-          let url = BrowserURLResolver.resolve(raw)
-    else {
-      showMessage("请输入有效的网址")
-      return
-    }
-    view.endEditing(true)
-    parseTask?.cancel()
-    results = []
-    tableView.reloadData()
-    stateLabel.text = "正在分析网页…"
-    stateLabel.isHidden = false
-    parseButton.configuration?.title = nil
-    parseButton.configuration?.image = nil
-    parseButton.isEnabled = false
-    activity.startAnimating()
-
-    parseTask = Task { [weak self] in
-      guard let self else { return }
-      do {
-        let values = try await parser.parse(url)
-        guard !Task.isCancelled else { return }
-        results = values
-        tableView.reloadData()
-        stateLabel.text = values.isEmpty
-          ? "当前页面未发现可直接下载的媒体"
-          : nil
-        stateLabel.isHidden = !values.isEmpty
-      } catch {
-        guard !Task.isCancelled else { return }
-        stateLabel.text = "解析失败，请检查网络或在浏览器中打开网页"
-        stateLabel.isHidden = false
-      }
-      finishLoading()
-    }
-  }
-
-  private func finishLoading() {
-    activity.stopAnimating()
-    parseButton.configuration?.title = "解析"
-    parseButton.configuration?.image = UIImage(systemName: "sparkles")
-    parseButton.isEnabled = true
-  }
-
-  private func showMessage(_ message: String) {
-    let alert = UIAlertController(title: "无法解析", message: message, preferredStyle: .alert)
-    alert.addAction(UIAlertAction(title: "好", style: .default))
-    present(alert, animated: true)
-  }
-
-  private func download(_ media: ParsedMedia) {
-    let fallback = media.url.deletingPathExtension().lastPathComponent
-    let name = fallback.isEmpty ? media.title : fallback
-    let ext = media.url.pathExtension.isEmpty ? "mp4" : media.url.pathExtension
-    Task {
-      _ = await DownloadManager.shared.enqueue(
-        url: media.url,
-        filename: "\(DownloadDestinationManager.sanitizedFilename(name)).\(ext)"
-      )
-      tabBarController?.selectedIndex = 2
-    }
+  private func contextMenu(for resource: DetectedMediaResource) -> UIMenu {
+    UIMenu(children: [
+      UIAction(
+        title: "在线播放",
+        image: UIImage(systemName: "play.circle")
+      ) { [weak self] _ in self?.onPreview?(resource) },
+      UIAction(
+        title: "复制链接",
+        image: UIImage(systemName: "doc.on.doc")
+      ) { _ in UIPasteboard.general.url = resource.url },
+      UIAction(
+        title: "分享",
+        image: UIImage(systemName: "square.and.arrow.up")
+      ) { [weak self] _ in
+        let controller = UIActivityViewController(
+          activityItems: [resource.url],
+          applicationActivities: nil
+        )
+        self?.present(controller, animated: true)
+      },
+      UIAction(
+        title: "下载",
+        image: UIImage(systemName: "arrow.down.circle")
+      ) { [weak self] _ in self?.onDownload?(resource) },
+    ])
   }
 }
 
-extension SmartParseViewController: UITableViewDataSource, UITableViewDelegate {
-  func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-    results.count
+extension VideoResourceSheetViewController:
+  UITableViewDataSource,
+  UITableViewDelegate
+{
+  func tableView(
+    _ tableView: UITableView,
+    numberOfRowsInSection section: Int
+  ) -> Int {
+    resources.count
   }
 
   func tableView(
     _ tableView: UITableView,
     cellForRowAt indexPath: IndexPath
   ) -> UITableViewCell {
-    let identifier = "ParsedMediaCell"
+    let identifier = "DetectedMediaCell"
     let cell = tableView.dequeueReusableCell(withIdentifier: identifier)
       ?? UITableViewCell(style: .subtitle, reuseIdentifier: identifier)
-    let item = results[indexPath.row]
-    cell.textLabel?.text = item.title
-    cell.textLabel?.numberOfLines = 2
-    cell.detailTextLabel?.text = "\(item.format) · \(item.url.host ?? "")"
-    cell.detailTextLabel?.textColor = .secondaryLabel
-    cell.imageView?.image = UIImage(systemName: "play.rectangle.fill")
-    cell.imageView?.tintColor = .systemBlue
-    cell.accessoryType = .disclosureIndicator
+    let resource = resources[indexPath.row]
+    var content = cell.defaultContentConfiguration()
+    content.text = resource.title
+    content.textProperties.numberOfLines = 2
+    content.secondaryText = metadataText(for: resource)
+    content.secondaryTextProperties.color = .secondaryLabel
+    content.image = UIImage(systemName: resource.isHLS
+      ? "dot.radiowaves.left.and.right"
+      : "play.rectangle.fill")
+    content.imageProperties.tintColor = .systemBlue
+    cell.contentConfiguration = content
+
+    var buttonConfiguration = UIButton.Configuration.tinted()
+    buttonConfiguration.image = UIImage(systemName: "arrow.down")
+    buttonConfiguration.cornerStyle = .capsule
+    let button = UIButton(configuration: buttonConfiguration)
+    button.accessibilityLabel = "下载 \(resource.quality)"
+    button.addAction(UIAction { [weak self] _ in
+      self?.onDownload?(resource)
+    }, for: .touchUpInside)
+    cell.accessoryView = button
     return cell
   }
 
   func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
     tableView.deselectRow(at: indexPath, animated: true)
-    download(results[indexPath.row])
+    onPreview?(resources[indexPath.row])
+  }
+
+  func tableView(
+    _ tableView: UITableView,
+    contextMenuConfigurationForRowAt indexPath: IndexPath,
+    point: CGPoint
+  ) -> UIContextMenuConfiguration? {
+    let resource = resources[indexPath.row]
+    return UIContextMenuConfiguration(
+      identifier: resource.id.uuidString as NSString,
+      previewProvider: nil
+    ) { [weak self] _ in
+      self?.contextMenu(for: resource)
+    }
+  }
+
+  private func metadataText(for resource: DetectedMediaResource) -> String {
+    var values = [resource.quality, resource.format]
+    if resource.expectedSize > 0 {
+      values.append(ByteCountFormatter.string(
+        fromByteCount: resource.expectedSize,
+        countStyle: .file
+      ))
+    } else {
+      values.append("大小未知")
+    }
+    if resource.bitrate > 0 {
+      values.append("\(resource.bitrate / 1_000) kbps")
+    }
+    if let duration = resource.duration, duration.isFinite, duration > 0 {
+      let formatter = DateComponentsFormatter()
+      formatter.allowedUnits = duration >= 3600
+        ? [.hour, .minute, .second]
+        : [.minute, .second]
+      formatter.zeroFormattingBehavior = .pad
+      values.append(formatter.string(from: duration) ?? "")
+    }
+    return values.filter { !$0.isEmpty }.joined(separator: " · ")
   }
 }

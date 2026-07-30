@@ -31,6 +31,8 @@ final class BrowserTab: Identifiable {
   var screenshot: UIImage?
   var backList: [URL]
   var forwardList: [URL]
+  let videoResources = VideoResourceStore()
+  var videoDetectionBridge: VideoDetectionBridge?
 
   init(
     id: UUID = UUID(),

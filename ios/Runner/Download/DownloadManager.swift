@@ -41,7 +41,8 @@ final class DownloadManager {
     filename: String,
     mimeType: String? = nil,
     expectedSize: Int64 = 0,
-    destinationFolderID: UUID? = nil
+    destinationFolderID: UUID? = nil,
+    requestHeaders: [String: String]? = nil
   ) async -> DownloadTaskModel? {
     await ensureReady()
     if let duplicate = tasks.first(where: {
@@ -55,7 +56,8 @@ final class DownloadManager {
       filename: DownloadDestinationManager.sanitizedFilename(filename),
       mimeType: mimeType,
       expectedSize: max(0, expectedSize),
-      destinationFolderID: destinationFolderID
+      destinationFolderID: destinationFolderID,
+      requestHeaders: requestHeaders
     )
     tasks.insert(task, at: 0)
     await persist(task)
@@ -284,6 +286,9 @@ final class DownloadManager {
     var request = URLRequest(url: tasks[index].url)
     request.allowsCellularAccess = !preferences.wifiOnly
     request.timeoutInterval = 60
+    tasks[index].requestHeaders?.forEach {
+      request.setValue($0.value, forHTTPHeaderField: $0.key)
+    }
     let identifier = service.start(
       id: id,
       request: request,

@@ -14,33 +14,26 @@ final class BrowserUITests: XCTestCase {
     XCTAssertTrue(
       app.textFields["browser.addressField"].waitForExistence(timeout: 5)
     )
-    XCTAssertTrue(app.buttons["browser.tabCount"].exists)
+    XCTAssertTrue(app.buttons["browser.videoDetect"].exists)
+    XCTAssertTrue(app.buttons["browser.user"].exists)
     XCTAssertTrue(app.buttons["browser.more"].exists)
     XCTAssertTrue(app.buttons["browser.tabs"].exists)
-    XCTAssertTrue(app.tabBars.buttons["智能解析"].exists)
-    XCTAssertTrue(app.tabBars.buttons["下载中"].exists)
-    XCTAssertTrue(app.tabBars.buttons["文件"].exists)
+    XCTAssertTrue(app.buttons["browser.back"].exists)
+    XCTAssertTrue(app.buttons["browser.forward"].exists)
+    XCTAssertEqual(app.tabBars.count, 0)
   }
 
-  func testParserHasPrimaryEntrance() {
-    let parser = app.tabBars.buttons["智能解析"]
-    XCTAssertTrue(parser.waitForExistence(timeout: 5))
-    parser.tap()
-    XCTAssertTrue(app.textFields["parser.urlField"].waitForExistence(timeout: 5))
-    XCTAssertTrue(app.buttons["parser.parseButton"].exists)
-  }
-
-  func testFileManagerHasPrimaryEntrance() {
-    let files = app.tabBars.buttons["文件"]
-    XCTAssertTrue(files.waitForExistence(timeout: 5))
-    files.tap()
-    XCTAssertTrue(files.isSelected)
+  func testVideoDetectionIsIntegratedIntoBrowserChrome() {
+    let detector = app.buttons["browser.videoDetect"]
+    XCTAssertTrue(detector.waitForExistence(timeout: 5))
+    detector.tap()
+    XCTAssertTrue(app.alerts["暂未检测到视频"].waitForExistence(timeout: 2))
   }
 
   func testOpenTabSwitcherAndCreateTab() {
-    let tabCount = app.buttons["browser.tabCount"]
-    XCTAssertTrue(tabCount.waitForExistence(timeout: 5))
-    tabCount.tap()
+    let tabs = app.buttons["browser.tabs"]
+    XCTAssertTrue(tabs.waitForExistence(timeout: 5))
+    tabs.tap()
 
     let navigationBar = app.navigationBars["标签页"]
     XCTAssertTrue(navigationBar.waitForExistence(timeout: 5))

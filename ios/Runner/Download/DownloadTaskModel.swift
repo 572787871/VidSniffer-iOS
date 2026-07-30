@@ -49,6 +49,7 @@ struct DownloadTaskModel: Codable, Identifiable, Equatable {
   var resumeData: Data?
   var errorMessage: String?
   var sourceDomain: String
+  var requestHeaders: [String: String]?
   var state: DownloadTaskState
   var localRelativePath: String?
   var sessionTaskIdentifier: Int?
@@ -70,6 +71,7 @@ struct DownloadTaskModel: Codable, Identifiable, Equatable {
     resumeData: Data? = nil,
     errorMessage: String? = nil,
     sourceDomain: String? = nil,
+    requestHeaders: [String: String]? = nil,
     state: DownloadTaskState = .waiting,
     localRelativePath: String? = nil,
     sessionTaskIdentifier: Int? = nil
@@ -90,6 +92,7 @@ struct DownloadTaskModel: Codable, Identifiable, Equatable {
     self.resumeData = resumeData
     self.errorMessage = errorMessage
     self.sourceDomain = sourceDomain ?? url.host ?? "未知来源"
+    self.requestHeaders = requestHeaders
     self.state = state
     self.localRelativePath = localRelativePath
     self.sessionTaskIdentifier = sessionTaskIdentifier
