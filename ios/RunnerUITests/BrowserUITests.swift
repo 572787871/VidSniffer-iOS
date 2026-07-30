@@ -22,15 +22,17 @@ final class BrowserUITests: XCTestCase {
     XCTAssertTrue(app.tabBars.buttons["文件"].exists)
   }
 
-  func testParserAndFileManagerHavePrimaryEntrances() {
+  func testParserHasPrimaryEntrance() {
     let parser = app.tabBars.buttons["智能解析"]
     XCTAssertTrue(parser.waitForExistence(timeout: 5))
     parser.tap()
     XCTAssertTrue(app.textFields["parser.urlField"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.buttons["parser.parseButton"].exists)
+  }
 
+  func testFileManagerHasPrimaryEntrance() {
     let files = app.tabBars.buttons["文件"]
-    XCTAssertTrue(files.exists)
+    XCTAssertTrue(files.waitForExistence(timeout: 5))
     files.tap()
     XCTAssertTrue(files.isSelected)
   }
